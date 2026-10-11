@@ -1,0 +1,19 @@
+name: checks
+on: [push, pull_request]
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    env:
+      UV_PROJECT_ENVIRONMENT: .venv-x86_64
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.17'
+          python-version: '3.14'
+      - run: uv sync --locked
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
+      - run: uv run --locked pyright --warnings
+      - run: uv run --locked pytest -q -m 'not cuda'
