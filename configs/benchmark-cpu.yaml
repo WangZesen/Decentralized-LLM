@@ -1,0 +1,13 @@
+model: {vocab_size: 1024, layers: 2, width: 64, heads: 2, ffn_width: 176, context_length: 128}
+data:
+  dataset: synthetic
+  revision: synthetic-v1
+  tokenizer: synthetic
+  tokenizer_revision: synthetic-v1
+  cache_dir: data/benchmark-synthetic
+  shard_tokens: 1048576
+  reader_threads: 4
+  prefetch_batches: 8
+training: {batch_tokens: 4096, micro_batch_size: 8}
+runtime: {device: cpu, amp: false, compile: false, cpu_threads: 4, output_dir: runs/benchmark-cpu}
+distributed: {backend: gloo}

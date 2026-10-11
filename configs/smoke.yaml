@@ -1,0 +1,30 @@
+# Layer after base.yaml; suitable for a small prepared C4 cache on shared storage.
+model:
+  layers: 2
+  width: 64
+  heads: 2
+  ffn_width: 176
+  context_length: 64
+data:
+  cache_dir: data/c4-smoke
+  prepare_train_tokens: 131072
+  prepare_validation_tokens: 8192
+  shard_tokens: 65536
+  prepare_workers: 2
+training:
+  batch_tokens: 4096
+  micro_batch_size: 8
+  tokens_per_parameters: 0.02
+  epoch_tokens_per_parameters: 0.01
+  checkpoint_policy: interval
+  checkpoint_epochs: [1]
+  log_every: 1
+evaluation:
+  subset_blocks: 16
+  batch_size: 8
+lr_schedule:
+  name: cosine
+  warmup_steps: 1
+runtime:
+  compile: false
+  output_dir: runs/smoke-ddp

@@ -1,0 +1,3 @@
+launcher: {kind: local}
+distributed: {mode: ddp, nodes: 1, gpus_per_node: 1}
+runtime: {output_dir: runs/local-ddp}

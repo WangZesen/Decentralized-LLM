@@ -1,0 +1,90 @@
+"""Partition validation without padding or duplicate samples; full scans are sequential."""
+
+import math
+import time
+from collections.abc import Iterator
+
+import numpy as np
+import torch
+import torch.distributed as dist
+from torch import nn
+
+from decentralized_llm.cache import TokenCache
+from decentralized_llm.config import Config
+from decentralized_llm.distributed import averaged_model, rank, world_size
+from decentralized_llm.model import token_losses
+from decentralized_llm.runtime import preserve_rng
+from decentralized_llm.state import Batch, EvaluationResult, IndexArray
+
+
+def validation_indices(cache: TokenCache, config: Config, full: bool) -> IndexArray:
+    count = cache.blocks("validation", config.model.context_length, partial=True)
+    if full:
+        # This helper is for callers/tests; full evaluation iterates ranges instead.
+        return np.arange(count, dtype=np.int64)
+    take = min(config.evaluation.subset_blocks, count)
+    return np.sort(np.random.default_rng(config.evaluation.seed).choice(count, take, replace=False))
+
+
+def validation_batches(cache: TokenCache, config: Config, device: torch.device, full: bool) -> Iterator[Batch]:
+    length = config.model.context_length
+    count = cache.blocks("validation", length, partial=True)
+    # Contiguous disjoint rank partitions preserve sequential full-split reads.
+    first, end = count * rank() // world_size(), count * (rank() + 1) // world_size()
+    indices = (
+        range(first, end) if full else [int(i) for i in validation_indices(cache, config, False) if first <= i < end]
+    )
+    for offset in range(0, len(indices), config.evaluation.batch_size):
+        selected = indices[offset : offset + config.evaluation.batch_size]
+        x = np.zeros((len(selected), length), dtype=np.int64)
+        y = np.full_like(x, -100)
+        tokens = np.empty(0, dtype="<u2")
+        if full:
+            # One contiguous read per batch, even across shard boundaries.
+            start = selected[0] * length
+            tokens = cache.read(
+                "validation", start, min((selected[-1] + 1) * length + 1, cache.offsets["validation"][-1])
+            )
+        for row, block in enumerate(selected):
+            if full:
+                values = tokens[row * length : row * length + length + 1]
+            else:
+                start = block * length
+                values = cache.read("validation", start, min(start + length + 1, cache.offsets["validation"][-1]))
+            valid = len(values) - 1
+            x[row, :valid], y[row, :valid] = values[:-1], values[1:]
+        yield torch.from_numpy(x).to(device), torch.from_numpy(y).to(device)
+
+
+@torch.no_grad()
+def evaluate(
+    model: nn.Module, cache: TokenCache, config: Config, device: torch.device, full: bool, average: bool = True
+) -> EvaluationResult:
+    start = time.perf_counter()
+    was_training = model.training
+    with preserve_rng():
+        eval_model = averaged_model(model) if average and config.distributed.mode == "decentralized" else model
+        eval_model.eval()
+        totals = torch.zeros(2, device=device, dtype=torch.float64)
+        try:
+            for x, y in validation_batches(cache, config, device, full):
+                with torch.autocast(device.type, dtype=torch.bfloat16, enabled=config.runtime.amp):
+                    losses = token_losses(eval_model(x), y)
+                totals[0] += losses.double().sum()
+                totals[1] += (y != -100).sum()
+            if dist.is_initialized():
+                dist.all_reduce(totals)
+        finally:
+            model.train(was_training)
+    loss_sum, valid = totals.tolist()
+    if valid == 0:
+        raise ValueError("validation has no targets")
+    loss = loss_sum / valid
+    return EvaluationResult(
+        loss=loss,
+        perplexity=math.exp(loss) if loss < 700 else None,
+        tokens=int(valid),
+        seconds=time.perf_counter() - start,
+        split="full" if full else "subset",
+        validation_complete=cache.manifest["validation_complete"],
+    )

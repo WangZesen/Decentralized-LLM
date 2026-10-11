@@ -1,0 +1,5 @@
+model:
+  layers: 8
+  width: 320
+  heads: 5
+  ffn_width: 896
