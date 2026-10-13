@@ -176,6 +176,14 @@ def test_launcher_validation_account_dryrun(
     assert all(secret not in path.read_text() for path in cfg.runtime.output_dir.rglob("*") if path.is_file())
 
 
+def test_single_node_slurm_uses_an_available_rendezvous_port(tiny_config: Config, tmp_path: Path) -> None:
+    cfg = slurm_config(tiny_config, tmp_path)
+    cfg.distributed.nodes = 1
+    _, worker = slurm_scripts(cfg, tmp_path / "config.yaml", tmp_path / "worker.sh")
+    assert "--standalone" in worker and "--master-port" not in worker
+    subprocess.run(["bash", "-n"], input=worker, text=True, check=True)
+
+
 def test_local_command_failure_and_gpu_preflight(
     cache: TokenCache, tiny_config: Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:

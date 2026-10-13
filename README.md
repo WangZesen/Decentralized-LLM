@@ -122,7 +122,8 @@ Both examples allocate two nodes with one GPU each. Optional fields include `gpu
 `constraint`, `qos`, `time`, `cpus_per_task`, `memory`, and `environment_script`.
 One `srun` launcher task per node spawns `gpus_per_node` workers; `SLURM_PROCID` supplies
 the node rank. The first allocated hostname and port **29500** supply rendezvous.
-Override `distributed.rendezvous_port` for concurrent jobs sharing nodes. GPU visibility
+Single-node jobs automatically select an available rendezvous port. Override
+`distributed.rendezvous_port` for concurrent multi-node jobs sharing nodes. GPU visibility
 and SLURM GPU/node allocation are checked on compute nodes. Communication and rendezvous
 have configured timeouts; rank failures propagate through torchrun and `srun`.
 
@@ -130,6 +131,132 @@ Preflight checks configuration, cache metadata/checksums, sampler memory, token 
 checkpoint compatibility, output writability, environment scripts, and launch prerequisites.
 It does not submit a job during a dry run. Submission artifacts are retained in a unique
 `output_dir/submission-*` directory, including the resolved configuration and job receipt.
+
+## Phased hyperparameter tuning
+
+`decentralized-llm tune` runs a persistent controller over local training processes or
+SLURM jobs. Prepare the shared cache first. Run the controller from this repository in
+an enduring shell such as tmux, or in your own CPU allocation. SLURM uses the same
+lowercase `account` environment variable as ordinary submissions; it stays out of
+configuration, receipts, and reports.
+
+Start with [`configs/tuning-example.yaml`](configs/tuning-example.yaml), updating the
+referenced training configuration and SLURM partition for your environment:
+
+```bash
+uv run decentralized-llm tune run --spec configs/tuning-example.yaml \
+  --output runs/tuning/example --dry-run
+uv run decentralized-llm tune run --spec configs/tuning-example.yaml \
+  --output runs/tuning/example
+uv run decentralized-llm tune status runs/tuning/example
+uv run decentralized-llm tune resume runs/tuning/example
+uv run decentralized-llm tune extend runs/tuning/example --spec configs/tuning-example.yaml --dry-run
+uv run decentralized-llm tune extend runs/tuning/example --spec configs/tuning-example.yaml
+uv run decentralized-llm tune report runs/tuning/example
+```
+
+The tuning specification has a `base.configs` list and optional dotted `base.overrides`
+mapping. Referenced YAML filenames resolve relative to the tuning specification;
+paths inside training configurations retain the normal repository-working-directory
+semantics. Resolved configurations are frozen in the study state.
+
+Each phase's `search` maps **one or more dotted configuration fields** to search
+specifications. The controller jointly evaluates their Cartesian product, averages
+final full-validation loss over the required training seeds, and keeps the **global
+top K complete combinations** specified by `top_k`. A later phase expands each
+surviving combination with its new grid. Earlier winning coordinates remain paired.
+It can also revisit previous search fields, replacing those coordinates and
+deduplicating resulting configurations.
+
+For every parameter first searched in a later phase, the current phase must explicitly
+set its value in `initial_values`. Earlier winning values are inherited. Every other
+setting comes from the base configuration, including the common training-budget
+settings. Each candidate must pass the existing training configuration validation.
+Training seeds, output directories, the cache directory, and launcher settings are
+controller/base settings rather than searchable fields.
+
+Search specifications can be freely mixed within a phase:
+
+```yaml
+search:
+  optimizer.lr:
+    scale: power
+    base: 2
+    exponent_min: -12
+    exponent_max: -8
+    points: 5
+  optimizer.weight_decay: [0.0, 0.1, 0.2]
+  optimizer.beta1: {scale: linear, min: 0.8, max: 0.95, points: 4}
+  optimizer.eps: {scale: log, min: 0.00000001, max: 0.000001, points: 3}
+```
+
+Linear and logarithmic intervals include both endpoints. Power intervals use a fixed
+positive base and evenly spaced exponents: the example generates `2^-12`, `2^-11`,
+`2^-10`, `2^-9`, and `2^-8`. Fractional exponents are supported. One-point intervals
+require equal bounds. Integer configuration fields require integral values.
+Power expressions remain visible in dry runs and reports, alongside numeric values;
+generated training configurations use numbers. Numerically identical configurations
+share a trial even when their search notation differs.
+
+`screening_seeds` is a required positive count. Every screening phase uses the same
+seed sequence starting at `seed_start` (default **42**). `confirmation.seeds` is the
+**total** confirmation count, which must be at least the screening count. Confirmation
+adds only missing seeds for the final surviving combinations. Every selection uses
+exactly its phase's seed set, even if more results already exist. The lowest mean
+final validation loss wins; exact ties use a stable candidate ID. Reports include
+sample standard deviation, or null for a single seed.
+
+Dry runs show a prominent total-job estimate and per-phase required, reused, and new
+executions. One job means one complete configuration/seed training execution, regardless
+of its node or GPU count. The example specification searches 15 learning-rate/decay
+pairs on two seeds, then six momentum combinations, then confirms two survivors on
+five total seeds: **44 new jobs**, or **at most 132 submission attempts** with two
+retries per trial. Dry runs for resume and extension also count existing results,
+outstanding jobs, and consumed retries. When unknown winners affect reuse or deduplication,
+the output explicitly labels a conservative upper estimate. Dry runs create no study
+artifacts and submit no jobs; normal cache and launcher prerequisites still apply.
+
+[`configs/tuning-budget-10.yaml`](configs/tuning-budget-10.yaml) is a short 20M/C4
+example using the existing site cache: four joint learning-rate/decay jobs, four new
+momentum jobs, and two extra confirmation seeds, for exactly **10 jobs** with retries
+disabled. It uses one token per parameter and two GPUs per job. Set its cache path and
+`launcher.environment_script` for your installation. Reports record each phase's start, finish, and elapsed wall
+time, including scheduler waiting, polling, and any controller downtime.
+
+The controller settings default to `max_jobs: 50`, `max_retries: 2`,
+`poll_seconds: 30`, and `result_grace_seconds: 120`. The SLURM cap includes both queued
+and running seed jobs. Local training is sequential. Scheduler queries are batched.
+Retries start from scratch with the same seed in a fresh attempt directory, preserving
+previous logs. Two retries means at most three attempts. A candidate requires every
+seed to succeed. Exhausting any required trial's retries stops new submissions and
+phase advancement, exits unsuccessfully, and writes a partial report. Already submitted
+jobs can finish and their results are collected on resume.
+
+Ctrl-C stops the controller while retaining submitted work. `resume` reconciles persisted
+jobs and continues the frozen specification and retry counters. Active local processes
+can be reattached on their original host. Missing scheduler records or scheduler outages
+do not trigger duplicate submissions. If an attempt remains unresolved, inspect its
+receipt, scheduler history, and original host; **after verifying it has no live job**,
+`tune resume DIR --retry-unresolved ATTEMPT_NAME` marks that attempt failed and permits
+a retry within the existing limit. This explicit recovery covers interruption between
+submission intent and a durable launch receipt.
+
+`extend` creates a new revision and replays phases using matching successful results.
+It supports revised grids, changed phase sequences, initial values, and seed counts.
+Increasing `max_retries` can reopen exhausted trials. Previous reports and state are
+archived under `revisions/`. Active jobs remain tracked even if a revised search no
+longer needs them. Reuse requires matching effective configuration, seed, cache content,
+and source/dependency fingerprints. Changed software or cache identity requires an
+extension and produces new trials. Every accepted result is checked against its
+configuration, completed budget, and recorded provenance.
+
+The study directory contains atomically updated `state.json`, isolated
+`trials/<id>/attempt-*/` artifacts, and `report.md`/`report.json`. Reports identify their
+revision, show complete candidate combinations, power notation, seed losses, selections,
+reuse, retries, and failures. A successfully confirmed winner also produces `winner.yaml`
+with a fresh output destination. `tune status` reads the last persisted snapshot;
+`tune report` regenerates reports from that snapshot. A controller lock prevents
+concurrent writers to the same study.
 
 ## Training and recovery semantics
 

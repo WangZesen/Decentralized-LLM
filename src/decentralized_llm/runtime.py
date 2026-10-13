@@ -88,6 +88,11 @@ def source_digest(package: Path) -> str:
     return digest.hexdigest()
 
 
+def dependency_digest() -> str | None:
+    lockfile = Path(__file__).resolve().parents[2] / "uv.lock"
+    return hashlib.sha256(lockfile.read_bytes()).hexdigest() if lockfile.is_file() else None
+
+
 def environment() -> dict:
     return {
         "recorded_at": datetime.now(UTC).isoformat(),
@@ -99,5 +104,7 @@ def environment() -> dict:
         "numpy": np.__version__,
         "cuda": torch.version.cuda,
         "source_sha256": source_digest(Path(__file__).parent),
+        "lock_sha256": dependency_digest(),
+        "python_version": list(sys.version_info[:2]),
         "upstream": "dd03e5037b46961b1bbcbd014c445b6efebb4841",
     }

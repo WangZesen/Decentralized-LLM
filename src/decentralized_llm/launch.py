@@ -13,6 +13,10 @@ from decentralized_llm.preflight import validate
 from decentralized_llm.runtime import atomic_json
 
 
+class SubmissionRejected(RuntimeError):
+    """The scheduler rejected a submission without returning a job ID."""
+
+
 def absolute_config(config: Config) -> Config:
     raw = config.model_dump(mode="json")
     raw["data"]["cache_dir"] = str(config.data.cache_dir.resolve())
@@ -67,14 +71,21 @@ def slurm_scripts(
         arguments += ["--checkpoint", str(resume.resolve())]
     if not full:
         arguments += ["--subset"]
+    # Independent single-node allocations can share a host; let torchrun reserve
+    # an available port instead of making concurrent jobs bind the same one.
+    rendezvous = (
+        "--standalone "
+        if config.distributed.nodes == 1
+        else '--node-rank="$SLURM_PROCID" --master-addr="$MASTER_ADDR" '
+        f"--master-port={config.distributed.rendezvous_port} --rdzv-backend=static "
+    )
     worker = (
         "#!/usr/bin/env bash\nset -euo pipefail\n"
         f"cd {shlex.quote(str(project))}\n"
         f"source {shlex.quote(str(environment.resolve()))}\n"
         'exec "${DECENTRALIZED_PYTHON:-python3}" -m torch.distributed.run '
         f"--nnodes={config.distributed.nodes} --nproc-per-node={config.distributed.gpus_per_node} "
-        '--node-rank="$SLURM_PROCID" --master-addr="$MASTER_ADDR" '
-        f"--master-port={config.distributed.rendezvous_port} --rdzv-backend=static --max-restarts=0 "
+        f"{rendezvous}--max-restarts=0 "
         f"--rdzv-conf=timeout={config.distributed.timeout_seconds} " + shlex.join(arguments) + "\n"
     )
     gpu_request = f"{launcher.gpu_type}:" if launcher.gpu_type else ""
@@ -116,15 +127,23 @@ def scheduler_arguments(config: Config) -> list[str]:
 
 
 def launch(
-    config: Config, resume: Path | None = None, *, dry_run: bool = False, action: str = "train", full: bool = True
+    config: Config,
+    resume: Path | None = None,
+    *,
+    dry_run: bool = False,
+    action: str = "train",
+    full: bool = True,
+    verify: bool = True,
+    job_name: str | None = None,
+    submission_dir: Path | None = None,
 ) -> dict:
     config = absolute_config(config)
-    report = validate(config, resume, launch=True, evaluation=action == "evaluate")
-    destination = config.runtime.output_dir / f"submission-{time.time_ns()}"
+    report = validate(config, resume, launch=True, evaluation=action == "evaluate", verify=verify)
+    destination = submission_dir or config.runtime.output_dir / f"submission-{time.time_ns()}"
     filename = destination / "config.yaml"
     if config.launcher.kind == "local":
         command = local_command(config, filename, resume, action, full)
-        result = {"launcher": "local", "command": command, "preflight": report}
+        result = {"launcher": "local", "command": command, "preflight": report, "submission_dir": str(destination)}
         if dry_run:
             return result
         destination.mkdir(parents=True)
@@ -138,12 +157,16 @@ def launch(
     batch_path, worker_path = destination / "submit.sh", destination / "worker.sh"
     batch, worker = slurm_scripts(config, filename, worker_path, resume, action, full)
     arguments = scheduler_arguments(config) + [f"--output={destination / 'slurm-%j.out'}"]
+    if job_name is not None:
+        arguments.append(f"--job-name={job_name}")
     result = {
         "launcher": "slurm",
         "arguments": arguments,
         "batch_script": batch,
         "worker_script": worker,
         "preflight": report,
+        "submission_dir": str(destination),
+        "job_name": job_name,
     }
     if dry_run:
         return result
@@ -161,11 +184,12 @@ def launch(
     if process.returncode:
         # Scheduler error messages can echo the account; redact before reporting.
         reason = process.stderr.replace(os.environ["account"].strip(), "<redacted>")
-        raise RuntimeError(f"sbatch failed ({process.returncode}): {reason.strip()}")
-    job_id = process.stdout.strip().split(";", 1)[0]
+        raise SubmissionRejected(f"sbatch failed ({process.returncode}): {reason.strip()}")
+    job_id, _, cluster = process.stdout.strip().partition(";")
     if not job_id.isdigit():
         raise RuntimeError("sbatch returned an invalid job identifier")
     result["job_id"] = job_id
+    result["cluster"] = cluster or None
     atomic_json(destination / "receipt.json", result)
     return result
 

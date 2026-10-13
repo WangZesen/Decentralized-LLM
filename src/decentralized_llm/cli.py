@@ -10,6 +10,26 @@ from decentralized_llm.config import load_config
 def main() -> None:
     parser = argparse.ArgumentParser(prog="decentralized-llm")
     commands = parser.add_subparsers(dest="command", required=True)
+    tuning = commands.add_parser("tune", help="run, resume, or inspect a phased hyperparameter search")
+    actions = tuning.add_subparsers(dest="tune_action", required=True)
+    for name in ("run", "resume", "extend", "status", "report"):
+        action = actions.add_parser(name)
+        if name == "run":
+            action.add_argument("--output", dest="directory", type=Path, required=True)
+        else:
+            action.add_argument("directory", type=Path)
+        if name in ("run", "extend"):
+            action.add_argument("--spec", type=Path, required=True)
+        if name in ("run", "resume", "extend"):
+            action.add_argument("--dry-run", action="store_true")
+        if name == "resume":
+            action.add_argument(
+                "--retry-unresolved",
+                action="append",
+                default=[],
+                metavar="ATTEMPT",
+                help="confirm this unresolved attempt has no live job and permit a bounded retry",
+            )
     for name in ("prepare", "validate", "train", "evaluate", "submit", "benchmark-data", "worker"):
         command = commands.add_parser(name)
         command.add_argument("--config", "-c", type=Path, action="append", default=[])
@@ -32,6 +52,20 @@ def main() -> None:
             command.add_argument("--cache-state", choices=("cold", "warm"), default="warm")
             command.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.command == "tune":
+        from decentralized_llm.tuning.controller import execute
+
+        result = execute(
+            args.tune_action,
+            args.directory,
+            getattr(args, "spec", None),
+            dry_run=getattr(args, "dry_run", False),
+            retry_unresolved=getattr(args, "retry_unresolved", None),
+        )
+        print(json.dumps(result, indent=2))
+        if result.get("status") in {"failed", "interrupted"}:
+            raise SystemExit(1 if result["status"] == "failed" else 130)
+        return
     config = load_config(args.config, args.overrides)
     if args.command == "prepare":
         from decentralized_llm.cache import prepare
