@@ -20,7 +20,7 @@ from decentralized_llm.loader import DevicePrefetcher, LoadedBatch, TokenLoader
 from decentralized_llm.model import Llama
 from decentralized_llm.optim import make_optimizer
 from decentralized_llm.runtime import atomic_json, environment, preserve_rng
-from decentralized_llm.sampling import BatchSpec, check_memory
+from decentralized_llm.sampling import BatchSpec, check_memory, sampling_plan
 from decentralized_llm.train import optimizer_update
 
 
@@ -149,6 +149,7 @@ def benchmark_data(config: Config, steps: int, warmup: int, cache_state: str, ou
         result = {
             "rank": rank(),
             "world_size": world_size(),
+            "sampling": sampling_plan(cache, config).summary(),
             "cache_state_requested": cache_state,
             "cold_method": "POSIX_FADV_DONTNEED (best effort, client only)" if cache_state == "cold" else None,
             "warmup_updates": warmup,

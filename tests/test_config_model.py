@@ -5,7 +5,7 @@ import torch
 from pydantic import ValidationError
 
 from decentralized_llm.cache import training_boundaries
-from decentralized_llm.config import PRESETS, Config, ModelConfig, load_config
+from decentralized_llm.config import PRESETS, Config, ModelConfig, load_config, save_config
 from decentralized_llm.model import Llama, token_losses
 from decentralized_llm.optim import learning_rate, make_optimizer
 
@@ -43,6 +43,30 @@ def test_presets_and_parameter_count() -> None:
         assert len([p for p in model.parameters() if p.shape == model.embedding.weight.shape]) == 1
 
 
+def test_data_reuse_configuration(tmp_path: Path) -> None:
+    assert Config().training.data_reuse_factor == 1
+    cfg = load_config(overrides=["training.data_reuse_factor=4"])
+    path = tmp_path / "reuse.yaml"
+    save_config(cfg, path)
+    assert load_config(path).training.data_reuse_factor == 4
+    assert load_config(path, ["training.data_reuse_factor=2"]).training.data_reuse_factor == 2
+    for value in ("0", "-1", "true", "false", "2.0", "1.5", '"2"', "null"):
+        with pytest.raises(ValidationError, match="data_reuse_factor"):
+            load_config(overrides=[f"training.data_reuse_factor={value}"])
+    with pytest.raises(ValidationError, match="data_reuse_factor"):
+        cfg.training.data_reuse_factor = True
+
+
+def test_loader_configuration() -> None:
+    assert Config().data.loader_mode == "auto"
+    assert Config().data.host_memory_mib == 2048
+    for mode in ("auto", "resident", "streaming"):
+        assert load_config(overrides=[f"data.loader_mode={mode}"]).data.loader_mode == mode
+    for override in ("data.loader_mode=unknown", "data.preload_max_read_amplification=0.5"):
+        with pytest.raises(ValidationError):
+            load_config(overrides=[override])
+
+
 def test_model_causality_and_backends(tiny_config: Config) -> None:
     torch.manual_seed(1)
     ref = Llama(tiny_config.model, "reference").double()
@@ -73,6 +97,14 @@ def test_rounding_schedules_optimizer(tiny_config: Config) -> None:
     assert learning_rate(wsd, 24, total) == lr
     assert learning_rate(wsd, total, total) == 0
     assert learning_rate(wsd, total // 2, total) == lr
+    for factor in (2, 5, 7, 100):
+        for baseline in (tiny_config, wsd):
+            reuse = baseline.model_copy(deep=True)
+            reuse.training.data_reuse_factor = factor
+            assert training_boundaries(reuse, reuse.model.parameter_count) == boundaries
+            assert [learning_rate(reuse, tokens, total) for tokens in range(24, total + 1, 24)] == [
+                learning_rate(baseline, tokens, total) for tokens in range(24, total + 1, 24)
+            ]
     optimizer = make_optimizer(Llama(tiny_config.model), tiny_config, torch.device("cpu"))
     assert optimizer.param_groups[0]["weight_decay"] == 0.1
     assert optimizer.param_groups[1]["weight_decay"] == 0

@@ -2,6 +2,7 @@
 
 import os
 import random
+from dataclasses import dataclass
 from datetime import timedelta
 
 import numpy as np
@@ -10,6 +11,10 @@ import torch.distributed as dist
 from torch import nn
 
 from decentralized_llm.config import Config
+
+_peer_group_world: dist.ProcessGroup | None = None
+_peer_groups: dict[tuple[int, int], dist.ProcessGroup | None] = {}
+_prepared_topologies: set[str] = set()
 
 
 def rank() -> int:
@@ -53,6 +58,10 @@ def setup(config: Config) -> torch.device:
             timeout=timedelta(seconds=config.distributed.timeout_seconds),
             device_id=device if device.type == "cuda" else None,
         )
+    if config.distributed.mode == "decentralized":
+        prepare_parameter_groups(
+            config.distributed.topology, timeout=timedelta(seconds=config.distributed.timeout_seconds)
+        )
     seed = config.runtime.seed + (rank() if config.distributed.mode == "decentralized" else 0)
     random.seed(seed)
     np.random.seed(seed % 2**32)
@@ -77,32 +86,87 @@ def peer_for(worker: int, size: int, topology: str, step: int) -> int:
     raise ValueError(f"unknown reciprocal topology: {topology}")
 
 
+def prepare_parameter_groups(topology: str, *, timeout: timedelta | None = None) -> None:
+    """Collectively create all rotating peer groups once, in the same order on every rank."""
+    global _peer_group_world
+    world = dist.group.WORLD
+    if world is not _peer_group_world:
+        # A new training run in this process must not reuse destroyed communicators.
+        _peer_groups.clear()
+        _prepared_topologies.clear()
+        _peer_group_world = world
+    size = world_size()
+    if size == 1 or topology == "complete" or topology in _prepared_topologies:
+        return
+    peer_for(0, size, topology, 0)  # Validate before entering any group creation collectives.
+    rounds = 2 if topology == "one_peer_ring" else (size - 1).bit_length()
+    pairs = set()
+    for step in range(rounds):
+        for worker in range(size):
+            peer = peer_for(worker, size, topology, step)
+            if worker < peer:
+                pairs.add((worker, peer))
+    for pair in sorted(pairs):
+        if pair not in _peer_groups:
+            # Even nonmembers must enter new_group, in a globally consistent order.
+            # At world size two the existing world group is already the desired pair.
+            group = world if size == 2 else dist.new_group(ranks=list(pair), timeout=timeout)
+            _peer_groups[pair] = group if isinstance(group, dist.ProcessGroup) else None
+    _prepared_topologies.add(topology)
+
+
+@dataclass
+class PendingParameterMix:
+    """Own communication buffers without modifying parameters used by autograd."""
+
+    parameters: list[nn.Parameter]
+    flat: torch.Tensor
+    requests: list[dist.Work]
+    size: int
+
+    def wait(self) -> None:
+        """Join communication on the caller's stream, including on update failure."""
+        for request in self.requests:
+            request.wait()
+        self.requests.clear()
+
+    @torch.no_grad()
+    def apply(self) -> None:
+        """Install mixed weights only after all local backwards have finished."""
+        self.wait()
+        self.flat.div_(self.size)
+        chunks = self.flat.split([p.numel() for p in self.parameters])
+        sources = [chunk.view_as(p) for chunk, p in zip(chunks, self.parameters, strict=True)]
+        # One batched copy avoids exposing a separate CPU/CUDA launch per weight
+        # tensor once communication has already finished behind computation.
+        torch._foreach_copy_(tuple(self.parameters), sources)  # pyright: ignore[reportPrivateImportUsage]
+
+
 @torch.no_grad()
-def mix_parameters(model: nn.Module, topology: str, step: int) -> None:
+def begin_parameter_mix(model: nn.Module, topology: str, step: int) -> PendingParameterMix | None:
+    """Exchange a snapshot asynchronously; the live weights remain unchanged."""
     size = world_size()
     if size == 1:
-        return
+        return None
+    group = dist.group.WORLD
+    if topology != "complete":
+        # setup() prepares these before training; direct callers may prepare lazily.
+        prepare_parameter_groups(topology)
+        worker = rank()
+        peer = peer_for(worker, size, topology, step)
+        group = _peer_groups[(min(worker, peer), max(worker, peer))]
+        assert group is not None
+        size = 2
     parameters = list(model.parameters())
     flat = torch.cat([p.detach().reshape(-1) for p in parameters])
-    if topology == "complete":
-        dist.all_reduce(flat)
-        flat.div_(size)
-    else:
-        peer = peer_for(rank(), size, topology, step)
-        received = torch.empty_like(flat)
-        requests = dist.batch_isend_irecv(
-            [
-                dist.P2POp(dist.isend, flat, peer),
-                dist.P2POp(dist.irecv, received, peer),
-            ]
-        )
-        for request in requests:
-            request.wait()
-        flat.add_(received).mul_(0.5)
-    offset = 0
-    for parameter in parameters:
-        parameter.copy_(flat[offset : offset + parameter.numel()].view_as(parameter))
-        offset += parameter.numel()
+    requests = [dist.all_reduce(flat, group=group, async_op=True)]
+    return PendingParameterMix(parameters, flat, requests, size)
+
+
+def mix_parameters(model: nn.Module, topology: str, step: int) -> None:
+    pending = begin_parameter_mix(model, topology, step)
+    if pending is not None:
+        pending.apply()
 
 
 @torch.no_grad()

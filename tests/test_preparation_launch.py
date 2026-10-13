@@ -95,6 +95,14 @@ def test_preparation_is_deterministic_and_atomic(
     assert not cfg.data.cache_dir.with_name("cache.partial").exists()
     values = TokenCache(cfg.data.cache_dir).read("train", 0, 9)
     assert values.tolist() == [0, 3, 2, 1, 3, 2, 2, 3, 2]
+    # Reuse affects sampling only, including when preparation uses its default budget.
+    cfg.data.cache_dir = tmp_path / "default-budget"
+    cfg.data.prepare_train_tokens = None
+    cfg.training.tokens_per_parameters = 0.1
+    cfg.training.data_reuse_factor = 5
+    assert prepare(cfg)["splits"]["train"]["tokens"] == 73
+    cfg.training.data_reuse_factor = 1
+    assert prepare(cfg)["splits"]["train"]["tokens"] == 73
 
 
 def test_parallel_tokenizer_order(monkeypatch: pytest.MonkeyPatch) -> None:

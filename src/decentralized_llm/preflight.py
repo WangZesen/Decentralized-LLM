@@ -10,7 +10,7 @@ import torch
 from decentralized_llm.cache import TokenCache, training_boundaries
 from decentralized_llm.checkpoints import validate_checkpoint
 from decentralized_llm.config import Config, SlurmLauncher
-from decentralized_llm.sampling import check_memory
+from decentralized_llm.sampling import check_memory, sampling_plan
 
 
 def validate(
@@ -65,5 +65,7 @@ def validate(
         "eligible_blocks": cache.blocks("train", config.model.context_length),
         "global_tokens": boundaries[-1] * config.model.context_length,
         "virtual_epochs": len(boundaries),
+        "sampling": sampling_plan(cache, config).summary(),
         "memory_bytes_per_rank": memory,
+        "loader_mode": "resident" if memory["resident_tokens"] else "streaming",
     }

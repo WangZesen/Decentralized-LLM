@@ -28,6 +28,9 @@ def recipe_identity(config: Config, cache: TokenCache) -> str:
             "log_every",
         },
     )
+    # Keep recipes written before data reuse was introduced resumable at K=1.
+    if config.training.data_reuse_factor == 1:
+        training.pop("data_reuse_factor")
     return fingerprint(
         {
             "model": config.model.model_dump(),
@@ -57,7 +60,7 @@ def validate_checkpoint(
         raise ValueError("checkpoint training recipe mismatch")
     if require_training and not manifest["training_state"]:
         raise ValueError("weights-only epoch cannot resume training")
-    if manifest["sampler"] != GlobalSampler(cache, config.model.context_length, config.runtime.seed).identity:
+    if manifest["sampler"] != GlobalSampler.from_config(cache, config).identity:
         raise ValueError("checkpoint sampler identity mismatch")
     expected = {f"rank-{r:05d}.pt" for r in range(config.distributed.world_size)}
     if {f["file"] for f in manifest["files"]} != expected or len(manifest["files"]) != len(expected):

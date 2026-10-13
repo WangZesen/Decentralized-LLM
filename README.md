@@ -141,10 +141,18 @@ rank microbatches perform a zero-loss backward so every rank participates.
 
 Decentralized workers initialize independently and retain independent AdamW moments.
 Each normalizes its local loss, clips local gradients, and communicates parameters once
-per optimizer update. AWC mixes before applying the already-computed gradients; ATC
-updates before mixing. `complete` uses all-reduce. `one_peer_ring` alternates reciprocal
+per optimizer update. AWC starts an asynchronous exchange of a parameter snapshot before
+forward, overlapping communication with forward and all accumulated backwards. It waits
+after local gradient clipping, installs the mixed weights, and then steps AdamW; the live
+weights used by autograd stay unchanged until backward finishes. The snapshot is temporary
+and each update joins its exchange before checkpointing. ATC updates before mixing.
+`complete` uses all-reduce over the world group. `one_peer_ring` alternates reciprocal
 neighbor pairings and requires an even world size; `one_peer_exponential` flips one rank
-bit per update and requires a power of two. All support a single-worker no-op. Evaluation
+bit per update and requires a power of two. Both peer topologies use asynchronous
+all-reduce over two-rank process groups, followed by division by two. The groups are
+created in a consistent order at startup and reused as peers rotate; at world size two,
+the existing world group is reused. Every exchange is joined before switching groups.
+All support a single-worker no-op. Evaluation
 and checkpoint coordination add their own collectives outside optimizer mixing.
 
 Models retain tied embeddings, RoPE, RMSNorm, SwiGLU, depth-scaled initialization,
@@ -156,6 +164,38 @@ sampling. Each epoch evaluates one fixed validation subset; completion evaluates
 validation targets, including a partial final block. Full validation reads sequentially
 and rank partitions do not duplicate samples. Decentralized evaluation uses separate
 FP32-averaged weights without changing training replicas or optimizer state.
+
+Set `training.data_reuse_factor=K` to reuse a smaller fixed pool while retaining the
+same global token budget, optimizer steps, learning-rate schedule, and virtual epochs:
+
+```bash
+uv run decentralized-llm train -c configs/base.yaml -c configs/20m.yaml \
+  --set training.data_reuse_factor=4 --set runtime.output_dir=runs/reuse-4
+```
+
+`K` must be a positive integer and defaults to **1**, which preserves the existing sampler
+and checkpoint compatibility, including cycling an already-small cache. For `K > 1`,
+let `B` be the full training budget after the existing global-batch rounding, measured in
+context-length blocks. The sampler selects `U = ceil(B / K)` unique blocks and reshuffles
+that same pool on each pass. Every block is used once per complete pass before the next
+pass starts in the global stream. Training stops after exactly `B` blocks: every selected
+block is used exactly `K` times when `B` divides evenly by `K`; otherwise the last pass
+may be partial. For example, `B=42, K=5` uses 9 unique blocks, with four complete passes
+and six blocks from a fifth pass. If `K > B`, the pool contains one block used `B` times.
+
+Pool selection takes the first `U` entries of the normal sampler's first-pass permutation.
+It is reproducible for a given cache and training seed; larger factors select nested pools.
+The unique training-token count is `U * context_length`, counting token positions rather
+than distinct vocabulary IDs and excluding the extra lookahead token. Preflight and
+`run.json` report the factor, pool size, unique training tokens, and full/partial pass counts
+under `sampling`. Resume requires the same reuse settings and regenerates the selected pool
+and pass order from the committed global cursor. Changing reader threads or prefetch depth
+does not change sampling.
+
+Preparation is unchanged: prepare the normal cache once to compare different K values.
+For `K > 1`, a cache with fewer than `U` complete blocks is rejected before loading.
+Sampling passes span ranks and may cross microbatch, optimizer-update, and virtual-epoch
+boundaries; they introduce no extra distributed synchronization.
 
 Checkpoint policies `interval`, `explicit`, `final`, and `none` retain upstream behavior:
 interval/explicit select epoch snapshots; all except `none` also save final training state.
@@ -178,7 +218,7 @@ uv run decentralized-llm submit -c runs/slurm-ddp/config.yaml \
 ```
 
 Resume requires the same world size, training recipe, cache, and sampler version/NumPy
-version. Output paths, reader threads, prefetch depth, host budget, and homogeneous physical
+version. Output paths, loader mode, reader threads, prefetch depth, host budget, and homogeneous physical
 node placement may change. Only **optimizer-committed global sample positions** are saved;
 prefetched or transferred unused samples are discarded and deterministically regenerated.
 Sampling is exact across resume; floating-point collective reduction order can produce
@@ -187,35 +227,80 @@ not resumed. Checkpoints use PyTorch pickle for RNG/optimizer state; load truste
 
 ## Network loader and benchmarks
 
-Every complete context-length block with one lookahead token is eligible. Each dataset
-pass uses a seeded NumPy PCG64 permutation of **all** eligible blocks without replacement;
-pass seeds derive from cache identity, context length, training seed, and sampler version.
+Every complete context-length block with one lookahead token is eligible. With
+`data_reuse_factor=1`, each dataset pass uses a seeded NumPy PCG64 permutation of **all**
+eligible blocks without replacement. With a larger factor, passes permute the selected
+fixed pool. Pass seeds derive from cache identity, context length, training seed, sampler
+version, and (for reuse) the factor and full training budget.
 Rank `r` receives global stream positions congruent to `r` modulo world size, continuously
 across passes and virtual epochs.
 
-The permutation stays in host memory. Persistent reader threads reuse bounded file
-descriptor caches and use `pread`, splitting blocks across shards as needed. Within a
-read-ahead window, reads are sorted by shard/offset and coalesced subject to
-`read_range_bytes`, `coalesce_gap_bytes`, and `max_read_amplification`. Batches are delivered
-in prescribed order even when reads finish out of order. Defaults are **4 reader threads,
-8 prefetched microbatches, and 512 MiB loader host memory per rank**. Preflight estimates
-permutation, Python request metadata, compact windows, read scratch, validation and transfer
-buffers. It rejects an estimated over-budget configuration before launch. Model/optimizer
-memory, interpreter overhead, and the OS page cache are separate from this loader budget.
+`data.loader_mode=auto` keeps the run's unique training blocks in RAM on **each rank** when the
+estimated loader footprint fits `data.host_memory_mib` (default **2048 MiB per rank**).
+Otherwise it uses continuous streaming. `resident` and `streaming` force either mode;
+preflight rejects an estimated over-budget configuration before launch. The two modes
+produce identical samples and support resuming each other's checkpoints.
+
+For K=1, a run shorter than one cache pass loads only the prefix of the existing shuffled
+stream that its full token budget will consume. It does not need the entire on-disk cache
+to fit. Longer runs retain all eligible blocks; K>1 retains the entire selected reuse pool.
+The sampler identity, sample order, token budget, and resume behavior stay the same.
+
+Resident mode starts training as soon as the initial batch queue is ready. Upcoming
+batches get read priority while background reads fill the remaining working set in
+storage order, into compact uint16 rows including each block's lookahead token.
+With multiple reader threads, background work leaves one thread available for incoming
+demand reads. Rows already being read are shared with demand requests, so no row is
+loaded twice. Background reads coalesce nearby blocks using
+`read_range_bytes`, `coalesce_gap_bytes`, and `preload_max_read_amplification` (default 16).
+This permits reading intervening bytes to reduce small network requests; only selected
+blocks are retained. Once the cache is complete, the reader threads and file handles
+close; each reshuffle then gathers from RAM, with **no further training-data filesystem
+reads**. Before completion, training may still wait for a requested row. Every rank
+holds the whole working set, so reshuffling can assign it blocks
+that another rank consumed in the previous pass. At a 0.4B-token budget with K=8, the
+token buffer is about 100 MB per rank (about 800 MB for K=1), plus indices and loader buffers.
+Validation and checkpoint I/O remain separate.
+
+Streaming uses persistent reader threads, bounded descriptor caches, and `pread`, splitting
+blocks across shards as needed. Reads within each microbatch are sorted by shard/offset
+and coalesced subject to `read_range_bytes`, `coalesce_gap_bytes`, and
+`max_read_amplification` (default 2). Each batch becomes ready as soon as its own reads
+finish; consumption immediately opens another prefetch slot. Delivery remains in sampler
+order even when reads finish out of order. Defaults are **4 reader threads and 8 prefetched
+microbatches**.
+
+The permutation stays in host memory. Reuse additionally retains the selected pool;
+selection temporarily builds the full-cache permutation. The memory estimate includes
+this peak, resident tokens, indices and row readiness when enabled, Python request metadata, compact
+windows, read scratch, validation and transfer buffers. Model/optimizer memory, interpreter
+overhead, and the OS page cache are separate from this loader budget.
 
 Only upcoming batches convert to int64. Double-buffered pinned storage, nonblocking H2D
 copies, a dedicated CUDA stream, and completion events protect reuse. The initial read
-queue fills before the training timer starts. Pending work is canceled on shutdown;
+queue fills before the training timer starts; filling the rest of RAM overlaps training.
+Loader metrics distinguish `startup_seconds` from `preload_seconds` (time until complete
+residency), report `resident_loaded_blocks` / `resident_total_blocks` and `resident_complete`,
+and count I/O after queue warmup in `training_read_bytes` / `training_read_calls`.
+Pending work is canceled on shutdown;
 a running POSIX read must return before its descriptor is closed. Python cannot interrupt
 a kernel-blocked network read. Finite prefetch cannot guarantee zero stalls under arbitrary
 storage slowdowns.
 
-Train diagnostics retain requested/read bytes, amplification, read calls, queue occupancy,
+Train diagnostics report the resolved loader mode, startup/preload time, resident buffer
+bytes, and preload/training read bytes and calls (these overlap during background cache
+fill). They also retain total
+requested/read bytes, amplification, read calls, queue occupancy,
 starvation count, p50/p95/p99/max batch wait, estimated buffer bytes, actual sampler bytes,
 and process peak RSS. Starvation counts ready-queue-empty requests; wait time measures
 CPU blocking, not direct GPU idle time. Read bytes count bytes returned by positional reads,
 not storage-server traffic or filesystem readahead. Wait quantiles cover the most recent
-8,192 delivered batches.
+8,192 delivered batches. Lifetime total/max CPU wait and the eight largest waits survive
+window expiration. Each retained event records its global sample positions, queue occupancy,
+time until the producer made the batch ready, time after readiness, and the batch's slowest
+read group (shard, byte offset, sample, descriptor-lookup/open time, and read-loop time).
+The lifetime slowest read group is also retained. These wall-clock timings can include OS
+scheduling; they are not pure disk latency or a measure of GPU idle time.
 `metrics-rank-*.jsonl`, `loader-rank-*.json`, `rank-*.json`, failure tracebacks, resolved
 configuration, source digest, library versions, and evaluation metrics remain in the run.
 

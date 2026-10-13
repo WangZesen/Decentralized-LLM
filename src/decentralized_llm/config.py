@@ -57,12 +57,14 @@ class DataConfig(StrictModel):
     tokenize_batch_size: int = Field(default=256, gt=0)
     prepare_workers: int = Field(default=8, gt=0, strict=True)
     # Runtime buffering; separate from the document shuffle used during preparation.
+    loader_mode: Literal["auto", "resident", "streaming"] = "auto"
     reader_threads: int = Field(default=4, gt=0, le=64)
     prefetch_batches: int = Field(default=8, gt=0)
-    host_memory_mib: int = Field(default=512, gt=0)
+    host_memory_mib: int = Field(default=2048, gt=0)
     read_range_bytes: int = Field(default=1048576, ge=2)
     coalesce_gap_bytes: int = Field(default=65536, ge=0)
     max_read_amplification: float = Field(default=2.0, ge=1)
+    preload_max_read_amplification: float = Field(default=16.0, ge=1)
     # Overrides for preparation/smoke runs; None means the complete validation split.
     prepare_train_tokens: int | None = Field(default=None, gt=0)
     prepare_validation_tokens: int | None = Field(default=None, gt=0)
@@ -92,6 +94,7 @@ class WSDScheduleConfig(StrictModel):
 class TrainingConfig(StrictModel):
     tokens_per_parameters: float = Field(default=20.0, gt=0)
     epoch_tokens_per_parameters: float = Field(default=0.5, gt=0)
+    data_reuse_factor: int = Field(default=1, gt=0, strict=True)
     batch_tokens: int = Field(default=32768, gt=0)
     micro_batch_size: int = Field(default=32, gt=0)
     checkpoint_policy: Literal["interval", "explicit", "final", "none"] = "final"

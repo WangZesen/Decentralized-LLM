@@ -18,13 +18,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from decentralized_llm.cache import TokenCache, training_boundaries
 from decentralized_llm.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.config import Config, save_config
-from decentralized_llm.distributed import barrier, mix_parameters, rank, setup, world_size
+from decentralized_llm.distributed import barrier, begin_parameter_mix, mix_parameters, rank, setup, world_size
 from decentralized_llm.evaluation import evaluate
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama, token_losses
 from decentralized_llm.optim import learning_rate, make_optimizer
 from decentralized_llm.runtime import append_metric, atomic_json, clip_grad_norm_, environment, restore_rng
-from decentralized_llm.sampling import BatchSpec, check_memory, rank_count
+from decentralized_llm.sampling import BatchSpec, check_memory, rank_count, sampling_plan
 from decentralized_llm.state import Batch
 
 
@@ -50,28 +50,38 @@ def optimizer_update(
     optimizer.zero_grad(set_to_none=True)
     cursor = start
     loss_sum = torch.zeros((), device=device)
-    while cursor < stop:
-        (x, y), spec = next_batch()
-        if spec.start != cursor or spec.stop > stop:
-            raise ValueError("loader/optimizer global cursor mismatch")
-        final_microbatch = spec.stop == stop
-        sync = forward.no_sync() if isinstance(forward, DDP) and not final_microbatch else nullcontext()
-        with sync:
-            with torch.autocast(device.type, dtype=torch.bfloat16, enabled=config.runtime.amp):
-                losses = token_losses(forward(x), y).sum()
-                loss = losses / (denominator * length)
-            loss.backward()
-        loss_sum += losses.detach()
-        cursor = spec.stop
-        # Compute is already queued on CUDA; enqueue the upcoming transfer alongside it.
-        preload()
-    norm = clip_grad_norm_(model.parameters(), config.optimizer.grad_clip)
-    if config.distributed.mode == "decentralized" and config.distributed.scheme == "awc":
-        mix_parameters(model, config.distributed.topology, step)
-    optimizer.step()
-    if config.distributed.mode == "decentralized" and config.distributed.scheme == "atc":
-        mix_parameters(model, config.distributed.topology, step)
-    return {"lr": lr, "gradient_norm": float(norm), "local_loss": float(loss_sum) / (local_count * length)}
+    pending = (
+        begin_parameter_mix(model, config.distributed.topology, step)
+        if config.distributed.mode == "decentralized" and config.distributed.scheme == "awc"
+        else None
+    )
+    try:
+        while cursor < stop:
+            (x, y), spec = next_batch()
+            if spec.start != cursor or spec.stop > stop:
+                raise ValueError("loader/optimizer global cursor mismatch")
+            final_microbatch = spec.stop == stop
+            sync = forward.no_sync() if isinstance(forward, DDP) and not final_microbatch else nullcontext()
+            with sync:
+                with torch.autocast(device.type, dtype=torch.bfloat16, enabled=config.runtime.amp):
+                    losses = token_losses(forward(x), y).sum()
+                    loss = losses / (denominator * length)
+                loss.backward()
+            loss_sum += losses.detach()
+            cursor = spec.stop
+            # Compute is already queued on CUDA; enqueue the upcoming transfer alongside it.
+            preload()
+        norm = clip_grad_norm_(model.parameters(), config.optimizer.grad_clip)
+        if pending is not None:
+            pending.apply()
+        optimizer.step()
+        if config.distributed.mode == "decentralized" and config.distributed.scheme == "atc":
+            mix_parameters(model, config.distributed.topology, step)
+        return {"lr": lr, "gradient_norm": float(norm), "local_loss": float(loss_sum) / (local_count * length)}
+    finally:
+        if pending is not None:
+            # A failed forward, backward or loader call must not leave a live exchange.
+            pending.wait()
 
 
 def train(config: Config, resume: Path | None = None, *, stop_after_steps: int | None = None) -> dict:
@@ -88,7 +98,7 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
         barrier()
         cache = TokenCache(config.data.cache_dir)
         cache.validate_config(config)
-        check_memory(cache, config)
+        memory = check_memory(cache, config)
         boundaries = training_boundaries(config, config.model.parameter_count)
         total = boundaries[-1]
         if rank() == 0:
@@ -101,6 +111,9 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                     "world_size": world_size(),
                     "cache": cache.manifest["identity"],
                     "boundaries": boundaries,
+                    "sampling": sampling_plan(cache, config).summary(),
+                    "loader_mode": "resident" if memory["resident_tokens"] else "streaming",
+                    "memory_bytes_per_rank": memory,
                     "resume": str(resume) if resume else None,
                 },
             )

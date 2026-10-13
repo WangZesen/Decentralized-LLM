@@ -1,8 +1,10 @@
 import copy
 import os
 import socket
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -13,7 +15,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from decentralized_llm.cache import TokenCache
 from decentralized_llm.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.config import Config
-from decentralized_llm.distributed import peer_for
+from decentralized_llm.distributed import begin_parameter_mix, peer_for, prepare_parameter_groups
 from decentralized_llm.evaluation import evaluate
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama, token_losses
@@ -24,7 +26,7 @@ from decentralized_llm.train import optimizer_update, train
 
 
 def reference_batch(cache: TokenCache, config: Config, positions: list[int]) -> tuple[torch.Tensor, torch.Tensor]:
-    sampler = GlobalSampler(cache, config.model.context_length, config.runtime.seed)
+    sampler = GlobalSampler.from_config(cache, config)
     tokens = [
         torch.tensor(cache.read("train", sampler.block(p) * 4, sampler.block(p) * 4 + 5).astype("int64"))
         for p in positions
@@ -161,9 +163,91 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
+def snapshot_worker(worker: int, size: int, ports: list[int], device_type: str) -> None:
+    torch.set_num_threads(1)
+    device = torch.device(device_type, worker) if device_type == "cuda" else torch.device("cpu")
+    if device.type == "cuda":
+        torch.cuda.set_device(device)
+    # Repeat initialization in the same process to catch stale cached group handles.
+    for port in ports:
+        os.environ.update(MASTER_ADDR="127.0.0.1", MASTER_PORT=str(port))
+        dist.init_process_group(
+            "nccl" if device.type == "cuda" else "gloo",
+            rank=worker,
+            world_size=size,
+            timeout=timedelta(seconds=30),
+            device_id=device if device.type == "cuda" else None,
+        )
+        try:
+            with (
+                patch.object(dist, "new_group", wraps=dist.new_group) as create,
+                patch.object(dist, "all_reduce", wraps=dist.all_reduce) as reduce,
+            ):
+                for topology in ("complete", "one_peer_ring", "one_peer_exponential"):
+                    prepare_parameter_groups(topology, timeout=timedelta(seconds=30))
+                    created = create.call_count
+                    if topology == "complete" or size == 2:
+                        assert created == 0
+                    for step in range(4):
+                        model = torch.nn.Linear(3, 2, bias=False, device=device)
+                        with torch.no_grad():
+                            model.weight.fill_(worker + 1 + step)
+                        before = model.weight.detach().clone()
+                        pending = begin_parameter_mix(model, topology, step)
+                        assert pending is not None
+                        assert create.call_count == created  # No communicator creation during updates.
+                        assert reduce.call_args is not None
+                        assert reduce.call_args.kwargs["async_op"]
+                        members = dist.get_process_group_ranks(reduce.call_args.kwargs["group"])
+                        expected_members = (
+                            list(range(size))
+                            if topology == "complete"
+                            else sorted([worker, peer_for(worker, size, topology, step)])
+                        )
+                        assert members == expected_members
+                        # Check both an in-flight exchange and one already joined before forward.
+                        if step % 2 == 0:
+                            pending.wait()
+                        torch.testing.assert_close(model.weight, before, rtol=0, atol=0)
+                        model(torch.ones(1, 3, device=device)).square().sum().backward()
+                        torch.testing.assert_close(model.weight.grad, 6 * before, rtol=0, atol=0)
+                        # Live storage must not alias the communication snapshot.
+                        with torch.no_grad():
+                            model.weight.add_(100)
+                        pending.apply()
+                        value = (
+                            (size + 1) / 2 + step
+                            if topology == "complete"
+                            else (worker + peer_for(worker, size, topology, step)) / 2 + 1 + step
+                        )
+                        torch.testing.assert_close(model.weight, torch.full_like(before, value), rtol=0, atol=0)
+                        torch.testing.assert_close(model.weight.grad, 6 * before, rtol=0, atol=0)
+        finally:
+            dist.destroy_process_group()
+
+
 @pytest.mark.distributed
+@pytest.mark.parametrize("size", [2, 4, 8])
+def test_parameter_mix_snapshot(size: int) -> None:
+    mp.spawn(  # pyright: ignore[reportPrivateImportUsage]
+        snapshot_worker, args=(size, [free_port(), free_port()], "cpu"), nprocs=size, join=True
+    )
+
+
+@pytest.mark.cuda
 @pytest.mark.parametrize("size", [2, 4])
-def test_distributed_serial_references(cache: TokenCache, tiny_config: Config, size: int) -> None:
+def test_cuda_parameter_mix_snapshot(size: int) -> None:
+    if torch.cuda.device_count() < size:
+        pytest.skip(f"requires {size} CUDA GPUs")
+    mp.spawn(  # pyright: ignore[reportPrivateImportUsage]
+        snapshot_worker, args=(size, [free_port(), free_port()], "cuda"), nprocs=size, join=True
+    )
+
+
+@pytest.mark.distributed
+@pytest.mark.parametrize("size,factor", [(2, 1), (4, 1), (4, 3)])
+def test_distributed_serial_references(cache: TokenCache, tiny_config: Config, size: int, factor: int) -> None:
+    tiny_config.training.data_reuse_factor = factor
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage] # Public torch API missing from its export stubs.
         distributed_comparisons, args=(size, free_port(), tiny_config.model_dump(mode="json")), nprocs=size, join=True
     )
@@ -189,11 +273,13 @@ def resume_worker(worker: int, size: int, ports: list[int], raw: dict[str, Any])
         train(cfg)
         original = torch.load(cfg.runtime.output_dir / f"final/rank-{worker:05d}.pt", weights_only=False)
         cfg.runtime.output_dir = root / f"{mode}-split"
+        cfg.data.loader_mode = "streaming"
         os.environ["MASTER_PORT"] = str(ports[port_index])
         port_index += 1
         train(cfg, stop_after_steps=2)
         checkpoint = cfg.runtime.output_dir / "step-00000002"
         cfg.runtime.output_dir = root / f"{mode}-resumed"
+        cfg.data.loader_mode = "resident"
         cfg.data.prefetch_batches = 1
         cfg.data.reader_threads = 1
         os.environ["MASTER_PORT"] = str(ports[port_index])
@@ -209,8 +295,9 @@ def resume_worker(worker: int, size: int, ports: list[int], raw: dict[str, Any])
 
 
 @pytest.mark.distributed
-@pytest.mark.parametrize("size", [2, 4])
-def test_multiprocess_training_resume(cache: TokenCache, tiny_config: Config, size: int) -> None:
+@pytest.mark.parametrize("size,factor", [(2, 1), (4, 1), (2, 4), (4, 7)])
+def test_multiprocess_training_resume(cache: TokenCache, tiny_config: Config, size: int, factor: int) -> None:
+    tiny_config.training.data_reuse_factor = factor
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage] # Public torch API missing from its export stubs.
         resume_worker,
         args=(size, [free_port() for _ in range(6)], tiny_config.model_dump(mode="json")),

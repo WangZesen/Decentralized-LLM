@@ -60,11 +60,15 @@ def test_cache_identity_and_dtype(cache: TokenCache) -> None:
         TokenCache(cache.directory)
 
 
-def test_cancel_pending_reads(cache: TokenCache, tiny_config: Config) -> None:
+@pytest.mark.parametrize("mode", ["resident", "streaming"])
+def test_cancel_pending_reads(cache: TokenCache, tiny_config: Config, mode: str) -> None:
+    tiny_config.data = tiny_config.data.model_copy(update={"loader_mode": mode})
     loader = TokenLoader(cache, tiny_config, 0, 0, 1000000)
     loader.close()
     assert not loader.thread.is_alive()
     assert loader.sampler.permutation.size == 0
+    assert loader.resident_tokens.size == 0
+    assert all(not handles for handles in loader.reader.handles)
 
 
 def test_torchrun_rank_failure_propagates(tmp_path: Path) -> None:
@@ -95,8 +99,9 @@ def test_torchrun_rank_failure_propagates(tmp_path: Path) -> None:
     assert "injected rank failure" in result.stderr
 
 
+@pytest.mark.parametrize("factor", [1, 5])
 def test_compilation_wrapper_and_benchmark(
-    cache: TokenCache, tiny_config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    cache: TokenCache, tiny_config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, factor: int
 ) -> None:
     from decentralized_llm.benchmark import benchmark_data
 
@@ -107,10 +112,15 @@ def test_compilation_wrapper_and_benchmark(
 
     monkeypatch.setattr(torch, "compile", eager_compile)
     tiny_config.runtime.compile = True
+    tiny_config.training.data_reuse_factor = factor
     result = benchmark_data(tiny_config, steps=2, warmup=1, cache_state="warm", output=tmp_path / "benchmark.json")
     assert result["measurements"]["network"]["loader"]["requested_bytes"] > 0
     assert result["throughput_ratio"] > 0
     assert (tmp_path / "benchmark.json").is_file()
+    if factor == 5:
+        # The benchmark loads 18 blocks; the configured training budget is 42.
+        assert result["sampling"]["pool_blocks"] == 9
+        assert result["measurements"]["network"]["loader"]["sampler_index_bytes"] == 9 * 16
 
 
 def test_validate_cli_prevents_launch(cache: TokenCache, tiny_config: Config, tmp_path: Path) -> None:

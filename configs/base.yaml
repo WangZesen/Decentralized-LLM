@@ -3,14 +3,16 @@ model:
   context_length: 1024
 data:
   cache_dir: data/c4
+  loader_mode: auto
   reader_threads: 4
   prefetch_batches: 8
-  host_memory_mib: 512
+  host_memory_mib: 2048
 training:
   batch_tokens: 32768
   micro_batch_size: 8
   tokens_per_parameters: 20.0
   epoch_tokens_per_parameters: 0.5
+  data_reuse_factor: 1
   checkpoint_policy: final
 lr_schedule:
   name: cosine

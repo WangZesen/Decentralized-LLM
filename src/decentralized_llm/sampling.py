@@ -6,11 +6,62 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from decentralized_llm.cache import TokenCache, fingerprint
+from decentralized_llm.cache import TokenCache, fingerprint, training_boundaries
 from decentralized_llm.config import Config
 from decentralized_llm.state import IndexArray
 
 SAMPLER_VERSION = 1
+REUSE_SAMPLER_VERSION = 2
+PRELOAD_BLOCKS = 1024
+
+
+@dataclass(frozen=True)
+class SamplingPlan:
+    eligible_blocks: int
+    pool_blocks: int
+    total_blocks: int
+    reuse_factor: int
+    context_length: int
+
+    def summary(self) -> dict[str, int]:
+        full_passes, partial_pass_blocks = divmod(self.total_blocks, self.pool_blocks)
+        return {
+            "data_reuse_factor": self.reuse_factor,
+            "pool_blocks": self.pool_blocks,
+            "unique_training_tokens": min(self.total_blocks, self.pool_blocks) * self.context_length,
+            "full_passes": full_passes,
+            "partial_pass_blocks": partial_pass_blocks,
+        }
+
+
+def sampling_plan(cache: TokenCache, config: Config) -> SamplingPlan:
+    """Derive the pool from the full recipe, never from a loader's cursor or stop."""
+    length = config.model.context_length
+    eligible = cache.blocks("train", length)
+    if eligible < 1:
+        raise ValueError("training cache has no complete context block plus lookahead")
+    total = training_boundaries(config, config.model.parameter_count)[-1]
+    factor = config.training.data_reuse_factor
+    pool = eligible if factor == 1 else (total + factor - 1) // factor
+    if pool > eligible:
+        raise ValueError(
+            f"data_reuse_factor={factor} requires {pool} unique training blocks "
+            f"({pool * length + 1} cached tokens including lookahead); cache has {eligible} blocks. "
+            "Prepare a larger cache at a new path."
+        )
+    return SamplingPlan(eligible, pool, total, factor, length)
+
+
+def _fill_indices(indices: IndexArray) -> None:
+    # Bounded scratch space even for very large caches.
+    for start in range(0, len(indices), 65536):
+        stop = min(start + 65536, len(indices))
+        indices[start:stop] = np.arange(start, stop, dtype=np.int64)
+
+
+def _shuffle(indices: IndexArray, digest: str, pass_index: int) -> None:
+    seed = int(fingerprint([digest, pass_index]), 16)
+    np.random.Generator(np.random.PCG64(seed)).shuffle(indices)
 
 
 @dataclass(frozen=True)
@@ -40,20 +91,63 @@ class GlobalSampler:
             "numpy": np.__version__,
         }
         self.digest = fingerprint(self.identity)
+        self._eligible_blocks = self.blocks
+        self._selection_digest: str | None = None
+        # Identity checks need no index allocation or shuffling.
+        self.pool = np.empty(0, dtype=np.int64)
+        self.permutation = np.empty(0, dtype=np.int64)
+        self.pass_index = -1
+
+    @classmethod
+    def from_config(cls, cache: TokenCache, config: Config) -> GlobalSampler:
+        plan = sampling_plan(cache, config)
+        sampler = cls(cache, config.model.context_length, config.runtime.seed)
+        if plan.reuse_factor > 1:
+            sampler._selection_digest = sampler.digest
+            sampler.blocks = plan.pool_blocks
+            sampler.identity = {
+                **sampler.identity,
+                "version": REUSE_SAMPLER_VERSION,
+                "blocks": plan.pool_blocks,
+                "eligible_blocks": plan.eligible_blocks,
+                "reuse_factor": plan.reuse_factor,
+                "total_blocks": plan.total_blocks,
+                "selection_algorithm": "sampler-v1-first-pass-prefix",
+            }
+            sampler.digest = fingerprint(sampler.identity)
+        return sampler
+
+    def _initialize(self) -> None:
+        if self._selection_digest is not None:
+            candidates = np.empty(self._eligible_blocks, dtype=np.int64)
+            _fill_indices(candidates)
+            _shuffle(candidates, self._selection_digest, 0)
+            self.pool = candidates[: self.blocks].copy()
+            self.pool.flags.writeable = False
+            del candidates
         self.permutation = np.empty(self.blocks, dtype=np.int64)
+
+    @property
+    def index_bytes(self) -> int:
+        return self.pool.nbytes + self.permutation.nbytes
+
+    def close(self) -> None:
+        self.pool = np.empty(0, dtype=np.int64)
+        self.permutation = np.empty(0, dtype=np.int64)
         self.pass_index = -1
 
     def block(self, position: int) -> int:
         if position < 0:
             raise ValueError("negative global position")
+        if not self.permutation.size:
+            self._initialize()
         pass_index, offset = divmod(position, self.blocks)
         if pass_index != self.pass_index:
-            # Refill in bounded chunks: never retain two full permutations at a pass boundary.
-            for start in range(0, self.blocks, 65536):
-                stop = min(start + 65536, self.blocks)
-                self.permutation[start:stop] = np.arange(start, stop, dtype=np.int64)
-            seed = int(fingerprint([self.digest, pass_index]), 16)
-            np.random.Generator(np.random.PCG64(seed)).shuffle(self.permutation)
+            if self._selection_digest is None:
+                _fill_indices(self.permutation)
+            else:
+                np.copyto(self.permutation, self.pool)
+            _shuffle(self.permutation, self.digest, pass_index)
             self.pass_index = pass_index
         return int(self.permutation[offset])
 
@@ -71,7 +165,8 @@ class GlobalSampler:
             cursor = end
 
 
-def memory_estimate(cache: TokenCache, config: Config) -> dict[str, int]:
+def memory_estimate(cache: TokenCache, config: Config, *, stop: int | None = None) -> dict[str, int]:
+    plan = sampling_plan(cache, config)
     data, train = config.data, config.training
     length, depth, batch = config.model.context_length, data.prefetch_batches, train.micro_batch_size
     offsets = cache.offsets["train"]
@@ -86,8 +181,11 @@ def memory_estimate(cache: TokenCache, config: Config) -> dict[str, int]:
     read_chunks = (length + data.read_range_bytes // 2) // (data.read_range_bytes // 2)
     segments = shard_crossings + read_chunks
 
+    # Selection briefly holds the full cache permutation plus the copied pool.
+    # After selection only the pool and its current permutation remain (2 * pool).
+    index_blocks = plan.eligible_blocks + (plan.pool_blocks if plan.reuse_factor > 1 else 0)
     parts = {
-        "permutation": cache.blocks("train", length) * 8 + 65536 * 8,
+        "permutation": index_blocks * 8 + 65536 * 8,
         "compact_windows": (depth + 2) * batch * (length + 1) * 2,
         "read_scratch": data.reader_threads * data.read_range_bytes * 3,
         "request_metadata": 2 * depth * batch * segments * 2048,
@@ -97,17 +195,37 @@ def memory_estimate(cache: TokenCache, config: Config) -> dict[str, int]:
         + cache.blocks("validation", length, partial=True) * 8,
         "file_descriptors": 64 * data.reader_threads * 1024,
         "telemetry_and_runtime": 2 * 1024 * 1024,
+        "resident_tokens": 0,
+        "resident_indices": 0,
+        "resident_read_state": 0,
+        "preload_metadata": 0,
     }
+    # K=1 may use only a prefix of its first pass through a much larger cache.
+    # Cache exactly that working set, while preserving the full sampler permutation.
+    # Loader-only callers may explicitly read beyond the configured training budget.
+    resident_blocks = min(plan.pool_blocks, max(plan.total_blocks, stop or 0))
+    resident = {
+        **parts,
+        "resident_tokens": resident_blocks * (length + 1) * 2,
+        "resident_indices": resident_blocks * 8,
+        "resident_read_state": resident_blocks * 8,
+        "preload_metadata": 2 * min(PRELOAD_BLOCKS, resident_blocks) * segments * 2048,
+    }
+    if data.loader_mode == "resident" or (
+        data.loader_mode == "auto" and sum(resident.values()) <= data.host_memory_mib * 1024**2
+    ):
+        parts = resident
     parts["total"] = sum(parts.values())
     return parts
 
 
-def check_memory(cache: TokenCache, config: Config) -> dict[str, int]:
-    estimate = memory_estimate(cache, config)
+def check_memory(cache: TokenCache, config: Config, *, stop: int | None = None) -> dict[str, int]:
+    estimate = memory_estimate(cache, config, stop=stop)
     budget = config.data.host_memory_mib * 1024**2
     if estimate["total"] > budget:
         raise ValueError(
-            f"loader requires approximately {estimate['total'] / 1024**2:.1f} MiB per rank; "
-            f"host_memory_mib={config.data.host_memory_mib}. Increase budget or reduce buffers."
+            f"{config.data.loader_mode} loader requires approximately {estimate['total'] / 1024**2:.1f} MiB per rank; "
+            f"host_memory_mib={config.data.host_memory_mib}. Increase budget, reduce buffers, "
+            "or use data.loader_mode=auto/streaming."
         )
     return estimate
