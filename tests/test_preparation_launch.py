@@ -14,7 +14,7 @@ import pytest
 
 from decentralized_llm import cache as cache_module
 from decentralized_llm.cache import TokenCache, _tokenized_batches, prepare
-from decentralized_llm.config import Config, save_config
+from decentralized_llm.config import Config, SlurmLauncher, save_config
 from decentralized_llm.launch import launch, local_command, slurm_scripts
 from decentralized_llm.preflight import validate
 
@@ -153,6 +153,11 @@ def test_launcher_validation_account_dryrun(
         launch(cfg, dry_run=True)
     secret = "test-account-do-not-record"
     monkeypatch.setenv("account", secret)
+    assert isinstance(cfg.launcher, SlurmLauncher)
+    cfg.launcher.environment_overlays = [tmp_path / "missing network.sh"]
+    with pytest.raises(ValueError, match="environment setup script does not exist"):
+        launch(cfg, dry_run=True)
+    cfg.launcher.environment_overlays = []
     result = launch(cfg, dry_run=True)
     assert secret not in json.dumps(result)
     assert not cfg.runtime.output_dir.exists()

@@ -8,7 +8,7 @@ import traceback
 from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import torch
 import torch.distributed as dist
@@ -20,6 +20,7 @@ from decentralized_llm.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.config import Config, save_config
 from decentralized_llm.distributed import barrier, begin_parameter_mix, mix_parameters, rank, setup, world_size
 from decentralized_llm.evaluation import evaluate
+from decentralized_llm.execution import TrainingExecution, build_execution, compiler_counters
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama, token_losses
 from decentralized_llm.optim import learning_rate, make_optimizer
@@ -40,6 +41,8 @@ def optimizer_update(
     stop: int,
     step: int,
     total: int,
+    *,
+    collect_metrics: bool = True,
 ) -> dict[str, float]:
     length = config.model.context_length
     local_count = rank_count(start, stop, rank(), world_size())
@@ -51,7 +54,7 @@ def optimizer_update(
     cursor = start
     loss_sum = torch.zeros((), device=device)
     pending = (
-        begin_parameter_mix(model, config.distributed.topology, step)
+        begin_parameter_mix(model, config.distributed.topology, step, reuse=config.distributed.reuse_mix_buffers)
         if config.distributed.mode == "decentralized" and config.distributed.scheme == "awc"
         else None
     )
@@ -61,10 +64,16 @@ def optimizer_update(
             if spec.start != cursor or spec.stop > stop:
                 raise ValueError("loader/optimizer global cursor mismatch")
             final_microbatch = spec.stop == stop
-            sync = forward.no_sync() if isinstance(forward, DDP) and not final_microbatch else nullcontext()
+            sync = (
+                forward.no_sync()
+                if isinstance(forward, (DDP, TrainingExecution)) and not final_microbatch
+                else nullcontext()
+            )
             with sync:
                 with torch.autocast(device.type, dtype=torch.bfloat16, enabled=config.runtime.amp):
-                    losses = token_losses(forward(x), y).sum()
+                    losses = (
+                        forward(x, y) if isinstance(forward, TrainingExecution) else token_losses(forward(x), y).sum()
+                    )
                     loss = losses / (denominator * length)
                 loss.backward()
             loss_sum += losses.detach()
@@ -76,15 +85,18 @@ def optimizer_update(
             pending.apply()
         optimizer.step()
         if config.distributed.mode == "decentralized" and config.distributed.scheme == "atc":
-            mix_parameters(model, config.distributed.topology, step)
+            mix_parameters(model, config.distributed.topology, step, reuse=config.distributed.reuse_mix_buffers)
+        if not collect_metrics:
+            return {}
         return {"lr": lr, "gradient_norm": float(norm), "local_loss": float(loss_sum) / (local_count * length)}
     finally:
         if pending is not None:
             # A failed forward, backward or loader call must not leave a live exchange.
-            pending.wait()
+            pending.close()
 
 
 def train(config: Config, resume: Path | None = None, *, stop_after_steps: int | None = None) -> dict:
+    session_started = time.perf_counter()
     output = config.runtime.output_dir
     output.mkdir(parents=True, exist_ok=True)
     lock = None
@@ -126,6 +138,7 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                 "pid": os.getpid(),
                 "device": str(device),
                 "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+                "cpu_affinity": sorted(os.sched_getaffinity(0)),
             },
         )
         model = Llama(config.model, config.runtime.attention_backend).to(device)
@@ -141,13 +154,8 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
             manifest, rng = load_checkpoint(resume, config, cache, model, optimizer)
             progress = {key: manifest[key] for key in progress}
             restore_rng(rng)
-        compiled = torch.compile(model, mode=config.runtime.compile_mode) if config.runtime.compile else model
-        # torch.compile preserves Module behavior; its public overload returns a Callable.
-        forward: nn.Module = cast(nn.Module, compiled)
-        if config.distributed.mode == "ddp" and world_size() > 1:
-            forward = DDP(
-                compiled, device_ids=[device.index] if device.type == "cuda" else None, broadcast_buffers=False
-            )
+        forward = build_execution(model, config, device)
+        atomic_json(output / f"execution-rank-{rank():05d}.json", {"policy": forward.policy, "cache": forward.cache})
         selected = config.training.saved_epochs()
         batch_blocks = config.training.batch_tokens // config.model.context_length
         with TokenLoader(cache, config, rank(), progress["cursor"], total) as loader:
@@ -158,10 +166,13 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                 if device.type == "cuda":
                     torch.cuda.synchronize(device)
                 started = time.perf_counter()
+                first_update_seconds = None
+                training_seconds = 0.0
                 initial_cursor = progress["cursor"]
                 for epoch, boundary in enumerate(boundaries, 1):
                     if epoch <= progress["completed_epochs"]:
                         continue
+                    segment_started = time.perf_counter()
                     while progress["cursor"] < boundary:
                         start = progress["cursor"]
                         stop = min(boundary, start + batch_blocks)
@@ -177,7 +188,12 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                             stop,
                             progress["step"],
                             total,
+                            collect_metrics=(progress["step"] + 1) % config.training.log_every == 0,
                         )
+                        if first_update_seconds is None:
+                            if device.type == "cuda":
+                                torch.cuda.synchronize(device)
+                            first_update_seconds = time.perf_counter() - session_started
                         # Read-ahead and transferred data are deliberately absent from durable state.
                         progress["cursor"] = stop
                         progress["step"] += 1
@@ -207,6 +223,9 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                                 progress,
                             )
                             return progress
+                    if device.type == "cuda":
+                        torch.cuda.synchronize(device)
+                    training_seconds += time.perf_counter() - segment_started
                     result = evaluate(model, cache, config, device, full=False)
                     progress["completed_epochs"] = epoch
                     if progress["best_loss"] is None or result["loss"] < progress["best_loss"]:
@@ -243,7 +262,16 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                 if rank() == 0:
                     atomic_json(
                         output / "result.json",
-                        {**progress, "validation": result, "seconds": time.perf_counter() - started},
+                        {
+                            **progress,
+                            "validation": result,
+                            "seconds": time.perf_counter() - started,
+                            "session_seconds": time.perf_counter() - session_started,
+                            "first_update_seconds": first_update_seconds,
+                            "training_seconds": training_seconds,
+                            "execution": forward.policy,
+                            "compiler_counters": compiler_counters() if forward.cache else {},
+                        },
                     )
                 return {**progress, "validation": result}
             finally:

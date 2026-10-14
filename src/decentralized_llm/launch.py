@@ -20,9 +20,12 @@ class SubmissionRejected(RuntimeError):
 def absolute_config(config: Config) -> Config:
     raw = config.model_dump(mode="json")
     raw["data"]["cache_dir"] = str(config.data.cache_dir.resolve())
+    raw["runtime"]["compile_cache_dir"] = str(config.runtime.compile_cache_dir.resolve())
     raw["runtime"]["output_dir"] = str(config.runtime.output_dir.resolve())
-    if isinstance(config.launcher, SlurmLauncher) and config.launcher.environment_script is not None:
-        raw["launcher"]["environment_script"] = str(config.launcher.environment_script.resolve())
+    if isinstance(config.launcher, SlurmLauncher):
+        if config.launcher.environment_script is not None:
+            raw["launcher"]["environment_script"] = str(config.launcher.environment_script.resolve())
+        raw["launcher"]["environment_overlays"] = [str(path.resolve()) for path in config.launcher.environment_overlays]
     return Config.model_validate(raw)
 
 
@@ -36,6 +39,7 @@ def local_command(
         "--standalone",
         "--nnodes=1",
         f"--nproc-per-node={config.distributed.gpus_per_node}",
+        *(["--numa-binding=exclusive"] if config.runtime.cpu_affinity == "exclusive" else []),
         "--max-restarts=0",
         f"--rdzv-conf=timeout={config.distributed.timeout_seconds},join_timeout={config.distributed.timeout_seconds}",
         "--module",
@@ -79,13 +83,16 @@ def slurm_scripts(
         else '--node-rank="$SLURM_PROCID" --master-addr="$MASTER_ADDR" '
         f"--master-port={config.distributed.rendezvous_port} --rdzv-backend=static "
     )
+    affinity = "--numa-binding=exclusive " if config.runtime.cpu_affinity == "exclusive" else ""
+    overlays = "".join(f"source {shlex.quote(str(path.resolve()))}\n" for path in launcher.environment_overlays)
     worker = (
         "#!/usr/bin/env bash\nset -euo pipefail\n"
         f"cd {shlex.quote(str(project))}\n"
         f"source {shlex.quote(str(environment.resolve()))}\n"
+        f"{overlays}"
         'exec "${DECENTRALIZED_PYTHON:-python3}" -m torch.distributed.run '
         f"--nnodes={config.distributed.nodes} --nproc-per-node={config.distributed.gpus_per_node} "
-        f"{rendezvous}--max-restarts=0 "
+        f"{rendezvous}{affinity}--max-restarts=0 "
         f"--rdzv-conf=timeout={config.distributed.timeout_seconds} " + shlex.join(arguments) + "\n"
     )
     gpu_request = f"{launcher.gpu_type}:" if launcher.gpu_type else ""
@@ -95,7 +102,6 @@ def slurm_scripts(
         'export MASTER_ADDR="${allocated_hosts[0]}"\n'
         "export OMP_NUM_THREADS=" + str(config.runtime.cpu_threads) + "\n"
         "export TORCH_NCCL_ASYNC_ERROR_HANDLING=1\n"
-        "export CUBLAS_WORKSPACE_CONFIG=:4096:8\n"
         f"srun --ntasks={config.distributed.nodes} --ntasks-per-node=1 "
         f"--gpus-per-task={gpu_request}{config.distributed.gpus_per_node} --gpu-bind=none "
         "--cpu-bind=none --kill-on-bad-exit=1 bash " + shlex.quote(str(worker_path)) + "\n"
@@ -115,11 +121,13 @@ def scheduler_arguments(config: Config) -> list[str]:
         f"--time={launcher.time}",
         f"--nodes={config.distributed.nodes}",
         "--ntasks-per-node=1",
-        f"--cpus-per-task={launcher.cpus_per_task}",
         f"--mem={launcher.memory}",
         f"--gpus-per-node={gpu}{config.distributed.gpus_per_node}",
     ]
-    for key in ("constraint", "qos"):
+    # An explicit CPU request overrides Slurm's GPU-proportional CPU default.
+    if launcher.cpus_per_task is not None:
+        arguments.append(f"--cpus-per-task={launcher.cpus_per_task}")
+    for key in ("constraint", "qos", "network"):
         value = getattr(launcher, key)
         if value:
             arguments.append(f"--{key}={value}")
@@ -151,7 +159,8 @@ def launch(
         atomic_json(destination / "receipt.json", result)
         env = dict(os.environ)
         env.setdefault("OMP_NUM_THREADS", str(config.runtime.cpu_threads))
-        env.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+        if config.runtime.deterministic:
+            env.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         subprocess.run(command, check=True, env=env)
         return result
     batch_path, worker_path = destination / "submit.sh", destination / "worker.sh"

@@ -1,5 +1,12 @@
 # Validation record
 
+The current GH200 cleanup passes 135 CPU/Gloo tests, Ruff lint/format, Pyright, and
+shell syntax checks. Both hardware presets pass training, benchmark, and tuning dry
+runs. For the allocated multi-GPU measurements and numerical limitations, see the
+[GH200 execution and benchmark record](gh200-performance.md).
+
+The remainder of this page preserves the original CPU implementation record.
+
 Implementation environment: Python 3.14.5, PyTorch 2.14.0+cu130, NumPy 2.5.3,
 x86-64 Linux, shared Lustre filesystem. Final CPU suite: **27 passed**; CUDA tests
 were excluded. Ruff lint/format and `pyright --warnings` pass. The repository's locked development tools are

@@ -148,8 +148,15 @@ class RuntimeConfig(StrictModel):
     deterministic: bool = False
     device: Literal["cpu", "cuda"] = "cuda"
     amp: bool = True
-    compile: bool = False
+    execution_backend: Literal["auto", "native", "gh200"] = "auto"
+    compile: bool | Literal["auto"] = "auto"
     compile_mode: Literal["default", "reduce-overhead", "max-autotune"] = "default"
+    compile_cache_dir: Path = Path(".cache/compile")
+    compile_scope: Literal["model", "blocks"] = "model"
+    projection_fusion: bool = True
+    fused_rope: bool = False
+    sdpa_backend: Literal["auto", "flash", "cudnn"] = "auto"
+    cpu_affinity: Literal["none", "local", "exclusive"] = "none"
     fused_optimizer: bool = True
     attention_backend: Literal["sdpa", "reference"] = "sdpa"
     output_dir: Path = Path("runs/default")
@@ -165,6 +172,10 @@ class DistributedConfig(StrictModel):
     rendezvous_port: int = Field(default=29500, ge=1024, le=65535)
     topology: Literal["complete", "one_peer_ring", "one_peer_exponential"] = "complete"
     scheme: Literal["awc", "atc"] = "awc"
+    ddp_bucket_cap_mb: int = Field(default=25, gt=0)
+    ddp_gradient_as_bucket_view: bool = False
+    ddp_batched_grad_copy: bool = False
+    reuse_mix_buffers: bool = True
 
     @property
     def world_size(self) -> int:
@@ -184,16 +195,27 @@ class LocalLauncher(StrictModel):
     kind: Literal["local"] = "local"
 
 
+class BenchmarkConfig(StrictModel):
+    warmup: int = Field(default=20, ge=1)
+    steps: int = Field(default=40, ge=1)
+    windows: int = Field(default=3, ge=1)
+    min_seconds: float = Field(default=2.0, gt=0)
+    profile: bool = False
+    wait_for_resident: bool = True
+
+
 class SlurmLauncher(StrictModel):
     kind: Literal["slurm"] = "slurm"
     partition: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
     time: str = Field(default="01:00:00", pattern=r"^(\d+-)?\d+:\d{2}(:\d{2})?$")
-    cpus_per_task: int = Field(default=32, gt=0)
+    cpus_per_task: int | None = Field(default=None, gt=0)
     memory: str = Field(default="128G", pattern=r"^\d+[KMGT]?$", min_length=1)
     gpu_type: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]+$")
     constraint: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.&|\[\]-]+$")
     qos: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]+$")
+    network: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_=,.-]+$")
     environment_script: Path | None = None
+    environment_overlays: list[Path] = Field(default_factory=list)
 
 
 class Config(StrictModel):
@@ -207,6 +229,7 @@ class Config(StrictModel):
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     distributed: DistributedConfig = Field(default_factory=DistributedConfig)
+    benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)
     launcher: Annotated[LocalLauncher | SlurmLauncher, Field(discriminator="kind")] = Field(
         default_factory=LocalLauncher
     )
@@ -221,6 +244,8 @@ class Config(StrictModel):
             raise ValueError("global batch must contain at least one sequence per rank")
         if self.runtime.device == "cpu" and self.distributed.backend != "gloo":
             raise ValueError("CPU runs require the gloo communication backend")
+        if self.runtime.device == "cpu" and self.runtime.cpu_affinity == "exclusive":
+            raise ValueError("exclusive CPU affinity requires GPU placement through torchrun")
         return self
 
 

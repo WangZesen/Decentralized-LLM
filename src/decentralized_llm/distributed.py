@@ -2,8 +2,11 @@
 
 import os
 import random
+import subprocess
+import weakref
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -15,6 +18,7 @@ from decentralized_llm.config import Config
 _peer_group_world: dist.ProcessGroup | None = None
 _peer_groups: dict[tuple[int, int], dist.ProcessGroup | None] = {}
 _prepared_topologies: set[str] = set()
+_mix_buffers: weakref.WeakKeyDictionary[nn.Module, MixBuffer] = weakref.WeakKeyDictionary()
 
 
 def rank() -> int:
@@ -37,6 +41,8 @@ def setup(config: Config) -> torch.device:
         raise ValueError(f"configured world_size={expected}, launched WORLD_SIZE={actual}")
     local = int(os.environ.get("LOCAL_RANK", "0"))
     if config.runtime.device == "cuda":
+        if config.runtime.deterministic:
+            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         visible = torch.cuda.device_count()
         if visible < config.distributed.gpus_per_node or local >= visible:
             raise ValueError(f"need {config.distributed.gpus_per_node} visible GPUs per node, found {visible}")
@@ -47,6 +53,8 @@ def setup(config: Config) -> torch.device:
                 raise ValueError("SLURM GPU allocation is missing")
         device = torch.device("cuda", local)
         torch.cuda.set_device(device)
+        if config.runtime.cpu_affinity == "local":
+            bind_local_cpus(local)
         if config.runtime.amp and not torch.cuda.is_bf16_supported():
             raise ValueError("BF16 autocast requires BF16 GPU support")
     else:
@@ -70,6 +78,30 @@ def setup(config: Config) -> torch.device:
         torch.cuda.manual_seed(seed)
     torch.use_deterministic_algorithms(config.runtime.deterministic)
     return device
+
+
+def bind_local_cpus(local: int) -> None:
+    """Intersect GPU-local CPUs with the scheduler cpuset; never escape the allocation."""
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")
+    identifier = visible[local] if visible != [""] and local < len(visible) else str(local)
+    pci = (
+        subprocess.check_output(
+            ["nvidia-smi", f"--id={identifier}", "--query-gpu=pci.bus_id", "--format=csv,noheader"], text=True
+        )
+        .strip()
+        .lower()
+    )
+    domain, bus, function = pci.split(":")
+    pci = f"{int(domain, 16):04x}:{bus}:{function}"
+    ranges = (Path("/sys/bus/pci/devices") / pci / "local_cpulist").read_text().strip()
+    cpus = set()
+    for part in ranges.split(","):
+        first, _, last = part.partition("-")
+        cpus.update(range(int(first), int(last or first) + 1))
+    allowed = cpus & os.sched_getaffinity(0)
+    if not allowed:
+        raise ValueError("allocation has no CPUs local to this GPU")
+    os.sched_setaffinity(0, allowed)
 
 
 def peer_for(worker: int, size: int, topology: str, step: int) -> int:
@@ -116,6 +148,12 @@ def prepare_parameter_groups(topology: str, *, timeout: timedelta | None = None)
 
 
 @dataclass
+class MixBuffer:
+    flat: torch.Tensor
+    busy: bool = False
+
+
+@dataclass
 class PendingParameterMix:
     """Own communication buffers without modifying parameters used by autograd."""
 
@@ -123,6 +161,7 @@ class PendingParameterMix:
     flat: torch.Tensor
     requests: list[dist.Work]
     size: int
+    owner: MixBuffer | None = None
 
     def wait(self) -> None:
         """Join communication on the caller's stream, including on update failure."""
@@ -141,9 +180,17 @@ class PendingParameterMix:
         # tensor once communication has already finished behind computation.
         torch._foreach_copy_(tuple(self.parameters), sources)  # pyright: ignore[reportPrivateImportUsage]
 
+    def close(self) -> None:
+        self.wait()
+        if self.owner is not None:
+            self.owner.busy = False
+            self.owner = None
+
 
 @torch.no_grad()
-def begin_parameter_mix(model: nn.Module, topology: str, step: int) -> PendingParameterMix | None:
+def begin_parameter_mix(
+    model: nn.Module, topology: str, step: int, *, reuse: bool = False
+) -> PendingParameterMix | None:
     """Exchange a snapshot asynchronously; the live weights remain unchanged."""
     size = world_size()
     if size == 1:
@@ -158,15 +205,37 @@ def begin_parameter_mix(model: nn.Module, topology: str, step: int) -> PendingPa
         assert group is not None
         size = 2
     parameters = list(model.parameters())
-    flat = torch.cat([p.detach().reshape(-1) for p in parameters])
-    requests = [dist.all_reduce(flat, group=group, async_op=True)]
-    return PendingParameterMix(parameters, flat, requests, size)
+    owner = None
+    sources = [p.detach().reshape(-1) for p in parameters]
+    if reuse:
+        owner = _mix_buffers.get(model)
+        if owner is None:
+            owner = MixBuffer(
+                torch.empty(sum(p.numel() for p in parameters), device=parameters[0].device, dtype=parameters[0].dtype)
+            )
+            _mix_buffers[model] = owner
+        if owner.busy:
+            raise RuntimeError("previous parameter exchange still owns the reusable snapshot")
+        owner.busy = True
+        flat = torch.cat(sources, out=owner.flat)
+    else:
+        flat = torch.cat(sources)
+    try:
+        requests = [dist.all_reduce(flat, group=group, async_op=True)]
+    except BaseException:
+        if owner is not None:
+            owner.busy = False
+        raise
+    return PendingParameterMix(parameters, flat, requests, size, owner)
 
 
-def mix_parameters(model: nn.Module, topology: str, step: int) -> None:
-    pending = begin_parameter_mix(model, topology, step)
+def mix_parameters(model: nn.Module, topology: str, step: int, *, reuse: bool = False) -> None:
+    pending = begin_parameter_mix(model, topology, step, reuse=reuse)
     if pending is not None:
-        pending.apply()
+        try:
+            pending.apply()
+        finally:
+            pending.close()
 
 
 @torch.no_grad()

@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 import torch.distributed as dist
@@ -11,6 +11,7 @@ from torch import nn
 from decentralized_llm.cache import TokenCache, file_digest, fingerprint
 from decentralized_llm.config import Config
 from decentralized_llm.distributed import barrier, rank, world_size
+from decentralized_llm.model import Llama
 from decentralized_llm.runtime import atomic_checkpoint, atomic_json, rng_state
 from decentralized_llm.sampling import GlobalSampler
 from decentralized_llm.state import RNGState
@@ -19,6 +20,28 @@ CHECKPOINT_VERSION = 1
 
 
 def recipe_identity(config: Config, cache: TokenCache) -> str:
+    runtime = config.runtime.model_dump(exclude={"output_dir", "cpu_threads", "compile_cache_dir", "cpu_affinity"})
+    # Default-valued execution additions do not invalidate version-1 recipes.
+    defaults = {
+        "execution_backend": "auto",
+        "compile_scope": "model",
+        "projection_fusion": True,
+        "fused_rope": False,
+        "sdpa_backend": "auto",
+    }
+    for key, value in defaults.items():
+        if runtime[key] == value:
+            runtime.pop(key)
+    distributed = config.distributed.model_dump(
+        exclude={"nodes", "gpus_per_node", "timeout_seconds", "rendezvous_port", "reuse_mix_buffers"}
+    )
+    for key, value in {
+        "ddp_bucket_cap_mb": 25,
+        "ddp_gradient_as_bucket_view": False,
+        "ddp_batched_grad_copy": False,
+    }.items():
+        if distributed[key] == value:
+            distributed.pop(key)
     training = config.training.model_dump(
         mode="json",
         exclude={
@@ -38,10 +61,8 @@ def recipe_identity(config: Config, cache: TokenCache) -> str:
             "schedule": config.lr_schedule.model_dump(),
             "training": training,
             "evaluation": config.evaluation.model_dump(),
-            "runtime": config.runtime.model_dump(exclude={"output_dir", "cpu_threads"}),
-            "distributed": config.distributed.model_dump(
-                exclude={"nodes", "gpus_per_node", "timeout_seconds", "rendezvous_port"}
-            ),
+            "runtime": runtime,
+            "distributed": distributed,
             "world_size": config.distributed.world_size,
             "cache": cache.manifest["identity"],
         }
@@ -56,7 +77,15 @@ def validate_checkpoint(
         raise ValueError("unsupported checkpoint version; historical tiny-llm checkpoints are not supported")
     if manifest["world_size"] != config.distributed.world_size:
         raise ValueError("checkpoint world size mismatch")
-    if manifest["recipe_identity"] != recipe_identity(config, cache):
+    identity = recipe_identity(config, cache)
+    if manifest["recipe_identity"] != identity and not manifest.get("execution"):
+        legacy = config.model_copy(deep=True)
+        if legacy.runtime.compile == "auto":
+            legacy.runtime.compile = False
+        if legacy.runtime.execution_backend == "native":
+            legacy.runtime.execution_backend = "auto"
+        identity = recipe_identity(legacy, cache)
+    if manifest["recipe_identity"] != identity:
         raise ValueError("checkpoint training recipe mismatch")
     if require_training and not manifest["training_state"]:
         raise ValueError("weights-only epoch cannot resume training")
@@ -119,6 +148,7 @@ def save_checkpoint(
                 "recipe_identity": recipe_identity(config, cache),
                 "sampler": sampler["sampler"],
                 "training_state": training_state,
+                "execution": getattr(model, "execution_policy", {}),
                 "files": results,
                 **progress,
             },
@@ -138,6 +168,20 @@ def load_checkpoint(
     if config.distributed.mode == "ddp" and rank() != 0:
         weights = torch.load(path / "rank-00000.pt", map_location="cpu", weights_only=False)
     model.load_state_dict(weights["model"], strict=True)
+    # Pin automatic dispatch to the checkpoint's effective policy on resume.
+    policy = manifest.get("execution") or {
+        "backend": "native",
+        "compile": config.runtime.compile is True,
+        "compile_mode": config.runtime.compile_mode,
+        "compile_scope": "model",
+        "projection_fusion": False,
+        "fused_rope": False,
+        "sdpa_backend": "auto",
+        "reason": "legacy native checkpoint",
+    }
+    if config.runtime.execution_backend not in ("auto", policy["backend"]):
+        raise ValueError("checkpoint execution backend mismatch")
+    cast(Llama, model).execution_policy = policy
     if optimizer is not None:
         optimizer.load_state_dict(weights["optimizer"])
     return manifest, local["rng"]

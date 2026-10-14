@@ -16,3 +16,8 @@ data/
 runs/
 *.partial/
 .uv-sync-*.lock
+.cache/
+.uv-sync-*.fingerprint
+
+# Local benchmark exports; the written performance report is tracked.
+docs/performance/gh200/

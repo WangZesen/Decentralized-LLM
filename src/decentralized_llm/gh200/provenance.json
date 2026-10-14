@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/WangZesen/tiny-llm",
+  "revision": "dd03e5037b46961b1bbcbd014c445b6efebb4841",
+  "original_sha256": {
+    "gh200_fusions.py": "09b4fffd32ff85f80665ca285c0a7a8091d54fe8cbb67a41a76a70f3eac12eb6",
+    "gh200_pipeline.py": "761143e53e5752fd998bf4870db1041b9110627b1caac966ecc4a38333d1bf49",
+    "gh200_swiglu.py": "ae9e9e062470bd166f7d9fdc9a2f269350ae72bf2e1264b22bfc838cddf7c9ea",
+    "gh200_rope.py": "cfcf32034dcaa43ebc60384c8f1eab711a335ebe1558b1625e1ed77dd0b9479c",
+    "kernels.py": "1afd3d2e03df77898e75046bc11c6cbe73d4d621666ffa870880a1e28aaad86b"
+  },
+  "adaptations": "Canonical individual model parameters; per-token masked cross entropy; formatting and targeted typing annotations."
+}

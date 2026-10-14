@@ -3,7 +3,6 @@ launcher:
   kind: slurm
   partition: gpu
   time: '00:15:00'
-  cpus_per_task: 16
   memory: 32G
   environment_script: scripts/environment.sh
 distributed: {mode: ddp, nodes: 2, gpus_per_node: 1}

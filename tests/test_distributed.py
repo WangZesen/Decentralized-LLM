@@ -10,13 +10,13 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 from decentralized_llm.cache import TokenCache
 from decentralized_llm.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.config import Config
 from decentralized_llm.distributed import begin_parameter_mix, peer_for, prepare_parameter_groups
 from decentralized_llm.evaluation import evaluate
+from decentralized_llm.execution import build_execution
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama, token_losses
 from decentralized_llm.optim import learning_rate, make_optimizer
@@ -48,12 +48,19 @@ def reference_mix(models: list[Llama], topology: str, step: int) -> None:
             model.load_state_dict(mixed)
 
 
-def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, Any]) -> None:
+def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, Any], compiled: bool = False) -> None:
     torch.set_num_threads(1)
     os.environ.update(
         MASTER_ADDR="127.0.0.1", MASTER_PORT=str(port), RANK=str(worker), WORLD_SIZE=str(size), LOCAL_RANK=str(worker)
     )
     dist.init_process_group("gloo")
+    original_compile = torch.compile
+
+    def eager_compile(model: torch.nn.Module, **_: Any) -> Any:
+        return original_compile(model, backend="eager")
+
+    if compiled:
+        torch.compile = eager_compile
     try:
         for mode, topology, scheme in [("ddp", "complete", "awc")] + [
             ("decentralized", topology, scheme)
@@ -64,6 +71,7 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
             current["distributed"].update(gpus_per_node=size, mode=mode, topology=topology, scheme=scheme)
             current["training"].update(batch_tokens=40, micro_batch_size=2)
             cfg = Config.model_validate(current)
+            cfg.runtime.compile = compiled and mode == "ddp"
             cache = TokenCache(cfg.data.cache_dir)
             references = []
             for r in range(size if mode == "decentralized" else 1):
@@ -73,7 +81,7 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
             model = Llama(cfg.model, "reference")
             optimizer = make_optimizer(model, cfg, torch.device("cpu"))
             ref_opts = [make_optimizer(m, cfg, torch.device("cpu")) for m in references]
-            forward = DDP(model, broadcast_buffers=False) if mode == "ddp" else model
+            forward = build_execution(model, cfg, torch.device("cpu"))
             with TokenLoader(cache, cfg, worker, 0, 40) as loader:
                 loader.warmup()
                 transfer = DevicePrefetcher(loader, torch.device("cpu"))
@@ -154,6 +162,7 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                     torch.testing.assert_close(model.state_dict()[key], value, rtol=0, atol=0)
                 transfer.close()
     finally:
+        torch.compile = original_compile
         dist.destroy_process_group()
 
 
@@ -188,13 +197,19 @@ def snapshot_worker(worker: int, size: int, ports: list[int], device_type: str) 
                     created = create.call_count
                     if topology == "complete" or size == 2:
                         assert created == 0
+                    model = torch.nn.Linear(3, 2, bias=False, device=device)
+                    pointer = None
                     for step in range(4):
-                        model = torch.nn.Linear(3, 2, bias=False, device=device)
+                        model.zero_grad(set_to_none=True)
                         with torch.no_grad():
                             model.weight.fill_(worker + 1 + step)
                         before = model.weight.detach().clone()
-                        pending = begin_parameter_mix(model, topology, step)
+                        pending = begin_parameter_mix(model, topology, step, reuse=step > 0)
                         assert pending is not None
+                        if step == 1:
+                            pointer = pending.flat.data_ptr()
+                        elif step > 1:
+                            assert pending.flat.data_ptr() == pointer
                         assert create.call_count == created  # No communicator creation during updates.
                         assert reduce.call_args is not None
                         assert reduce.call_args.kwargs["async_op"]
@@ -222,6 +237,7 @@ def snapshot_worker(worker: int, size: int, ports: list[int], device_type: str) 
                         )
                         torch.testing.assert_close(model.weight, torch.full_like(before, value), rtol=0, atol=0)
                         torch.testing.assert_close(model.weight.grad, 6 * before, rtol=0, atol=0)
+                        pending.close()
         finally:
             dist.destroy_process_group()
 
@@ -245,11 +261,16 @@ def test_cuda_parameter_mix_snapshot(size: int) -> None:
 
 
 @pytest.mark.distributed
-@pytest.mark.parametrize("size,factor", [(2, 1), (4, 1), (4, 3)])
-def test_distributed_serial_references(cache: TokenCache, tiny_config: Config, size: int, factor: int) -> None:
+@pytest.mark.parametrize("size,factor,compiled", [(2, 1, False), (4, 1, False), (4, 3, False), (4, 1, True)])
+def test_distributed_serial_references(
+    cache: TokenCache, tiny_config: Config, size: int, factor: int, compiled: bool
+) -> None:
     tiny_config.training.data_reuse_factor = factor
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage] # Public torch API missing from its export stubs.
-        distributed_comparisons, args=(size, free_port(), tiny_config.model_dump(mode="json")), nprocs=size, join=True
+        distributed_comparisons,
+        args=(size, free_port(), tiny_config.model_dump(mode="json"), compiled),
+        nprocs=size,
+        join=True,
     )
 
 

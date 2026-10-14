@@ -20,7 +20,7 @@ lr_schedule:
 runtime:
   device: cuda
   amp: true
-  compile: false
+  compile: auto
   output_dir: runs/default
 distributed:
   mode: ddp

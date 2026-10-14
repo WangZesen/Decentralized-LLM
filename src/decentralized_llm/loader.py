@@ -204,6 +204,7 @@ class TokenLoader:
         self.started = time.perf_counter()
         self.startup_seconds = 0.0
         self.preload_seconds = 0.0
+        self.failure: BaseException | None = None
         self.startup_read_bytes = 0
         self.startup_read_calls = 0
         self.resident_ready = threading.Event()
@@ -442,12 +443,19 @@ class TokenLoader:
         except ReadCancelled:
             pass
         except BaseException as error:
+            self.failure = error
             self._put(error)
         finally:
             self._mark_ready()
 
-    def warmup(self) -> None:
+    def warmup(self, *, resident: bool = False) -> None:
         self.ready.wait()
+        if resident and self.mode == "resident":
+            while not self.resident_ready.wait(timeout=0.1):
+                if self.failure is not None:
+                    raise self.failure
+                if self.cancel.is_set():
+                    raise ReadCancelled("resident warmup cancelled")
 
     def next(self) -> LoadedBatch:
         start = time.perf_counter()

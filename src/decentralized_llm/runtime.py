@@ -79,10 +79,13 @@ def append_metric(path: Path, value: object) -> None:
         handle.write(json.dumps(value, allow_nan=False) + "\n")
 
 
-def source_digest(package: Path) -> str:
+def source_digest(package: Path, *, include_metadata: bool = True) -> str:
     """Hash all Python sources, including subpackages, with stable relative paths."""
     digest = hashlib.sha256()
-    for path in sorted(package.rglob("*.py")):
+    paths = list(package.rglob("*.py"))
+    if include_metadata:
+        paths.extend(package.rglob("*.json"))
+    for path in sorted(paths):
         digest.update(path.relative_to(package).as_posix().encode())
         digest.update(path.read_bytes())
     return digest.hexdigest()

@@ -135,6 +135,10 @@ class Llama(nn.Module):
         if attention_backend not in ("sdpa", "reference"):
             raise ValueError(f"unknown attention backend: {attention_backend}")
         self.config = config
+        self.execution_policy: dict = {}
+        self.execution_backend = "native"
+        self.projection_fusion = True
+        self.fused_rope = False
         self.embedding = nn.Embedding(config.vocab_size, config.width)
         self.blocks = nn.ModuleList([Block(config, attention_backend) for _ in range(config.layers)])
         self.norm = RMSNorm(config.width, config.norm_eps)
@@ -151,6 +155,10 @@ class Llama(nn.Module):
     def forward(self, input_ids: Tensor) -> Tensor:
         if input_ids.ndim != 2 or input_ids.shape[1] > self.config.context_length:
             raise ValueError("input_ids must have shape [batch, length <= context_length]")
+        if self.execution_backend == "gh200":
+            from decentralized_llm.gh200.model import forward
+
+            return forward(self, input_ids)
         x = self.embedding(input_ids)
         for block in cast(Iterable[Block], self.blocks):
             x = block(x)

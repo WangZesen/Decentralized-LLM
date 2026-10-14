@@ -1,0 +1,25 @@
+# Layer after base.yaml and a model preset. Set walltime for the training budget.
+# Requires the Slingshot/CXI installation configured in scripts/activate_cxi.sh.
+# Explicit throughput recipe; numerical limitations: docs/gh200-performance.md.
+training:
+  batch_tokens: 32768
+  micro_batch_size: 4
+runtime:
+  execution_backend: gh200
+  compile: true
+  compile_cache_dir: .cache/compile
+  cpu_affinity: exclusive
+  cpu_threads: 8
+distributed:
+  nodes: 2
+  gpus_per_node: 4
+  backend: nccl
+  timeout_seconds: 900
+launcher:
+  kind: slurm
+  partition: gpu
+  time: '00:15:00'
+  memory: 128G
+  network: job_vni
+  environment_overlays:
+    - scripts/activate_cxi.sh

@@ -3,6 +3,7 @@
 import math
 import time
 from collections.abc import Iterator
+from typing import cast
 
 import numpy as np
 import torch
@@ -12,7 +13,8 @@ from torch import nn
 from decentralized_llm.cache import TokenCache
 from decentralized_llm.config import Config
 from decentralized_llm.distributed import averaged_model, rank, world_size
-from decentralized_llm.model import token_losses
+from decentralized_llm.execution import build_execution
+from decentralized_llm.model import Llama
 from decentralized_llm.runtime import preserve_rng
 from decentralized_llm.state import Batch, EvaluationResult, IndexArray
 
@@ -65,12 +67,13 @@ def evaluate(
     with preserve_rng():
         eval_model = averaged_model(model) if average and config.distributed.mode == "decentralized" else model
         eval_model.eval()
+        execution = build_execution(cast(Llama, eval_model), config, device, distributed=False)
         totals = torch.zeros(2, device=device, dtype=torch.float64)
         try:
-            for x, y in validation_batches(cache, config, device, full):
+            for x, y in prefetched_validation_batches(cache, config, device, full):
                 with torch.autocast(device.type, dtype=torch.bfloat16, enabled=config.runtime.amp):
-                    losses = token_losses(eval_model(x), y)
-                totals[0] += losses.double().sum()
+                    loss = execution(x, y)
+                totals[0] += loss.double()
                 totals[1] += (y != -100).sum()
             if dist.is_initialized():
                 dist.all_reduce(totals)
@@ -88,3 +91,33 @@ def evaluate(
         split="full" if full else "subset",
         validation_complete=cache.manifest["validation_complete"],
     )
+
+
+def prefetched_validation_batches(
+    cache: TokenCache, config: Config, device: torch.device, full: bool
+) -> Iterator[Batch]:
+    if device.type != "cuda":
+        yield from validation_batches(cache, config, device, full)
+        return
+    stream = torch.cuda.Stream(device=device)
+    source = iter(validation_batches(cache, config, torch.device("cpu"), full))
+
+    def preload() -> Batch | None:
+        host = next(source, None)
+        if host is None:
+            return None
+        with torch.cuda.stream(stream):
+            x, y = (tensor.pin_memory().to(device, non_blocking=True) for tensor in host)
+        return x, y
+
+    pending = preload()
+    try:
+        while pending is not None:
+            torch.cuda.current_stream(device).wait_stream(stream)
+            batch = pending
+            for tensor in batch:
+                tensor.record_stream(torch.cuda.current_stream(device))
+            yield batch
+            pending = preload()
+    finally:
+        stream.synchronize()

@@ -47,8 +47,9 @@ def validate(
         pass
     if isinstance(config.launcher, SlurmLauncher):
         script = config.launcher.environment_script or Path.cwd() / "scripts" / "environment.sh"
-        if not script.is_file():
-            raise ValueError(f"environment setup script does not exist: {script}")
+        for setup_script in [script, *config.launcher.environment_overlays]:
+            if not setup_script.is_file():
+                raise ValueError(f"environment setup script does not exist: {setup_script}")
         if launch:
             if not os.environ.get("account", "").strip():
                 raise ValueError("SLURM submission requires a nonempty lowercase environment variable account")

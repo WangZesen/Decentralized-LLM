@@ -6,16 +6,14 @@ import resource
 import time
 from contextlib import nullcontext
 from pathlib import Path
-from typing import cast
 
 import torch
 import torch.distributed as dist
-from torch import nn
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 from decentralized_llm.cache import TokenCache
 from decentralized_llm.config import Config
 from decentralized_llm.distributed import barrier, rank, setup, world_size
+from decentralized_llm.execution import build_execution
 from decentralized_llm.loader import DevicePrefetcher, LoadedBatch, TokenLoader
 from decentralized_llm.model import Llama
 from decentralized_llm.optim import make_optimizer
@@ -91,13 +89,7 @@ def benchmark_data(config: Config, steps: int, warmup: int, cache_state: str, ou
             with preserve_rng():
                 model = copy.deepcopy(initial)
                 optimizer = make_optimizer(model, config, device)
-                compiled = torch.compile(model, mode=config.runtime.compile_mode) if config.runtime.compile else model
-                # torch.compile preserves Module behavior; its public overload returns a Callable.
-                forward = cast(nn.Module, compiled)
-                if config.distributed.mode == "ddp" and world_size() > 1:
-                    forward = DDP(
-                        compiled, device_ids=[device.index] if device.type == "cuda" else None, broadcast_buffers=False
-                    )
+                forward = build_execution(model, config, device)
                 context = (
                     TokenLoader(cache, config, rank(), 0, total)
                     if source == "network"

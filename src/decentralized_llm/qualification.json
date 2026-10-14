@@ -1,0 +1,88 @@
+{
+  "version": 2,
+  "profiles": [
+    {
+      "name": "gh200-4gpu-20m-awc-flash",
+      "key": {
+        "model": {
+          "vocab_size": 32000,
+          "layers": 8,
+          "width": 320,
+          "heads": 5,
+          "ffn_width": 896,
+          "context_length": 1024,
+          "rope_theta": 10000.0,
+          "norm_eps": 1e-05,
+          "init_std": 0.02
+        },
+        "mode": "decentralized",
+        "nodes": 1,
+        "gpus_per_node": 4,
+        "batch_tokens": 32768,
+        "micro_batch_size": 8,
+        "topology": "complete",
+        "scheme": "awc",
+        "execution_options": {
+          "compile_mode": "default",
+          "compile_scope": "model",
+          "projection_fusion": true,
+          "fused_rope": false,
+          "sdpa_backend": "flash",
+          "cpu_affinity": "none",
+          "fused_optimizer": true,
+          "cpu_threads": 8
+        },
+        "communication_options": {
+          "backend": "nccl",
+          "ddp_bucket_cap_mb": 25,
+          "ddp_gradient_as_bucket_view": false,
+          "ddp_batched_grad_copy": false,
+          "reuse_mix_buffers": true
+        }
+      },
+      "torch": "2.14.0+cu130",
+      "cuda": "13.0",
+      "kernel_revision": "06bea3d104545a7319a88efb645e80e67af72f61443591f69ba27a6965411619",
+      "compile_revision": "086a0430d56fa9386ae6a508d2ff89c65e04d58f6ab0285f7ac8b2bcb9f5b1d9",
+      "environment": {
+        "architecture": "aarch64",
+        "python": [
+          3,
+          14,
+          5
+        ],
+        "triton": "3.8.0",
+        "nccl": [
+          2,
+          30,
+          7
+        ],
+        "emulate_precision_casts": false,
+        "cublas_workspace_config": null,
+        "allowed_cpus": 64
+      },
+      "backend": "gh200",
+      "compile": true,
+      "evidence": {
+        "throughput_job": "3801766",
+        "numerical_job": "3795718",
+        "native_compiled_median_tokens_per_second": 2153964.9369502924,
+        "gh200_median_tokens_per_second": 2269586.824903945,
+        "median_gain_fraction": 0.053678630496816204,
+        "numerical_seeds": [
+          42,
+          43
+        ],
+        "numerical_steps": 100,
+        "validation_delta_nats": [
+          0.012263810203421599,
+          -0.014255552766371693
+        ],
+        "measured_compile_revision": "5c62b56fab9d458a2b0037ed30cb1ba2dbc75b1643cb794dab0b05148b1f9503",
+        "revision_note": "Post-measurement execution changes only narrow automatic selection and native override; model, kernels, compilation options, and cache implementation are unchanged. The conservative cache namespace changes once.",
+        "scope": "Measured with 64 CPUs allowed per node (16 local CPUs per GPU); does not qualify the cluster-default 288-CPU layout. Bounded BF16 trajectory and throughput qualification, not full-training convergence or arbitrary optimizer-hyperparameter equivalence.",
+        "report": "docs/gh200-performance.md#numerical-behavior-and-automatic-qualification"
+      }
+    }
+  ]
+}

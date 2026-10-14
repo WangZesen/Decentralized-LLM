@@ -8,8 +8,10 @@ The portable model, optimizer grouping, learning-rate schedules, virtual-epoch r
 and C4 preparation conventions come from
 [tiny-llm dd03e5037b46961b1bbcbd014c445b6efebb4841](https://github.com/WangZesen/tiny-llm/tree/dd03e5037b46961b1bbcbd014c445b6efebb4841).
 The distributed runtime, checkpoint format, global sampler, and network reader are new.
-Adaptive consensus, GH200-specific kernels, old training-checkpoint imports, and WSD
-branching workflows are outside this implementation.
+The optional GH200 execution path also adapts upstream fused normalization, SwiGLU,
+RoPE, and cross-entropy kernels, preserving canonical parameters and distributed AdamW.
+Adaptive consensus, old training-checkpoint imports, and WSD branching workflows are
+outside this implementation.
 
 ## Install and check
 
@@ -39,6 +41,8 @@ source scripts/environment.sh
 
 This uses `.venv-x86_64` or `.venv-aarch64`, separate Python installations and UV caches,
 Python 3.14, and `uv sync --locked`. A shared lock serializes environment synchronization.
+After successful synchronization, a lockfile/project fingerprint and installed-version
+check let subsequent jobs activate the environment without invoking uv or the network.
 The SLURM launcher sources this script on every node; a custom
 `launcher.environment_script` may instead activate a site environment and export
 `DECENTRALIZED_PYTHON`. Install/synchronize ARM dependencies on an ARM node before a
@@ -78,6 +82,77 @@ By default preparation includes a full validation split and enough training toke
 the configured global budget. A smaller already-prepared training cache may be reused
 for multiple passes. `prepare_train_tokens` and `prepare_validation_tokens` provide
 bounded smoke fixtures; truncated validation is marked in all evaluation results.
+
+## Four- and eight-GPU GH200 training
+
+After preparing the shared token cache, choose one hardware preset. Each is layered
+**directly after the base configuration and model preset**:
+
+```bash
+uv run decentralized-llm submit -c configs/base.yaml -c configs/90m.yaml \
+  -c configs/gh200-4gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
+  --set launcher.time=02:00:00 --set runtime.output_dir=runs/90m-4gpu --dry-run
+uv run decentralized-llm submit -c configs/base.yaml -c configs/90m.yaml \
+  -c configs/gh200-8gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
+  --set launcher.time=02:00:00 --set runtime.output_dir=runs/90m-8gpu --dry-run
+```
+
+Set the lowercase `account` environment variable to your scheduler account, inspect
+the dry run, then remove `--dry-run` to submit. Choose walltime for your model and token
+budget; the presets retain a short **15-minute** limit unless overridden. Both allocate
+four GPUs per node, use a global batch of 32,768 tokens, and launch one process per GPU.
+Per-rank microbatches are eight on one node and four on two nodes.
+DDP is the default; add `--set distributed.mode=decentralized` for complete-topology
+AWC, or select another supported topology with `distributed.topology`.
+
+The presets explicitly enable **compiled GH200 kernels and exclusive GPU-local CPU
+binding**. They use BF16, fused AdamW, fused projections, automatic SDPA selection,
+eight PyTorch threads per worker, and persistent compilation caches. Slurm determines
+the CPU allocation: the measured site supplies 72 CPUs per GPU, or 288 per full node.
+Torchrun's `--numa-binding=exclusive` binds each worker before Python starts, and worker
+threads inherit its GPU-local CPU mask. Install `numactl` on every GPU node.
+This is CPU placement, not an explicit NUMA memory policy.
+
+The eight-GPU preset also requests `--network=job_vni` and sources
+[`scripts/activate_cxi.sh`](scripts/activate_cxi.sh) after the Python environment and
+before torchrun. This selects the verified Slingshot/CXI RDMA stack while preserving
+PyTorch's NCCL. **Its library paths and network settings are installation-specific**;
+inspect them before use on another site. `launcher.environment_script` can select
+another validated Python environment. For a different interconnect, replace the
+activation through `launcher.environment_overlays` and adjust `launcher.network`.
+
+These are the selected throughput defaults, not a claim of numerical equivalence or
+full-training convergence. Larger-model and eight-GPU short trajectories did not pass
+all numerical gates. The [performance report](docs/gh200-performance.md) records those
+failures, the measured improvements, and the limits of the affinity comparisons.
+For comparisons, override the recipe explicitly:
+
+| Execution | Overrides |
+| --- | --- |
+| Compiled native | `runtime.execution_backend=native`, `runtime.compile=true` |
+| Eager native | `runtime.execution_backend=native`, `runtime.compile=false` |
+| Strict qualified selection | `runtime.execution_backend=auto`, `runtime.compile=auto` |
+
+Pass each override with `--set`. Generic configurations retain strict automatic
+selection; unmatched workloads use eager native execution. The sole historical
+qualified profile is four-GPU 20M AWC with FlashAttention and 64 allowed CPUs per node,
+without exclusive binding. It does not qualify the new full-CPU presets. Compiled
+native also showed trajectory drift in the short comparisons. The GH200 backend
+requires supported model geometry on GH200, BF16, SDPA, and nondeterministic execution.
+
+Compiled processes share `.cache/compile` by default. Set `runtime.compile_cache_dir`
+to one persistent shared directory when tuning from different checkouts. Namespaces
+include architecture, Python/PyTorch/CUDA/Triton versions, GPU capability, and executable
+model/compiler code. Seeds, optimizer hyperparameters, and output directories do not
+create separate namespaces; different tensor shapes or compiler guards can still
+require compilation. Keep the cache between trials. Hits reduce compilation work,
+while Python imports, NCCL setup, and input loading still take time.
+
+Use the run's saved `config.yaml` when resuming; checkpoint manifests pin the resolved
+execution policy. See [training and recovery semantics](#training-and-recovery-semantics)
+for checkpoint and evaluation commands. To measure the recipe before a larger run,
+replace `submit` with `benchmark-training`; bounded measurement and reproduction
+commands are in the [performance report](docs/gh200-performance.md#reproducing-the-measurements).
 
 ## Local GPU smoke runs
 
@@ -120,6 +195,11 @@ uv run decentralized-llm submit -c configs/base.yaml -c configs/smoke.yaml -c co
 
 Both examples allocate two nodes with one GPU each. Optional fields include `gpu_type`,
 `constraint`, `qos`, `time`, `cpus_per_task`, `memory`, and `environment_script`.
+`cpus_per_task` defaults to `null`: no CPU-count flag is sent, so Slurm applies the
+site's GPU-to-CPU policy. The measured GH200 partition has `DefCpuPerGPU=72`, giving
+288 CPUs per four-GPU node. Set `launcher.cpus_per_task` only for an explicit override;
+`--set launcher.cpus_per_task=null` removes a limit inherited from another config.
+`runtime.cpu_threads` independently controls each worker's PyTorch/OMP thread count.
 One `srun` launcher task per node spawns `gpus_per_node` workers; `SLURM_PROCID` supplies
 the node rank. The first allocated hostname and port **29500** supply rendezvous.
 Single-node jobs automatically select an available rendezvous port. Override
@@ -159,6 +239,24 @@ The tuning specification has a `base.configs` list and optional dotted `base.ove
 mapping. Referenced YAML filenames resolve relative to the tuning specification;
 paths inside training configurations retain the normal repository-working-directory
 semantics. Resolved configurations are frozen in the study state.
+
+For GH200 tuning, copy the example specification and replace its `base` block with:
+
+```yaml
+base:
+  configs: [base.yaml, 90m.yaml, gh200-4gpu.yaml]
+  overrides:
+    data.cache_dir: /shared/tokens/c4
+    training.checkpoint_policy: none
+    launcher.time: '02:00:00'
+    runtime.compile_cache_dir: .cache/compile
+```
+
+This example assumes the copied specification remains in `configs/`; adjust the
+relative filenames if it lives elsewhere. Use `gh200-8gpu.yaml` instead for two nodes.
+Keep the example's phases and seed settings, set the cache path and intended walltime,
+and run `tune run --dry-run` before starting the study. The same execution and affinity
+recipe then applies to every trial, with compatible compilation artifacts reused.
 
 Each phase's `search` maps **one or more dotted configuration fields** to search
 specifications. The controller jointly evaluates their Cartesian product, averages
@@ -215,13 +313,6 @@ retries per trial. Dry runs for resume and extension also count existing results
 outstanding jobs, and consumed retries. When unknown winners affect reuse or deduplication,
 the output explicitly labels a conservative upper estimate. Dry runs create no study
 artifacts and submit no jobs; normal cache and launcher prerequisites still apply.
-
-[`configs/tuning-budget-10.yaml`](configs/tuning-budget-10.yaml) is a short 20M/C4
-example using the existing site cache: four joint learning-rate/decay jobs, four new
-momentum jobs, and two extra confirmation seeds, for exactly **10 jobs** with retries
-disabled. It uses one token per parameter and two GPUs per job. Set its cache path and
-`launcher.environment_script` for your installation. Reports record each phase's start, finish, and elapsed wall
-time, including scheduler waiting, polling, and any controller downtime.
 
 The controller settings default to `max_jobs: 50`, `max_retries: 2`,
 `poll_seconds: 30`, and `result_grace_seconds: 120`. The SLURM cap includes both queued
