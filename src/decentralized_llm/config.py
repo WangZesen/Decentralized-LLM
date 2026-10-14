@@ -165,7 +165,7 @@ class RuntimeConfig(StrictModel):
     compile_cache_dir: Path = Path(".cache/compile")
     compile_scope: Literal["model", "blocks"] = "model"
     projection_fusion: bool = True
-    fused_rope: bool = False
+    fused_rope: bool | Literal["auto"] = "auto"
     sdpa_backend: Literal["auto", "flash", "cudnn"] = "auto"
     cpu_affinity: Literal["none", "local", "exclusive"] = "none"
     fused_optimizer: bool = True

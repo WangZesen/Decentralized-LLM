@@ -131,9 +131,12 @@ def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
         if runtime.execution_backend == "gh200":
             raise ValueError("forced GH200 execution requires compilation")
         backend, reason = "native", "compilation explicitly disabled"
-    if runtime.fused_rope and (backend != "gh200" or config.model.heads not in (5, 10)):
+    fused_rope = runtime.fused_rope
+    if fused_rope == "auto":
+        fused_rope = backend == "gh200" and config.model.heads in (5, 10) and runtime.projection_fusion
+    if fused_rope and (backend != "gh200" or config.model.heads not in (5, 10)):
         raise ValueError("fused_rope requires the GH200 20M/90M path")
-    if runtime.fused_rope and not runtime.projection_fusion:
+    if fused_rope and not runtime.projection_fusion:
         raise ValueError("fused_rope requires projection_fusion")
     if backend == "gh200" and runtime.compile_scope == "blocks":
         raise ValueError("regional compilation is a native-backend experiment")
@@ -143,7 +146,7 @@ def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
         "compile_mode": runtime.compile_mode,
         "compile_scope": runtime.compile_scope,
         "projection_fusion": runtime.projection_fusion if backend == "gh200" else False,
-        "fused_rope": runtime.fused_rope if backend == "gh200" else False,
+        "fused_rope": fused_rope,
         "sdpa_backend": runtime.sdpa_backend,
         "reason": reason,
     }

@@ -28,7 +28,21 @@ The port combines Q/K/V and gate/up projections during execution while retaining
 independent canonical parameters. It adds fused residual/RMSNorm, paired SwiGLU, and
 masked per-token cross entropy that avoids an FP32 vocabulary-sized copy. Parameter
 names, tied embeddings, optimizer groups, and checkpoint tensor layouts are preserved.
-Fused RoPE remains an explicit experiment and is disabled in the standard recipe.
+Fused RoPE now defaults to `auto`, enabling it on the GH200 20M/90M paths when
+projection fusion is enabled. Other models and native execution use ordinary RoPE.
+Set `runtime.fused_rope=false` for an explicit opt-out; explicit `true` still requires
+a supported GH200 path and projection fusion.
+
+A follow-up on 2026-10-15 compared two short 90M jobs with one GH200 each, context
+512, batch 64 sequences (32,768 tokens), seed 42, 50 warmup updates, and five timing
+windows of at least five seconds. Median throughput was 552,908 tokens/s with fused
+RoPE off (job 3854530, n164) and 563,887 with it on (job 3854531, n196): a **1.99%**
+increase. Both jobs completed with finite logged losses and gradients. Compilation
+and resident preloading were excluded from timing. One process per setting on
+different nodes establishes only a preliminary gain; it does not establish a
+universal speedup or convergence equivalence. Raw reports and the source snapshot
+are retained locally under `runs/fused-rope-90m-20261015-001618/`.
+The historical measurements below used `fused_rope=false`.
 
 The distributed runtime keeps ordinary fused AdamW, real DDP gradient synchronization,
 independent decentralized optimizer moments, and NCCL parameter exchanges. It does not

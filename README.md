@@ -113,6 +113,11 @@ Torchrun's `--numa-binding=exclusive` binds each worker before Python starts, an
 threads inherit its GPU-local CPU mask. Install `numactl` on every GPU node.
 This is CPU placement, not an explicit NUMA memory policy.
 
+`runtime.fused_rope` defaults to `auto`, enabling the fused RoPE kernel for GH200
+20M/90M execution with projection fusion. Other execution paths use ordinary RoPE.
+Set `--set runtime.fused_rope=false` to disable it for comparisons. Explicit `true`
+still requires a supported GH200 model and projection fusion.
+
 The eight-GPU preset also requests `--network=job_vni` and sources
 [`scripts/activate_cxi.sh`](scripts/activate_cxi.sh) after the Python environment and
 before torchrun. This selects the verified Slingshot/CXI RDMA stack while preserving

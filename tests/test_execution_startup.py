@@ -44,6 +44,7 @@ def test_slurm_cpu_allocation_defaults_to_site_policy(
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
     policy = resolve_execution(config, torch.device("cuda", 0))
     assert policy["backend"] == "gh200" and policy["compile"] is True
+    assert policy["fused_rope"] is True
     assert policy["reason"] == "explicit selection"
 
 

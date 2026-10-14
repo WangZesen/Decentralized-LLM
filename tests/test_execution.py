@@ -8,7 +8,7 @@ import torch
 
 from decentralized_llm.cache import TokenCache
 from decentralized_llm.checkpoints import load_checkpoint, validate_checkpoint
-from decentralized_llm.config import Config
+from decentralized_llm.config import PRESETS, Config, ModelConfig
 from decentralized_llm.execution import (
     LossModule,
     build_execution,
@@ -30,6 +30,7 @@ def test_native_execution_and_canonical_state(tiny_config: Config) -> None:
     expected = token_losses(model(x), y).sum()
     torch.testing.assert_close(execution(x, y), expected, rtol=0, atol=0)
     assert execution.policy["backend"] == "native" and not execution.policy["compile"]
+    assert execution.policy["fused_rope"] is False
     assert model.state_dict().keys() == before.keys()
     for key, value in model.state_dict().items():
         torch.testing.assert_close(value, before[key], rtol=0, atol=0)
@@ -41,6 +42,34 @@ def test_forced_backend_rejects_cpu(tiny_config: Config) -> None:
     tiny_config.runtime.execution_backend = "gh200"
     with pytest.raises(ValueError, match="GH200 execution requires"):
         resolve_execution(tiny_config, torch.device("cpu"))
+
+
+@pytest.mark.parametrize("preset", PRESETS)
+def test_fused_rope_default_follows_supported_execution(preset: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = Config(model=ModelConfig(**PRESETS[preset]))
+    assert config.runtime.fused_rope == "auto"
+    config.runtime.execution_backend = "gh200"
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
+    device = torch.device("cuda", 0)
+    supported = preset in ("20m", "90m")
+    assert resolve_execution(config, device)["fused_rope"] is supported
+    config.runtime.fused_rope = False
+    assert resolve_execution(config, device)["fused_rope"] is False
+    config.runtime.fused_rope = True
+    if supported:
+        assert resolve_execution(config, device)["fused_rope"] is True
+        config.runtime.projection_fusion = False
+        with pytest.raises(ValueError, match="fused_rope requires projection_fusion"):
+            resolve_execution(config, device)
+    else:
+        with pytest.raises(ValueError, match="fused_rope requires the GH200 20M/90M path"):
+            resolve_execution(config, device)
+    config.runtime.fused_rope = "auto"
+    config.runtime.projection_fusion = False
+    assert resolve_execution(config, device)["fused_rope"] is False
+    config.runtime.execution_backend = "native"
+    assert resolve_execution(config, device)["fused_rope"] is False
 
 
 def test_regional_compilation_keeps_tail_eager(tiny_config: Config, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,7 +141,7 @@ def test_automatic_selection_requires_matching_evidence(monkeypatch: pytest.Monk
     config.runtime.fused_rope = True
     with pytest.raises(ValueError, match="fused_rope requires"):
         resolve_execution(config, device)
-    config.runtime.fused_rope = False
+    config.runtime.fused_rope = "auto"
     config.distributed.ddp_bucket_cap_mb = 64
     assert resolve_execution(config, device)["backend"] == "native"
     config.distributed.ddp_bucket_cap_mb = 25
@@ -130,11 +159,12 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     root = Path(__file__).resolve().parents[1]
     # Reconstruct the historical profile independently of current training presets.
     config = load_config(
-        [root / "configs" / name for name in ("base.yaml", "20m.yaml")],
+        root / "configs/20m.yaml",
         [
             "distributed.gpus_per_node=4",
             "distributed.mode=decentralized",
             "runtime.sdpa_backend=flash",
+            "runtime.fused_rope=false",
         ],
     )
     registry = json.loads((root / "src/decentralized_llm/qualification.json").read_text())
@@ -212,6 +242,7 @@ def test_legacy_checkpoint_pins_native_execution(tiny_config: Config, cache: Tok
     load_checkpoint(checkpoint, tiny_config, cache, model, None)
     assert model.execution_policy["backend"] == "native"
     assert model.execution_policy["compile"] is False
+    assert model.execution_policy["fused_rope"] is False
 
 
 def test_compile_cache_shared_across_trials(

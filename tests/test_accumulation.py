@@ -157,6 +157,10 @@ def test_inferred_buffers_shapes_and_preflight(
 def test_historical_batching_recipe_identity(cache: TokenCache, workers: int, accumulation: int, identity: str) -> None:
     # Captured before migration with per-rank micro_batch_size 32, 8, and 4 respectively.
     config = load_config(
-        overrides=[f"distributed.gpus_per_node={workers}", f"training.num_accumulation={accumulation}"]
+        overrides=[
+            f"distributed.gpus_per_node={workers}",
+            f"training.num_accumulation={accumulation}",
+            "runtime.fused_rope=false",
+        ]
     )
     assert recipe_identity(config, cache) == identity
