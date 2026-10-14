@@ -18,4 +18,3 @@ launcher:
   kind: slurm
   partition: gpu
   time: '00:15:00'
-  memory: 128G

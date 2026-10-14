@@ -160,6 +160,10 @@ def test_launcher_validation_account_dryrun(
         launch(cfg, dry_run=True)
     cfg.launcher.environment_overlays = []
     result = launch(cfg, dry_run=True)
+    assert "--mem=4G" in result["arguments"]
+    cfg.launcher = cfg.launcher.model_validate(cfg.launcher.model_dump(exclude={"memory"}))
+    result = launch(cfg, dry_run=True)
+    assert not any(argument.startswith("--mem") for argument in result["arguments"])
     assert secret not in json.dumps(result)
     assert not cfg.runtime.output_dir.exists()
     batch, worker = slurm_scripts(cfg, tmp_path / "config a.yaml", tmp_path / "worker a.sh")

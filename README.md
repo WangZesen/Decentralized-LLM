@@ -200,6 +200,9 @@ site's GPU-to-CPU policy. The measured GH200 partition has `DefCpuPerGPU=72`, gi
 288 CPUs per four-GPU node. Set `launcher.cpus_per_task` only for an explicit override;
 `--set launcher.cpus_per_task=null` removes a limit inherited from another config.
 `runtime.cpu_threads` independently controls each worker's PyTorch/OMP thread count.
+`launcher.memory` also defaults to `null`, and the presets leave it unset, so Slurm
+allocates memory according to the GPU count. Set it only for an explicit override;
+`--set launcher.memory=null` clears a memory request inherited from another config.
 One `srun` launcher task per node spawns `gpus_per_node` workers; `SLURM_PROCID` supplies
 the node rank. The first allocated hostname and port **29500** supply rendezvous.
 Single-node jobs automatically select an available rendezvous port. Override

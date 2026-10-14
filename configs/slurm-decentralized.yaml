@@ -2,7 +2,6 @@ launcher:
   kind: slurm
   partition: gpu
   time: '00:15:00'
-  memory: 32G
   environment_script: scripts/environment.sh
 distributed: {mode: decentralized, nodes: 2, gpus_per_node: 1, topology: one_peer_ring, scheme: atc}
 runtime: {output_dir: runs/slurm-decentralized}

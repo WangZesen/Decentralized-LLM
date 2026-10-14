@@ -121,12 +121,14 @@ def scheduler_arguments(config: Config) -> list[str]:
         f"--time={launcher.time}",
         f"--nodes={config.distributed.nodes}",
         "--ntasks-per-node=1",
-        f"--mem={launcher.memory}",
         f"--gpus-per-node={gpu}{config.distributed.gpus_per_node}",
     ]
     # An explicit CPU request overrides Slurm's GPU-proportional CPU default.
     if launcher.cpus_per_task is not None:
         arguments.append(f"--cpus-per-task={launcher.cpus_per_task}")
+    # Leave memory allocation to the site's GPU-based policy unless overridden.
+    if launcher.memory is not None:
+        arguments.append(f"--mem={launcher.memory}")
     for key in ("constraint", "qos", "network"):
         value = getattr(launcher, key)
         if value:
