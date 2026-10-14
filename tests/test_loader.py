@@ -43,6 +43,7 @@ def test_global_coverage(cache: TokenCache, tiny_config: Config) -> None:
     assert one != two
     raw = tiny_config.model_dump()
     raw["distributed"]["gpus_per_node"] = 4
+    raw["training"]["batch_tokens"] = 48
     cfg = Config.model_validate(raw)
     streams = [collect(cache, cfg, stop=2 * count, rank=r)[0] for r in range(4)]
     for rank, stream in enumerate(streams):
@@ -90,7 +91,8 @@ def test_reuse_global_stream_and_stop(cache: TokenCache, tiny_config: Config, fa
     assert collect(cache, tiny_config, stop=6)[0] == expected[:6]
     for cursor in sorted({pool_size - 1, pool_size, pool_size + 1, 12, 42}):
         assert collect(cache, tiny_config, cursor=cursor, stop=42)[0] == expected[cursor:]
-    for world in (2, 4):
+    tiny_config.training.num_accumulation = 1
+    for world in (2, 3):
         tiny_config.distributed.gpus_per_node = world
         for rank in range(world):
             assert collect(cache, tiny_config, stop=42, rank=rank)[0] == expected[rank::world]
@@ -394,10 +396,11 @@ def test_auto_residency_budget(tiny_config: Config, tmp_path: Path) -> None:
     assert resident["total"] <= tiny_config.data.host_memory_mib * 1024**2
 
 
-@pytest.mark.parametrize("world", [1, 2, 4])
+@pytest.mark.parametrize("world", [1, 2, 3])
 def test_resident_partial_first_pass(tiny_config: Config, tmp_path: Path, world: int) -> None:
     cache = make_cache(tmp_path / "larger-cache", tiny_config, tokens=401)
     tiny_config.distributed.gpus_per_node = world
+    tiny_config.training.num_accumulation = 1
     sampler = GlobalSampler.from_config(cache, tiny_config)
     expected = [sampler.block(p) for p in range(42)]
     assert sampler.blocks == 100

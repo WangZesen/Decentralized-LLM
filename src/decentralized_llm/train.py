@@ -121,6 +121,8 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                 {
                     "environment": environment(),
                     "world_size": world_size(),
+                    "num_accumulation": config.training.num_accumulation,
+                    "micro_batch_size": config.micro_batch_size,
                     "cache": cache.manifest["identity"],
                     "boundaries": boundaries,
                     "sampling": sampling_plan(cache, config).summary(),

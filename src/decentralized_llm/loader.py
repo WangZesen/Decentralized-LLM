@@ -573,7 +573,7 @@ class DevicePrefetcher:
     def __init__(self, loader: BatchSource, device: torch.device):
         self.loader, self.device = loader, device
         self.stream = torch.cuda.Stream(device=device) if device.type == "cuda" else None
-        shape = (loader.config.training.micro_batch_size, loader.config.model.context_length)
+        shape = (loader.config.micro_batch_size, loader.config.model.context_length)
         self.buffers = [
             tuple(torch.empty(shape, dtype=torch.int64, pin_memory=self.stream is not None) for _ in range(2))
             for _ in range(2)

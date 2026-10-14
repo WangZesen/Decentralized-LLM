@@ -62,6 +62,8 @@ def validate(
     return {
         "cache_identity": cache.manifest["identity"],
         "world_size": config.distributed.world_size,
+        "num_accumulation": config.training.num_accumulation,
+        "micro_batch_size": config.micro_batch_size,
         "parameters": config.model.parameter_count,
         "eligible_blocks": cache.blocks("train", config.model.context_length),
         "global_tokens": boundaries[-1] * config.model.context_length,

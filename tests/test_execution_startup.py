@@ -33,7 +33,7 @@ def test_slurm_cpu_allocation_defaults_to_site_policy(
     assert "--gpus-per-task=4" in batch and "--nproc-per-node=4" in worker
     assert "export OMP_NUM_THREADS=8" in batch
     assert "--numa-binding=exclusive" in worker
-    assert config.training.batch_tokens == 32768 and config.training.micro_batch_size == 8 // nodes
+    assert config.training.batch_tokens == 32768 and config.micro_batch_size == 8 // nodes
     if nodes == 2:
         assert "--network=job_vni" in arguments
         assert worker.index("scripts/environment.sh") < worker.index("scripts/activate_cxi.sh") < worker.index("exec ")

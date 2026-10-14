@@ -96,11 +96,22 @@ class TrainingConfig(StrictModel):
     epoch_tokens_per_parameters: float = Field(default=0.5, gt=0)
     data_reuse_factor: int = Field(default=1, gt=0, strict=True)
     batch_tokens: int = Field(default=32768, gt=0)
-    micro_batch_size: int = Field(default=32, gt=0)
+    num_accumulation: int = Field(default=1, gt=0, strict=True)
     checkpoint_policy: Literal["interval", "explicit", "final", "none"] = "final"
     checkpoint_epochs: list[Annotated[int, Field(strict=True, gt=0)]] = Field(default_factory=lambda: [1], min_length=1)
     save_epoch_training_state: bool = True
     log_every: int = Field(default=20, gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_micro_batch_size(cls, value: object) -> object:
+        if isinstance(value, dict) and "micro_batch_size" in value:
+            raise ValueError(
+                "training.micro_batch_size has been replaced by training.num_accumulation (default 1). "
+                "To preserve batching, set num_accumulation = batch_tokens / "
+                "(context_length * workers * old_micro_batch_size), which must be a positive integer."
+            )
+        return value
 
     @field_validator("checkpoint_epochs", mode="before")
     @classmethod
@@ -237,14 +248,26 @@ class Config(StrictModel):
         default_factory=LocalLauncher
     )
 
+    @property
+    def micro_batch_size(self) -> int:
+        """Sequences per rank and backward, derived from the current global recipe."""
+        divisor = self.model.context_length * self.distributed.world_size * self.training.num_accumulation
+        batch, remainder = divmod(self.training.batch_tokens, divisor)
+        if batch < 1 or remainder:
+            raise ValueError(
+                f"batch_tokens={self.training.batch_tokens} must be divisible by "
+                "context_length * workers * num_accumulation "
+                f"({self.model.context_length} * {self.distributed.world_size} * "
+                f"{self.training.num_accumulation} = {divisor}) "
+                "and provide at least one sequence per rank per accumulation step"
+            )
+        return batch
+
     @model_validator(mode="after")
     def compatible(self) -> Self:
         if self.launcher.kind == "local" and self.distributed.nodes != 1:
             raise ValueError("local launch supports exactly one node")
-        if self.training.batch_tokens % self.model.context_length:
-            raise ValueError("batch_tokens must be divisible by context_length")
-        if self.training.batch_tokens // self.model.context_length < self.distributed.world_size:
-            raise ValueError("global batch must contain at least one sequence per rank")
+        _ = self.micro_batch_size
         if self.runtime.device == "cpu" and self.distributed.backend != "gloo":
             raise ValueError("CPU runs require the gloo communication backend")
         if self.runtime.device == "cpu" and self.runtime.cpu_affinity == "exclusive":

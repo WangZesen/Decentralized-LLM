@@ -360,11 +360,31 @@ snapshot in bulk. `distributed.reuse_mix_buffers` controls snapshot allocation r
 not the parameter layout. DDP continues to synchronize gradients through its normal
 buckets and does not allocate a parameter-mixing snapshot.
 
-`batch_tokens` is **global**; `micro_batch_size` is **per rank**. Accumulation supports a
-smaller last microbatch and global sequence counts not divisible by world size. DDP
-weights summed losses by their contribution to the global batch, uses `no_sync()` for
-intermediate backwards, clips synchronized gradients, then steps AdamW. Empty final
-rank microbatches perform a zero-loss backward so every rank participates.
+`training.batch_tokens` is **global**. `training.num_accumulation` controls the number
+of forward/backward micro-batches per optimizer update and defaults to **1** (no
+accumulation). The per-rank micro-batch size is inferred internally:
+
+```text
+workers = distributed.nodes * distributed.gpus_per_node
+micro_batch_size = batch_tokens / (context_length * workers * num_accumulation)
+```
+
+This division must produce a positive integer; invalid configurations fail before
+launch. With `batch_tokens=32768`, context length `1024`, and `num_accumulation=1`,
+one, four, and eight workers use micro-batches of `32`, `8`, and `4` sequences per
+rank. Increasing `num_accumulation` reduces the micro-batch size while preserving
+the global token budget. Preflight output and `run.json` report both values.
+
+Remove `training.micro_batch_size` from older configs and set
+`training.num_accumulation: 1` for no accumulation. To preserve an older recipe,
+use `num_accumulation = batch_tokens / (context_length * workers * old_micro_batch_size)`;
+this must also be a positive integer. Equivalent recipes retain checkpoint
+compatibility; recipes with uneven micro-batches require a divisible batch configuration.
+
+DDP weights summed losses by their contribution to the global batch, uses `no_sync()`
+for intermediate backwards, clips synchronized gradients, then steps AdamW. Loader-only
+truncated ranges may still produce smaller or empty final rank micro-batches; empty
+ones perform a zero-loss backward so every rank participates.
 
 Decentralized workers initialize independently and retain independent AdamW moments.
 Each normalizes its local loss, clips local gradients, and communicates parameters once

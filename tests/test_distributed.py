@@ -4,7 +4,7 @@ import socket
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
@@ -71,8 +71,10 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
             current = copy.deepcopy(raw)
             current["distributed"].update(gpus_per_node=size, mode=mode, topology=topology, scheme=scheme)
             current["distributed"]["error_feedback"] = raw["distributed"]["error_feedback"] and mode == "decentralized"
-            current["training"].update(batch_tokens=40, micro_batch_size=2)
+            current["training"]["batch_tokens"] = 64
             cfg = Config.model_validate(current)
+            batch_blocks = cfg.training.batch_tokens // cfg.model.context_length
+            total_blocks = 4 * batch_blocks
             cfg.runtime.compile = compiled
             cache = TokenCache(cfg.data.cache_dir)
             references = []
@@ -87,11 +89,11 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
             ref_opts = [make_optimizer(m, reference_config, torch.device("cpu")) for m in references]
             histories = [[torch.zeros_like(p) for p in m.parameters()] for m in references]
             forward = build_execution(model, cfg, torch.device("cpu"))
-            with TokenLoader(cache, cfg, worker, 0, 40) as loader:
+            with TokenLoader(cache, cfg, worker, 0, total_blocks) as loader:
                 loader.warmup()
                 transfer = DevicePrefetcher(loader, torch.device("cpu"))
                 for step in range(4):
-                    start, stop = step * 10, (step + 1) * 10
+                    start, stop = step * batch_blocks, (step + 1) * batch_blocks
                     for r, (reference, opt) in enumerate(zip(references, ref_opts, strict=True)):
                         positions = [p for p in range(start, stop) if mode == "ddp" or p % size == r]
                         x, y = reference_batch(cache, cfg, positions)
@@ -99,7 +101,9 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                         token_losses(reference(x), y).mean().backward()
                         clip_grad_norm_(reference.parameters(), cfg.optimizer.grad_clip)
                         for group in opt.param_groups:
-                            group["lr"] = learning_rate(cfg, stop * 4, 160)
+                            group["lr"] = learning_rate(
+                                cfg, stop * cfg.model.context_length, total_blocks * cfg.model.context_length
+                            )
                     if mode == "decentralized" and scheme == "awc":
                         reference_mix(references, topology, step)
                     for reference, opt, history in zip(references, ref_opts, histories, strict=True):
@@ -113,19 +117,21 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                                     previous.copy_(delta)
                     if mode == "decentralized" and scheme == "atc":
                         reference_mix(references, topology, step)
+                    next_batch = Mock(wraps=transfer.next)
                     optimizer_update(
                         model,
                         forward,
                         optimizer,
                         cfg,
                         torch.device("cpu"),
-                        transfer.next,
+                        next_batch,
                         transfer.preload,
                         start,
                         stop,
                         step,
-                        40,
+                        total_blocks,
                     )
+                    assert next_batch.call_count == cfg.training.num_accumulation
                     loader.commit(stop)
                     reference = references[worker if mode == "decentralized" else 0]
                     for actual, expected in zip(model.parameters(), reference.parameters(), strict=True):
@@ -175,7 +181,7 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                     model,
                     optimizer,
                     loader.state_dict(),
-                    {"cursor": 40, "step": 4, "completed_epochs": 1, "best_loss": 3.0, "best_epoch": 1},
+                    {"cursor": total_blocks, "step": 4, "completed_epochs": 1, "best_loss": 3.0, "best_epoch": 1},
                 )
                 with torch.no_grad():
                     for parameter in model.parameters():
@@ -183,7 +189,7 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                     if isinstance(optimizer, ErrorFeedbackAdamW):
                         optimizer.previous_update.fill_(123)
                 manifest, _ = load_checkpoint(checkpoint, cfg, cache, model, optimizer)
-                assert manifest["cursor"] == 40
+                assert manifest["cursor"] == total_blocks
                 for key, value in before.items():
                     torch.testing.assert_close(model.state_dict()[key], value, rtol=0, atol=0)
                 if isinstance(optimizer, ErrorFeedbackAdamW):
@@ -290,21 +296,30 @@ def test_cuda_parameter_mix_snapshot(size: int) -> None:
 
 @pytest.mark.distributed
 @pytest.mark.parametrize(
-    "size,factor,compiled,reuse,feedback",
+    "size,factor,compiled,reuse,feedback,accumulation",
     [
-        (2, 1, False, True, False),
-        (4, 1, False, True, False),
-        (4, 3, False, True, False),
-        (4, 1, True, True, False),
-        (2, 1, True, False, False),
-        (2, 1, False, True, True),
-        (4, 1, True, False, True),
+        (2, 1, False, True, False, 1),
+        (2, 1, False, True, False, 2),
+        (4, 1, False, True, False, 1),
+        (4, 3, False, True, False, 2),
+        (4, 1, True, True, False, 2),
+        (2, 1, True, False, False, 1),
+        (2, 1, False, True, True, 2),
+        (4, 1, True, False, True, 1),
     ],
 )
 def test_distributed_serial_references(
-    cache: TokenCache, tiny_config: Config, size: int, factor: int, compiled: bool, reuse: bool, feedback: bool
+    cache: TokenCache,
+    tiny_config: Config,
+    size: int,
+    factor: int,
+    compiled: bool,
+    reuse: bool,
+    feedback: bool,
+    accumulation: int,
 ) -> None:
     tiny_config.training.data_reuse_factor = factor
+    tiny_config.training.num_accumulation = accumulation
     tiny_config.distributed.reuse_mix_buffers = reuse
     tiny_config.distributed.mode = "decentralized"
     tiny_config.distributed.error_feedback = feedback
@@ -328,6 +343,7 @@ def resume_worker(worker: int, size: int, ports: list[int], raw: dict[str, Any])
     for mode in ("ddp", "decentralized"):
         current = copy.deepcopy(raw)
         current["distributed"].update(gpus_per_node=size, mode=mode)
+        current["training"].update(batch_tokens=32, num_accumulation=2)
         current["distributed"]["error_feedback"] = raw["distributed"]["error_feedback"] and mode == "decentralized"
         root = Path(current["runtime"]["output_dir"])
         current["runtime"]["output_dir"] = str(root / f"{mode}-full")

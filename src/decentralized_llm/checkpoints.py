@@ -49,8 +49,11 @@ def recipe_identity(config: Config, cache: TokenCache) -> str:
             "checkpoint_epochs",
             "save_epoch_training_state",
             "log_every",
+            "num_accumulation",
         },
     )
+    # Preserve historical recipe identities when the effective batching is identical.
+    training["micro_batch_size"] = config.micro_batch_size
     # Keep recipes written before data reuse was introduced resumable at K=1.
     if config.training.data_reuse_factor == 1:
         training.pop("data_reuse_factor")

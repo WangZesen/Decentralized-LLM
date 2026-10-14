@@ -156,9 +156,10 @@ class GlobalSampler:
         if not 0 <= rank < world or cursor < 0 or cursor > stop:
             raise ValueError("invalid rank or sampling cursor")
         batch_blocks = config.training.batch_tokens // config.model.context_length
+        micro_batch_blocks = config.micro_batch_size * world
         while cursor < stop:
             update_stop = min(stop, (cursor // batch_blocks + 1) * batch_blocks)
-            end = min(update_stop, cursor + config.training.micro_batch_size * world)
+            end = min(update_stop, cursor + micro_batch_blocks)
             first = cursor + (rank - cursor) % world
             indices = np.fromiter((self.block(p) for p in range(first, end, world)), dtype=np.int64)
             yield BatchSpec(cursor, end, indices)
@@ -167,8 +168,8 @@ class GlobalSampler:
 
 def memory_estimate(cache: TokenCache, config: Config, *, stop: int | None = None) -> dict[str, int]:
     plan = sampling_plan(cache, config)
-    data, train = config.data, config.training
-    length, depth, batch = config.model.context_length, data.prefetch_batches, train.micro_batch_size
+    data = config.data
+    length, depth, batch = config.model.context_length, data.prefetch_batches, config.micro_batch_size
     offsets = cache.offsets["train"]
     # Bound crossings using actual shard geometry, including a possible one-token final shard.
     shard_crossings = max(

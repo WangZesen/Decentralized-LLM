@@ -134,6 +134,7 @@ def slurm_config(config: Config, tmp_path: Path) -> Config:
         "qos": "test",
     }
     raw["distributed"].update(nodes=2, gpus_per_node=2)
+    raw["training"]["batch_tokens"] = 48
     return Config.model_validate(raw)
 
 

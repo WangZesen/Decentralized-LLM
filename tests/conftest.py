@@ -48,7 +48,7 @@ def tiny_config(tmp_path: Path) -> Config:
             "model": {"vocab_size": 17, "layers": 1, "width": 8, "heads": 2, "ffn_width": 16, "context_length": 4},
             "training": {
                 "batch_tokens": 24,
-                "micro_batch_size": 2,
+                "num_accumulation": 3,
                 "tokens_per_parameters": 0.2,
                 "epoch_tokens_per_parameters": 0.1,
                 "log_every": 1,

@@ -87,12 +87,19 @@ def test_error_feedback_resume(
 
 
 @pytest.mark.parametrize("factor", [1, 2, 5, 7])
-@pytest.mark.parametrize("larger_cache", [False, True])
+@pytest.mark.parametrize("larger_cache,accumulation", [(False, 1), (True, 3)])
 @pytest.mark.parametrize("schedule", ["cosine", "wsd"])
 def test_resume_equivalence(
-    cache: TokenCache, tiny_config: Config, tmp_path: Path, factor: int, larger_cache: bool, schedule: str
+    cache: TokenCache,
+    tiny_config: Config,
+    tmp_path: Path,
+    factor: int,
+    larger_cache: bool,
+    accumulation: int,
+    schedule: str,
 ) -> None:
     raw = tiny_config.model_dump()
+    raw["training"]["num_accumulation"] = accumulation
     # Interrupt after two of four warmup updates, then resume into the decay phase.
     raw["lr_schedule"] = {"name": schedule, "warmup_tokens_per_parameters": 0.12}
     tiny_config = Config.model_validate(raw)
@@ -104,6 +111,8 @@ def test_resume_equivalence(
     full = train(tiny_config)
     assert full["cursor"] == 42 and full["step"] == 7 and full["completed_epochs"] == 2
     run = json.loads((tiny_config.runtime.output_dir / "run.json").read_text())
+    assert run["num_accumulation"] == accumulation
+    assert run["micro_batch_size"] == 6 // accumulation
     pool = cache.blocks("train", 4) if factor == 1 else (42 + factor - 1) // factor
     assert run["sampling"] == {
         "data_reuse_factor": factor,
@@ -134,6 +143,10 @@ def test_resume_equivalence(
             torch.testing.assert_close(value, final["optimizer"]["state"][key][name], rtol=0, atol=0)
     assert original["loader"] == final["loader"]
     assert torch.equal(original["rng"]["torch"], final["rng"]["torch"])
+    changed = resumed.model_copy(deep=True)
+    changed.training.num_accumulation = 2
+    with pytest.raises(ValueError, match="recipe"):
+        validate_checkpoint(checkpoint, changed, cache)
     changed = resumed.model_copy(deep=True)
     changed.optimizer.lr *= 2
     with pytest.raises(ValueError, match="recipe"):

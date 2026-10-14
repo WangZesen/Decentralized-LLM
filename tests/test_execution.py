@@ -170,7 +170,7 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
         ("runtime", "sdpa_backend", "auto"),
         ("runtime", "cpu_affinity", "exclusive"),
         ("runtime", "deterministic", True),
-        ("training", "micro_batch_size", 4),
+        ("training", "num_accumulation", 2),
     ]:
         changed = config.model_copy(deep=True)
         setattr(getattr(changed, section), field, value)

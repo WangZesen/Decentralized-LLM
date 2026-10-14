@@ -9,7 +9,7 @@ data:
   host_memory_mib: 2048
 training:
   batch_tokens: 32768
-  micro_batch_size: 8
+  num_accumulation: 1
   tokens_per_parameters: 20.0
   epoch_tokens_per_parameters: 0.5
   data_reuse_factor: 1

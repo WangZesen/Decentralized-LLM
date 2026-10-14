@@ -3,7 +3,7 @@
 # Explicit throughput recipe; numerical limitations: docs/gh200-performance.md.
 training:
   batch_tokens: 32768
-  micro_batch_size: 4
+  num_accumulation: 1
 runtime:
   execution_backend: gh200
   compile: true

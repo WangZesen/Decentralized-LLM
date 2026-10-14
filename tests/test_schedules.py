@@ -49,7 +49,7 @@ def test_warmup_scaling(tiny_config: Config) -> None:
     assert larger_model.model.parameter_count == 2 * tiny_config.model.parameter_count
     assert warmup_updates(larger_model) == 8
     for overrides in (
-        {"training": {"micro_batch_size": 1}},
+        {"training": {"num_accumulation": 6}},
         {"training": {"data_reuse_factor": 7}},
         {"distributed": {"gpus_per_node": 2}},
         {"distributed": {"mode": "decentralized", "gpus_per_node": 2}},

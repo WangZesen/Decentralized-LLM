@@ -44,7 +44,7 @@ def qualification_key(config: Config) -> dict:
         "nodes": config.distributed.nodes,
         "gpus_per_node": config.distributed.gpus_per_node,
         "batch_tokens": config.training.batch_tokens,
-        "micro_batch_size": config.training.micro_batch_size,
+        "micro_batch_size": config.micro_batch_size,
         "topology": config.distributed.topology,
         "scheme": config.distributed.scheme,
         "error_feedback": config.distributed.error_feedback,
@@ -260,15 +260,8 @@ class TrainingExecution(nn.Module):
                     block.compile(dynamic=False, options=options)
             else:
                 self.compiled = cast(nn.Module, torch.compile(self.eager, dynamic=False, options=options))
-        sequences = config.training.batch_tokens // config.model.context_length
         self.shape = (
-            (
-                min(
-                    config.training.micro_batch_size,
-                    (sequences + config.distributed.world_size - 1) // config.distributed.world_size,
-                ),
-                config.model.context_length,
-            )
+            (config.micro_batch_size, config.model.context_length)
             if distributed
             else (config.evaluation.batch_size, config.model.context_length)
         )
