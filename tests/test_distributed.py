@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 import socket
 from datetime import timedelta
@@ -399,6 +400,7 @@ def resume_worker(worker: int, size: int, ports: list[int], raw: dict[str, Any])
 def test_multiprocess_training_resume(
     cache: TokenCache, tiny_config: Config, size: int, factor: int, feedback: bool, scheme: str
 ) -> None:
+    tiny_config.training.log_every = 4
     tiny_config.training.data_reuse_factor = factor
     tiny_config.distributed.mode = "decentralized"
     tiny_config.distributed.error_feedback = feedback
@@ -409,3 +411,12 @@ def test_multiprocess_training_resume(
         nprocs=size,
         join=True,
     )
+    for output in tiny_config.runtime.output_dir.iterdir():
+        logged = [
+            [json.loads(line) for line in (output / f"metrics-rank-{worker:05d}.jsonl").read_text().splitlines()]
+            for worker in range(size)
+        ]
+        reference = [(row["step"], row["cursor"], row["global_tokens_per_second"]) for row in logged[0]]
+        assert reference and all(row[2] > 0 for row in reference)
+        for rows in logged[1:]:
+            assert [(row["step"], row["cursor"], row["global_tokens_per_second"]) for row in rows] == reference

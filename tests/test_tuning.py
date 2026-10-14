@@ -1,4 +1,5 @@
 import copy
+import json
 import math
 import os
 import subprocess
@@ -14,7 +15,7 @@ from decentralized_llm.cache import TokenCache, training_boundaries
 from decentralized_llm.config import Config, load_config, save_config
 from decentralized_llm.launch import SubmissionRejected
 from decentralized_llm.runtime import atomic_json, environment
-from decentralized_llm.tuning import backends, controller
+from decentralized_llm.tuning import backends, controller, report
 from decentralized_llm.tuning.backends import Backend, scheduler_status
 from decentralized_llm.tuning.controller import execute, load_state, reconcile, study_lock
 from decentralized_llm.tuning.estimate import estimate, ranking
@@ -100,6 +101,17 @@ class FakeBackend(Backend):
 def fake_backend(monkeypatch: pytest.MonkeyPatch) -> FakeBackend:
     backend = FakeBackend()
     monkeypatch.setattr(controller, "Backend", lambda: backend)
+
+    def plot_artifacts(directory: Path, phase: Record) -> list[dict[str, str]]:
+        # Real rendering is covered in test_tuning_plots and the local CLI smoke test.
+        # Controller tests exercise report links and archival without rasterizing every revision.
+        (directory / "plots").mkdir(exist_ok=True)
+        paths = {extension: f"plots/{phase['name']}-001.{extension}" for extension in ("png", "svg")}
+        for path in paths.values():
+            (directory / path).write_text("plot fixture")
+        return [paths]
+
+    monkeypatch.setattr(report, "write_heatmaps", plot_artifacts)
     return backend
 
 
@@ -370,6 +382,19 @@ def test_full_controller_reuses_trials_and_extends(
     assert len(fake_backend.submissions) == 44
     state = load_state(destination)
     assert len(state["trials"]) == 44
+    for trial in state["trials"].values():
+        root = destination / trial["directory"]
+        assert root.is_dir() and not root.is_symlink()
+        assert not (destination / "trials" / trial["id"]).exists()
+        assert all(Path(attempt["directory"]).parent == root for attempt in trial["attempts"])
+    for phase in state["phases"]:
+        for keys in phase["trials"].values():
+            for key in keys:
+                view = destination / "trials" / phase["name"] / key
+                root = destination / state["trials"][key]["directory"]
+                assert view.resolve() == root
+                if view != root:
+                    assert view.is_symlink() and not Path(os.readlink(view)).is_absolute()
     assert all(phase["finished"] >= phase["started"] for phase in state["phases"])
     assert all(
         earlier["finished"] <= later["started"]
@@ -394,12 +419,19 @@ def test_full_controller_reuses_trials_and_extends(
     assert execute("extend", destination, tuning_file)["revision"] == 2
     assert len(fake_backend.submissions) == before + 2
     assert (destination / "revisions/0001/winner.yaml").exists()
+    archived = json.loads((destination / "revisions/0001/report.json").read_text())
+    for phase in archived["phases"]:
+        assert phase["heatmaps"]
+        for plot in phase["heatmaps"]:
+            assert all((destination / "revisions/0001" / path).is_file() for path in plot.values())
     # Revising search notation preserves numeric identities but changes phase display metadata.
     raw["phases"][0]["search"]["optimizer.lr"] = [0.001]
+    raw["phases"][0]["name"] = "renamed-first-phase"
     tuning_file.write_text(yaml.safe_dump(raw))
     execute("extend", destination, tuning_file)
     assert len(fake_backend.submissions) == before + 2
     assert "optimizer.lr" not in load_state(destination)["winner"]["labels"]
+    assert all(path.is_symlink() for path in (destination / "trials/renamed-first-phase").iterdir())
 
 
 @pytest.mark.parametrize("invalid", [False, True])
@@ -417,6 +449,7 @@ def test_retry_exhaustion_and_fresh_attempts(
     assert len(fake_backend.submissions) == 3
     attempts = fake_backend.submissions
     assert len({attempt["directory"] for attempt in attempts}) == 3
+    assert len({Path(attempt["directory"]).parent for attempt in attempts}) == 1
     configs = [load_config(Path(attempt["directory"]) / "config.yaml") for attempt in attempts]
     assert len({config.runtime.seed for config in configs}) == 1
     assert execute("resume", directory)["status"] == "failed"
@@ -636,7 +669,9 @@ def test_real_local_tuning_cli(cache: TokenCache, tiny_config: Config, tmp_path:
         env=dict(os.environ, CUDA_VISIBLE_DEVICES="", OMP_NUM_THREADS="1"),
         capture_output=True,
         text=True,
-        timeout=180,
+        # Five real jobs each import torch in the supervisor, launcher, and worker.
+        # Shared-filesystem startup plus headless plotting can exceed three minutes.
+        timeout=600,
     )
     assert result.returncode == 0, result.stderr[-5000:]
     state = load_state(directory)

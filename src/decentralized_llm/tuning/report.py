@@ -5,6 +5,7 @@ from pathlib import Path
 
 from decentralized_llm.config import Config, save_config
 from decentralized_llm.runtime import atomic_json
+from decentralized_llm.tuning.plots import write_heatmaps
 from decentralized_llm.tuning.spec import Record
 
 
@@ -66,6 +67,8 @@ def write_report(directory: Path, state: Record) -> Record:
                 "selected": phase.get("selected", []),
             }
         )
+    for phase in phase_rows:
+        phase["heatmaps"] = write_heatmaps(directory, phase)
     winner = state.get("winner")
     report = {
         "revision": state["revision"],
@@ -100,6 +103,10 @@ def write_report(directory: Path, state: Record) -> Record:
                 if phase["wall_seconds"] is not None
                 else []
             ),
+        ]
+        for plot in phase["heatmaps"]:
+            lines += [f"![{phase['name']} tuning losses]({plot['png']})", "", f"[SVG version]({plot['svg']})", ""]
+        lines += [
             "| Combination | Mean final loss | Sample std | Selected |",
             "|---|---:|---:|---|",
         ]

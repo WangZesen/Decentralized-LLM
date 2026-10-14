@@ -100,7 +100,7 @@ class TrainingConfig(StrictModel):
     checkpoint_policy: Literal["interval", "explicit", "final", "none"] = "final"
     checkpoint_epochs: list[Annotated[int, Field(strict=True, gt=0)]] = Field(default_factory=lambda: [1], min_length=1)
     save_epoch_training_state: bool = True
-    log_every: int = Field(default=20, gt=0)
+    log_every: int = Field(default=50, gt=0)
 
     @model_validator(mode="before")
     @classmethod

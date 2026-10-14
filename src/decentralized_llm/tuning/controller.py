@@ -4,6 +4,7 @@ import copy
 import fcntl
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -171,6 +172,7 @@ def add_phase(state: Record, spec: TuningSpec, base: Config) -> Record:
             config["runtime"]["seed"] = seed
             state["trials"][key] = {
                 "id": key,
+                "directory": str(Path("trials") / name / key),
                 "candidate_id": candidate["id"],
                 "seed": seed,
                 "config": config,
@@ -184,14 +186,49 @@ def add_phase(state: Record, spec: TuningSpec, base: Config) -> Record:
     return record
 
 
+def trial_directory(directory: Path, trial: Record) -> Path:
+    if "directory" not in trial:
+        # Existing attempts keep their physical home, including legacy flat layouts.
+        root = (
+            Path(trial["attempts"][0]["directory"]).parent if trial["attempts"] else directory / "trials" / trial["id"]
+        )
+        trial["directory"] = os.path.relpath(root, directory)
+    return directory / trial["directory"]
+
+
+def materialize_phase(directory: Path, state: Record, phase: Record) -> None:
+    """Build phase views without moving artifacts or linking through another view."""
+    view = directory / "trials" / phase["name"]
+    view.mkdir(parents=True, exist_ok=True)
+    for identifiers in phase["trials"].values():
+        for key in identifiers:
+            trial = state["trials"][key]
+            if "directory" not in trial and not trial["attempts"]:
+                trial["directory"] = str(Path("trials") / phase["name"] / key)
+            root = trial_directory(directory, trial).resolve()
+            root.mkdir(parents=True, exist_ok=True)
+            link = view / key
+            if link == root:
+                continue
+            if link.is_symlink():
+                if link.resolve() != root:
+                    raise ValueError(f"phase trial link points to a different directory: {link}")
+            elif link.exists():
+                raise ValueError(f"phase trial path already exists: {link}")
+            else:
+                link.symlink_to(os.path.relpath(root, view), target_is_directory=True)
+
+
 def advance(directory: Path, state: Record, spec: TuningSpec, base: Config) -> list[Record]:
     while True:
         phase = state["phases"][-1] if state["phases"] else add_phase(state, spec, base)
+        materialize_phase(directory, state, phase)
         if phase["complete"]:
             if phase["name"] == "confirmation":
                 state.update(status="complete", winner=phase["rankings"][0], reason=None)
                 return []
             phase = add_phase(state, spec, base)
+            materialize_phase(directory, state, phase)
         ranks = ranking(phase["candidates"], phase["seeds"], state["trials"], state["provenance"])
         if ranks is not None:
             phase.update(
@@ -218,7 +255,7 @@ def advance(directory: Path, state: Record, spec: TuningSpec, base: Config) -> l
 
 def submit(directory: Path, state: Record, trial: Record, backend: Backend) -> None:
     number = len(trial["attempts"]) + 1
-    destination = directory / "trials" / trial["id"] / f"attempt-{number:03d}"
+    destination = trial_directory(directory, trial) / f"attempt-{number:03d}"
     config = Config.model_validate(trial["config"])
     # An extension can change scheduler resources or relocate the same immutable cache.
     config.launcher = Config.model_validate(state["base"]).launcher
@@ -376,6 +413,8 @@ def execute(
                 for filename in ("report.md", "report.json", "winner.yaml"):
                     if (directory / filename).exists():
                         shutil.copy2(directory / filename, archive / filename)
+                if (directory / "plots").is_dir():
+                    shutil.copytree(directory / "plots", archive / "plots", dirs_exist_ok=True)
                 (directory / "winner.yaml").unlink(missing_ok=True)
                 state.update(
                     revision=state["revision"] + 1,

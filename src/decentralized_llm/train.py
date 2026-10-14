@@ -29,6 +29,35 @@ from decentralized_llm.sampling import BatchSpec, check_memory, rank_count, samp
 from decentralized_llm.state import Batch
 
 
+class ThroughputWindow:
+    """Count committed tokens against active training time between log records."""
+
+    def __init__(self, cursor: int, device: torch.device):
+        self.cursor = cursor
+        self.device = device
+        self.seconds = 0.0
+        self.started: float | None = None
+
+    def start(self) -> None:
+        self.started = time.perf_counter()
+
+    def pause(self) -> None:
+        if self.started is not None:
+            if self.device.type == "cuda":
+                torch.cuda.synchronize(self.device)
+            self.seconds += time.perf_counter() - self.started
+            self.started = None
+
+    def measure(self, cursor: int, context_length: int) -> float:
+        self.pause()
+        elapsed = torch.tensor(self.seconds, device=self.device, dtype=torch.float64)
+        if dist.is_initialized():
+            dist.all_reduce(elapsed, op=dist.ReduceOp.MAX)
+        throughput = (cursor - self.cursor) * context_length / max(float(elapsed), 1e-12)
+        self.cursor, self.seconds = cursor, 0.0
+        return throughput
+
+
 def optimizer_update(
     model: nn.Module,
     forward: nn.Module,
@@ -170,14 +199,21 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                 started = time.perf_counter()
                 first_update_seconds = None
                 training_seconds = 0.0
-                initial_cursor = progress["cursor"]
+                window = ThroughputWindow(progress["cursor"], device)
                 for epoch, boundary in enumerate(boundaries, 1):
                     if epoch <= progress["completed_epochs"]:
                         continue
                     segment_started = time.perf_counter()
+                    window.start()
                     while progress["cursor"] < boundary:
                         start = progress["cursor"]
                         stop = min(boundary, start + batch_blocks)
+                        log_step = (
+                            (progress["step"] + 1) % config.training.log_every == 0
+                            or stop == total
+                            or stop_after_steps is not None
+                            and progress["step"] + 1 >= stop_after_steps
+                        )
                         metrics = optimizer_update(
                             model,
                             forward,
@@ -190,7 +226,7 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                             stop,
                             progress["step"],
                             total,
-                            collect_metrics=(progress["step"] + 1) % config.training.log_every == 0,
+                            collect_metrics=log_step,
                         )
                         if first_update_seconds is None:
                             if device.type == "cuda":
@@ -200,7 +236,8 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                         progress["cursor"] = stop
                         progress["step"] += 1
                         loader.commit(stop)
-                        if progress["step"] % config.training.log_every == 0:
+                        if log_step:
+                            throughput = window.measure(stop, config.model.context_length)
                             append_metric(
                                 output / f"metrics-rank-{rank():05d}.jsonl",
                                 {
@@ -208,12 +245,11 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                                     "step": progress["step"],
                                     "cursor": stop,
                                     **metrics,
-                                    "global_tokens_per_second": (stop - initial_cursor)
-                                    * config.model.context_length
-                                    / (time.perf_counter() - started),
-                                    "loader": loader.metrics(),
+                                    "global_tokens_per_second": throughput,
                                 },
                             )
+                            if stop < boundary:
+                                window.start()
                         if stop_after_steps is not None and progress["step"] >= stop_after_steps and stop < boundary:
                             save_checkpoint(
                                 output / f"step-{progress['step']:08d}",
@@ -225,8 +261,7 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                                 progress,
                             )
                             return progress
-                    if device.type == "cuda":
-                        torch.cuda.synchronize(device)
+                    window.pause()
                     training_seconds += time.perf_counter() - segment_started
                     result = evaluate(model, cache, config, device, full=False)
                     progress["completed_epochs"] = epoch

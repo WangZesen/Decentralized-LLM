@@ -360,14 +360,47 @@ extension and produces new trials. Every accepted result is checked against its
 configuration, completed budget, and recorded provenance.
 
 The study directory contains atomically updated `state.json`, isolated
-`trials/<id>/attempt-*/` artifacts, and `report.md`/`report.json`. Reports identify their
+`trials/<phase-name>/<id>/attempt-*/` artifacts, and `report.md`/`report.json`. A trial's
+physical directory belongs to the phase that first creates it; later phases reuse it
+through relative symlinks directly to that directory. Retries stay in the original
+directory. Phase directories persist across revisions, while reports describe the current
+revision's candidates. Existing flat trial directories remain in place and can be linked
+from new phases. Reports identify their
 revision, show complete candidate combinations, power notation, seed losses, selections,
 reuse, retries, and failures. A successfully confirmed winner also produces `winner.yaml`
 with a fresh output destination. `tune status` reads the last persisted snapshot;
 `tune report` regenerates reports from that snapshot. A controller lock prevents
 concurrent writers to the same study.
 
+Reports include Seaborn heatmaps of mean final validation loss over exactly the phase's
+requested seeds. Screening plots use the first two search fields as horizontal and
+vertical axes; one-field searches use a heatmap strip. Additional searched fields and
+carried-over parameter combinations produce separate panels with a shared color scale.
+Confirmation plots show each candidate's seed losses and a mean column. Power notation
+is retained, selected cells are outlined, and pending, failed, and unsearched cells are
+labelled separately. A candidate's mean appears only after all its required seeds succeed.
+PNG figures are embedded in `report.md`, SVG copies are linked for zooming/export, and
+`report.json` lists the relative paths in each phase's `heatmaps` array. Figures live in
+`plots/` and are copied with archived revision reports. Regenerating an older study's
+report adds plots without moving trials or modifying training logs.
+
 ## Training and recovery semantics
+
+Training metrics are saved every **50 optimizer iterations** by default; override
+`training.log_every` for a different cadence. A final partial interval is also logged
+when training finishes or stops at a requested step. Each per-rank JSONL record contains
+the step, committed global cursor, learning rate, local loss, gradient norm, and throughput.
+Loss and gradient norm describe the logged update, not an average across the interval.
+Full loader diagnostics are written once to `loader-rank-*.json` at shutdown, including
+failure cleanup, instead of being repeated in every training record.
+
+`global_tokens_per_second` measures global tokens committed since the previous log
+against active training time in that interval. CUDA work completes before timing ends,
+and elapsed time is reduced with a maximum across ranks. Validation, checkpointing, and
+log-writing pauses are excluded. Intervals span epoch boundaries, account for partial
+batches, and restart on resume. Compilation can affect the first interval; later records
+reflect recent training speed rather than a cumulative average. Benchmark throughput
+retains its separate warmup and measurement windows.
 
 All training modes use one contiguous parameter allocation with 256-byte-aligned
 parameter starts. Existing parameter objects, tied weights, optimizer groups, and
