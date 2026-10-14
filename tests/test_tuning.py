@@ -122,6 +122,118 @@ def test_search_ranges_and_numeric_dedup(tiny_config: Config) -> None:
     assert powered["labels"]["optimizer.lr"]["expression"] == "2^-4"
 
 
+@pytest.mark.parametrize("low, high, points", [(-4, 0, 5), (-0.5, 0.5, 3), (-2, -2, 1)])
+def test_power_exponent_spacing_defaults_to_linear(low: float, high: float, points: int) -> None:
+    raw = {"scale": "power", "base": 2, "exponent_min": low, "exponent_max": high, "points": points}
+    default = PowerInterval.model_validate(raw)
+    explicit = PowerInterval.model_validate({**raw, "exponent_scale": "linear"})
+    assert default.exponent_scale == "linear"
+    assert grid(default) == grid(explicit)
+
+
+@pytest.mark.parametrize("base", [2, 0.5])
+@pytest.mark.parametrize(
+    "exponents",
+    [
+        [2, 4, 8],
+        [-8, -4, -2],
+        [0.125, 0.25, 0.5],
+        [-0.5, -0.25, -0.125],
+        [2.5],
+        [-2.5],
+        [2.1234567890123457, 8.987654321098765],
+        [-8.987654321098765, -2.1234567890123457],
+    ],
+)
+def test_logarithmic_power_exponents(base: float, exponents: list[float]) -> None:
+    points = grid(
+        PowerInterval(
+            scale="power",
+            base=base,
+            exponent_scale="log",
+            exponent_min=exponents[0],
+            exponent_max=exponents[-1],
+            points=len(exponents),
+        )
+    )
+    assert [point["exponent"] for point in points] == exponents
+    assert [point["value"] for point in points] == pytest.approx([base**exponent for exponent in exponents])
+    assert [point["expression"] for point in points] == [f"{base:.15g}^{exponent:.15g}" for exponent in exponents]
+
+
+@pytest.mark.parametrize(
+    "values",
+    [[0.0001, 0.001, 0.01], [0.125, 0.25, 0.5], [0.12345678901234567], [0.12345678901234567, 0.9876543210987654]],
+)
+def test_logarithmic_value_intervals(values: list[float]) -> None:
+    points = grid(Interval(scale="log", min=values[0], max=values[-1], points=len(values)))
+    assert [point["value"] for point in points] == values
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"exponent_min": 0, "exponent_max": 8},
+        {"exponent_min": -8, "exponent_max": 0},
+        {"exponent_min": -8, "exponent_max": 8},
+        {"exponent_min": 0, "exponent_max": 0, "points": 1},
+        {"exponent_min": 8, "exponent_max": 2},
+        {"exponent_min": -2, "exponent_max": -8},
+        {"exponent_min": 2, "exponent_max": 2},
+        {"points": 1},
+        {"points": 0},
+        {"points": 2.5},
+        {"exponent_scale": "invalid"},
+        {"base": 10, "exponent_min": 1000, "exponent_max": 1001},
+        {"base": 10, "exponent_min": -1001, "exponent_max": -1000},
+    ],
+)
+def test_invalid_logarithmic_power_searches(tuning_file: Path, overrides: Record) -> None:
+    raw = yaml.safe_load(tuning_file.read_text())
+    raw["phases"][0]["search"]["optimizer.lr"] = {
+        "scale": "power",
+        "base": 2,
+        "exponent_scale": "log",
+        "exponent_min": -8,
+        "exponent_max": -2,
+        "points": 3,
+        **overrides,
+    }
+    with pytest.raises(ValueError):
+        TuningSpec.model_validate(raw)
+
+
+def test_logarithmic_power_spec_and_dry_run(cache: TokenCache, tuning_file: Path, tmp_path: Path) -> None:
+    raw = yaml.safe_load(tuning_file.read_text())
+    raw["phases"][0]["search"]["optimizer.lr"] = {
+        "scale": "power",
+        "base": 2,
+        "exponent_scale": "log",
+        "exponent_min": -8,
+        "exponent_max": -2,
+        "points": 3,
+    }
+    tuning_file.write_text(yaml.safe_dump(raw))
+    spec, base = read_spec(tuning_file)
+    serialized = yaml.safe_load(yaml.safe_dump(spec.model_dump(mode="json")))
+    assert serialized["phases"][0]["search"]["optimizer.lr"]["exponent_scale"] == "log"
+    assert TuningSpec.model_validate(serialized) == spec
+
+    powered = expand(base, spec.phases[0])
+    spec.phases[0].search["optimizer.lr"] = [1 / 256, 1 / 16, 1 / 4]
+    numeric = expand(base, spec.phases[0])
+    assert [candidate["id"] for candidate in powered] == [candidate["id"] for candidate in numeric]
+    assert powered[0]["labels"]["optimizer.lr"]["expression"] == "2^-8"
+
+    destination = tmp_path / "study"
+    result = execute("run", destination, tuning_file, dry_run=True)
+    assert result["exact"] and result["new_jobs"] == 32
+    points = result["phases"][0]["search"]["optimizer.lr"]
+    assert [point["expression"] for point in points] == ["2^-8", "2^-4", "2^-2"]
+    assert [point["value"] for point in points] == [1 / 256, 1 / 16, 1 / 4]
+    assert not destination.exists()
+
+
 @pytest.mark.parametrize(
     "search",
     [

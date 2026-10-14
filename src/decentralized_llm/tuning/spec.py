@@ -36,6 +36,7 @@ class Interval(StrictModel):
 class PowerInterval(StrictModel):
     scale: Literal["power"]
     base: float = Field(gt=0)
+    exponent_scale: Literal["linear", "log"] = "linear"
     exponent_min: float
     exponent_max: float
     points: int = Field(ge=1, strict=True)
@@ -43,6 +44,8 @@ class PowerInterval(StrictModel):
     @model_validator(mode="after")
     def bounds(self) -> Self:
         check_bounds(self.exponent_min, self.exponent_max, self.points)
+        if self.exponent_scale == "log" and self.exponent_min <= 0 <= self.exponent_max:
+            raise ValueError("log exponent bounds must be nonzero and have the same sign")
         return self
 
 
@@ -61,6 +64,14 @@ def linear_points(low: float, high: float, count: int) -> list[float]:
     return [float(start + (end - start) * i / (count - 1)) for i in range(count)]
 
 
+def log_points(low: float, high: float, count: int) -> list[float]:
+    if count == 1:
+        return [low]
+    exponents = linear_points(math.log10(abs(low)), math.log10(abs(high)), count)
+    values = [float(format(math.copysign(10**exponent, low), ".15g")) for exponent in exponents[1:-1]]
+    return [low, *values, high]
+
+
 def grid(search: Search) -> list[Record]:
     if isinstance(search, list):
         if not search:
@@ -68,7 +79,8 @@ def grid(search: Search) -> list[Record]:
         result = [{"value": value} for value in search]
     elif isinstance(search, PowerInterval):
         result = []
-        for exponent in linear_points(search.exponent_min, search.exponent_max, search.points):
+        spacing = log_points if search.exponent_scale == "log" else linear_points
+        for exponent in spacing(search.exponent_min, search.exponent_max, search.points):
             try:
                 value = search.base**exponent
             except OverflowError as error:
@@ -87,9 +99,7 @@ def grid(search: Search) -> list[Record]:
         if search.scale == "linear":
             values = linear_points(search.min, search.max, search.points)
         else:
-            exponents = linear_points(math.log10(search.min), math.log10(search.max), search.points)
-            values = [float(format(10**exponent, ".15g")) for exponent in exponents]
-            values[0], values[-1] = search.min, search.max
+            values = log_points(search.min, search.max, search.points)
         result = [{"value": value} for value in values]
     unique: list[Record] = []
     for point in result:

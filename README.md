@@ -289,9 +289,27 @@ search:
 ```
 
 Linear and logarithmic intervals include both endpoints. Power intervals use a fixed
-positive base and evenly spaced exponents: the example generates `2^-12`, `2^-11`,
-`2^-10`, `2^-9`, and `2^-8`. Fractional exponents are supported. One-point intervals
-require equal bounds. Integer configuration fields require integral values.
+positive base and default to `exponent_scale: linear`, with evenly spaced exponents:
+the example generates `2^-12`, `2^-11`, `2^-10`, `2^-9`, and `2^-8`.
+Set `exponent_scale: log` to space exponent magnitudes geometrically:
+
+```yaml
+optimizer.lr:
+  scale: power
+  base: 2
+  exponent_scale: log
+  exponent_min: -8
+  exponent_max: -2
+  points: 3
+```
+
+This generates exponents `[-8, -4, -2]` and values `[2^-8, 2^-4, 2^-2]`.
+Positive exponent bounds work too: `2` to `8` with three points gives `[2, 4, 8]`.
+Logarithmic exponent bounds must be nonzero and have the same sign; zero and
+mixed-sign bounds are rejected. Ordinary `scale: log` intervals require positive
+value bounds. Both exponent spacing modes include the exact endpoints and support
+fractional exponents. One-point intervals require equal bounds; otherwise, the
+minimum must be less than the maximum. Integer configuration fields require integral values.
 Power expressions remain visible in dry runs and reports, alongside numeric values;
 generated training configurations use numbers. Numerically identical configurations
 share a trial even when their search notation differs.
