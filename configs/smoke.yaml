@@ -24,7 +24,7 @@ evaluation:
   batch_size: 8
 lr_schedule:
   name: cosine
-  warmup_steps: 1
+  warmup_tokens_per_parameters: 0.002
 runtime:
   compile: false
   output_dir: runs/smoke-ddp

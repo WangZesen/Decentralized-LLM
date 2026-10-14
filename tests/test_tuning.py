@@ -152,10 +152,10 @@ def test_initial_values_reserved_fields_and_integer_ranges(tuning_file: Path, ti
     with pytest.raises(ValueError, match="reserved"):
         TuningSpec.model_validate(raw)
     phase = Phase(
-        name="integer", search={"lr_schedule.warmup_steps": Interval(scale="linear", min=1, max=3, points=3)}, top_k=1
+        name="integer", search={"training.data_reuse_factor": Interval(scale="linear", min=1, max=3, points=3)}, top_k=1
     )
-    assert [c["values"]["lr_schedule.warmup_steps"] for c in expand(tiny_config, phase)] == [1, 2, 3]
-    phase.search = {"lr_schedule.warmup_steps": [1.5]}
+    assert [c["values"]["training.data_reuse_factor"] for c in expand(tiny_config, phase)] == [1, 2, 3]
+    phase.search = {"training.data_reuse_factor": [1.5]}
     with pytest.raises(ValueError):
         expand(tiny_config, phase)
 
@@ -206,9 +206,28 @@ def test_schedule_variant_search(tiny_config: Config) -> None:
     candidates = expand(tiny_config, phase)
     assert {candidate["config"]["lr_schedule"]["name"] for candidate in candidates} == {"cosine", "wsd"}
     wsd = Config.model_validate(candidates[1]["config"])
-    assert wsd.lr_schedule.warmup_steps == tiny_config.lr_schedule.warmup_steps
+    assert wsd.lr_schedule.warmup_tokens_per_parameters == tiny_config.lr_schedule.warmup_tokens_per_parameters
     phase.search = {"lr_schedule.name": ["cosine"], "lr_schedule.min_lr_ratio": [0.1]}
     assert expand(wsd, phase)[0]["config"]["lr_schedule"]["min_lr_ratio"] == 0.1
+
+
+@pytest.mark.parametrize("name", ["cosine", "wsd"])
+def test_fractional_warmup_search(tiny_config: Config, name: str) -> None:
+    phase = Phase(
+        name="warmup",
+        search={
+            "lr_schedule.name": [name],
+            "lr_schedule.warmup_tokens_per_parameters": Interval(scale="linear", min=0, max=0.5, points=3),
+        },
+        top_k=1,
+    )
+    candidates = expand(tiny_config, phase)
+    assert [c["values"]["lr_schedule.warmup_tokens_per_parameters"] for c in candidates] == [0, 0.25, 0.5]
+    assert [Config.model_validate(c["config"]).lr_schedule.warmup_tokens_per_parameters for c in candidates] == [
+        0,
+        0.25,
+        0.5,
+    ]
 
 
 def test_estimate_counts_existing_attempts(tuning_file: Path) -> None:

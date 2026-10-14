@@ -81,13 +81,13 @@ class OptimizerConfig(StrictModel):
 
 class CosineScheduleConfig(StrictModel):
     name: Literal["cosine"] = "cosine"
-    warmup_steps: int = Field(default=312, ge=0, strict=True)
+    warmup_tokens_per_parameters: float = Field(default=1.0, ge=0)
     min_lr_ratio: float = Field(default=0.0, ge=0, le=1)
 
 
 class WSDScheduleConfig(StrictModel):
     name: Literal["wsd"] = "wsd"
-    warmup_steps: int = Field(default=312, ge=0, strict=True)
+    warmup_tokens_per_parameters: float = Field(default=1.0, ge=0)
     decay_fraction: float = Field(default=0.1, ge=0, le=1)
 
 

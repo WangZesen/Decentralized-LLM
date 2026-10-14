@@ -2,6 +2,7 @@
 
 import math
 from collections.abc import Callable
+from fractions import Fraction
 from typing import Any
 
 import torch
@@ -85,11 +86,20 @@ def make_optimizer(model: nn.Module, config: Config, device: torch.device) -> to
     return torch.optim.AdamW(groups, **options)
 
 
+def warmup_updates(config: Config) -> int:
+    """Round warmup TPP to nearest global updates, with ties up and at least one if positive."""
+    tpp = config.lr_schedule.warmup_tokens_per_parameters
+    if tpp == 0:
+        return 0
+    updates = Fraction(str(tpp)) * config.model.parameter_count / config.training.batch_tokens
+    return max(1, math.floor(updates + Fraction(1, 2)))
+
+
 def learning_rate(config: Config, consumed: int, total: int) -> float:
-    """Warm up for fixed optimizer updates, each consuming one global token batch."""
+    """Warm up over the TPP budget rounded to whole global token batches, then decay."""
     cfg = config.lr_schedule
     lr = config.optimizer.lr
-    warmup = cfg.warmup_steps * config.training.batch_tokens
+    warmup = warmup_updates(config) * config.training.batch_tokens
     if warmup > 0 and consumed <= warmup:
         return lr * consumed / warmup
     if isinstance(cfg, WSDScheduleConfig):

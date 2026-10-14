@@ -16,7 +16,7 @@ training:
   checkpoint_policy: final
 lr_schedule:
   name: cosine
-  warmup_steps: 312
+  warmup_tokens_per_parameters: 1.0
 runtime:
   device: cuda
   amp: true

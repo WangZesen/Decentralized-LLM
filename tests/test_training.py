@@ -88,9 +88,14 @@ def test_error_feedback_resume(
 
 @pytest.mark.parametrize("factor", [1, 2, 5, 7])
 @pytest.mark.parametrize("larger_cache", [False, True])
+@pytest.mark.parametrize("schedule", ["cosine", "wsd"])
 def test_resume_equivalence(
-    cache: TokenCache, tiny_config: Config, tmp_path: Path, factor: int, larger_cache: bool
+    cache: TokenCache, tiny_config: Config, tmp_path: Path, factor: int, larger_cache: bool, schedule: str
 ) -> None:
+    raw = tiny_config.model_dump()
+    # Interrupt after two of four warmup updates, then resume into the decay phase.
+    raw["lr_schedule"] = {"name": schedule, "warmup_tokens_per_parameters": 0.12}
+    tiny_config = Config.model_validate(raw)
     if larger_cache:
         tiny_config.data.cache_dir = tmp_path / "larger-cache"
         cache = make_cache(tiny_config.data.cache_dir, tiny_config, tokens=401)
@@ -131,6 +136,10 @@ def test_resume_equivalence(
     assert torch.equal(original["rng"]["torch"], final["rng"]["torch"])
     changed = resumed.model_copy(deep=True)
     changed.optimizer.lr *= 2
+    with pytest.raises(ValueError, match="recipe"):
+        validate_checkpoint(checkpoint, changed, cache)
+    changed = resumed.model_copy(deep=True)
+    changed.lr_schedule.warmup_tokens_per_parameters = 0.15
     with pytest.raises(ValueError, match="recipe"):
         validate_checkpoint(checkpoint, changed, cache)
     changed = resumed.model_copy(deep=True)

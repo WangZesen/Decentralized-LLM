@@ -377,7 +377,7 @@ srun --ntasks=2 --ntasks-per-node=1 --gpus-per-task=4 --gpu-bind=none \
       --master-addr="$MASTER_ADDR" --master-port=29500 --rdzv-backend=static \
       --numa-binding=exclusive --max-restarts=0 scripts/qualify_gh200.py \
       -c configs/base.yaml -c configs/90m.yaml -c configs/gh200-8gpu.yaml \
-      --set data.cache_dir=/shared/tokens/c4 --set lr_schedule.warmup_steps=20 \
+      --set data.cache_dir=/shared/tokens/c4 --set lr_schedule.warmup_tokens_per_parameters=0.007 \
       --set runtime.seed=42 --steps 100 --output runs/qualification-90m-s42'
 ```
 

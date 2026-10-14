@@ -64,7 +64,7 @@ def tiny_config(tmp_path: Path) -> Config:
                 "deterministic": True,
             },
             "distributed": {"backend": "gloo", "timeout_seconds": 30},
-            "lr_schedule": {"name": "cosine", "warmup_steps": 1},
+            "lr_schedule": {"name": "cosine", "warmup_tokens_per_parameters": 0.03},
             "evaluation": {"subset_blocks": 5, "batch_size": 3},
         }
     )

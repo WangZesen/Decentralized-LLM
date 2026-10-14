@@ -423,6 +423,22 @@ validation targets, including a partial final block. Full validation reads seque
 and rank partitions do not duplicate samples. Decentralized evaluation uses separate
 FP32-averaged weights without changing training replicas or optimizer state.
 
+Both cosine and WSD use `lr_schedule.warmup_tokens_per_parameters`, defaulting to **1.0**
+tokens per parameter (TPP). Multiply TPP by `model.parameter_count`, divide by the global
+`training.batch_tokens`, and round to the nearest
+optimizer update, with half-update ties rounded up. Positive budgets always receive at
+least one update; **0** disables warmup. Values must be finite and nonnegative. Increasing
+the global batch size reduces the warmup update count, while increasing the model size
+increases it. Microbatch size, world size, and data reuse do not independently scale warmup.
+The learning rate rises linearly to the base rate at the rounded warmup boundary, then
+follows the selected decay schedule. Warmup is not capped to the training budget, so a
+short run can finish during warmup. Benchmark timing `--warmup` remains measured in updates.
+
+`lr_schedule.warmup_steps` has been removed. Migrate YAML files and CLI overrides to the
+TPP field and start new runs; checkpoints with the previous schedule recipe cannot resume
+under this configuration. To preserve an old update count for a particular model and batch,
+use `old_warmup_steps * training.batch_tokens / model.parameter_count` as the TPP value.
+
 Set `training.data_reuse_factor=K` to reuse a smaller fixed pool while retaining the
 same global token budget, optimizer steps, learning-rate schedule, and virtual epochs:
 

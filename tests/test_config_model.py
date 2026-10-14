@@ -92,7 +92,7 @@ def test_rounding_schedules_optimizer(tiny_config: Config) -> None:
     assert learning_rate(tiny_config, 24, total) == lr
     assert learning_rate(tiny_config, total, total) == 0
     raw = tiny_config.model_dump()
-    raw["lr_schedule"] = {"name": "wsd", "warmup_steps": 1, "decay_fraction": 0.5}
+    raw["lr_schedule"] = {"name": "wsd", "warmup_tokens_per_parameters": 0.03, "decay_fraction": 0.5}
     wsd = Config.model_validate(raw)
     assert learning_rate(wsd, 24, total) == lr
     assert learning_rate(wsd, total, total) == 0

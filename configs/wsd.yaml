@@ -1,4 +1,4 @@
 lr_schedule:
   name: wsd
-  warmup_steps: 312
+  warmup_tokens_per_parameters: 1.0
   decay_fraction: 0.1
