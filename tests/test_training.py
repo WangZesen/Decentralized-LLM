@@ -13,6 +13,7 @@ from decentralized_llm.config import Config
 from decentralized_llm.distributed import PendingParameterMix
 from decentralized_llm.model import Llama
 from decentralized_llm.optim import make_optimizer
+from decentralized_llm.parameter_storage import parameter_storage
 from decentralized_llm.sampling import BatchSpec
 from decentralized_llm.state import Batch
 from decentralized_llm.train import train
@@ -24,9 +25,8 @@ def test_awc_failed_update_drains_without_applying(tiny_config: Config, monkeypa
     before = {k: v.clone() for k, v in model.state_dict().items()}
     optimizer = make_optimizer(model, tiny_config, torch.device("cpu"))
     work = Mock(spec=torch.distributed.Work)
-    pending = PendingParameterMix(
-        list(model.parameters()), torch.zeros(sum(p.numel() for p in model.parameters())), [work], 2
-    )
+    storage = parameter_storage(model)
+    pending = PendingParameterMix(storage, torch.zeros_like(storage.flat), [work], 2)
     launch = Mock(return_value=pending)
     monkeypatch.setattr(training, "begin_parameter_mix", launch)
 

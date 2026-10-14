@@ -19,6 +19,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from decentralized_llm.config import PRESETS, Config
 from decentralized_llm.model import Llama, token_losses
+from decentralized_llm.parameter_storage import prepare_parameter_storage
 from decentralized_llm.runtime import source_digest
 
 
@@ -32,6 +33,7 @@ def kernel_revision() -> str:
 def compile_revision() -> str:
     digest = hashlib.sha256(Path(__file__).read_bytes())
     digest.update(kernel_revision().encode())
+    digest.update(Path(__file__).with_name("parameter_storage.py").read_bytes())
     return digest.hexdigest()
 
 
@@ -225,6 +227,7 @@ class TrainingExecution(nn.Module):
 
     def __init__(self, model: Llama, config: Config, device: torch.device, *, distributed: bool = True):
         super().__init__()
+        prepare_parameter_storage(model)
         self.policy = model.execution_policy or resolve_execution(config, device)
         model.execution_backend = self.policy["backend"]
         model.projection_fusion = self.policy["projection_fusion"]

@@ -14,6 +14,7 @@ import torch.distributed as dist
 from torch import nn
 
 from decentralized_llm.config import Config
+from decentralized_llm.parameter_storage import ParameterStorage, parameter_storage, prepare_parameter_storage
 
 _peer_group_world: dist.ProcessGroup | None = None
 _peer_groups: dict[tuple[int, int], dist.ProcessGroup | None] = {}
@@ -149,6 +150,7 @@ def prepare_parameter_groups(topology: str, *, timeout: timedelta | None = None)
 
 @dataclass
 class MixBuffer:
+    storage: ParameterStorage
     flat: torch.Tensor
     busy: bool = False
 
@@ -157,11 +159,15 @@ class MixBuffer:
 class PendingParameterMix:
     """Own communication buffers without modifying parameters used by autograd."""
 
-    parameters: list[nn.Parameter]
+    storage: ParameterStorage
     flat: torch.Tensor
     requests: list[dist.Work]
     size: int
     owner: MixBuffer | None = None
+    closed: bool = False
+
+    def __post_init__(self) -> None:
+        self.storage.active_mixes += 1
 
     def wait(self) -> None:
         """Join communication on the caller's stream, including on update failure."""
@@ -174,17 +180,17 @@ class PendingParameterMix:
         """Install mixed weights only after all local backwards have finished."""
         self.wait()
         self.flat.div_(self.size)
-        chunks = self.flat.split([p.numel() for p in self.parameters])
-        sources = [chunk.view_as(p) for chunk, p in zip(chunks, self.parameters, strict=True)]
-        # One batched copy avoids exposing a separate CPU/CUDA launch per weight
-        # tensor once communication has already finished behind computation.
-        torch._foreach_copy_(tuple(self.parameters), sources)  # pyright: ignore[reportPrivateImportUsage]
+        self.storage.copy_from(self.flat)
 
     def close(self) -> None:
+        if self.closed:
+            return
         self.wait()
         if self.owner is not None:
             self.owner.busy = False
             self.owner = None
+        self.storage.active_mixes -= 1
+        self.closed = True
 
 
 @torch.no_grad()
@@ -204,29 +210,27 @@ def begin_parameter_mix(
         group = _peer_groups[(min(worker, peer), max(worker, peer))]
         assert group is not None
         size = 2
-    parameters = list(model.parameters())
+    storage = parameter_storage(model)
     owner = None
-    sources = [p.detach().reshape(-1) for p in parameters]
     if reuse:
         owner = _mix_buffers.get(model)
-        if owner is None:
-            owner = MixBuffer(
-                torch.empty(sum(p.numel() for p in parameters), device=parameters[0].device, dtype=parameters[0].dtype)
-            )
+        if owner is None or owner.storage is not storage:
+            owner = MixBuffer(storage, torch.empty_like(storage.flat))
             _mix_buffers[model] = owner
         if owner.busy:
             raise RuntimeError("previous parameter exchange still owns the reusable snapshot")
         owner.busy = True
-        flat = torch.cat(sources, out=owner.flat)
+        flat = owner.flat
     else:
-        flat = torch.cat(sources)
+        flat = torch.empty_like(storage.flat)
     try:
+        flat.copy_(storage.flat)
         requests = [dist.all_reduce(flat, group=group, async_op=True)]
     except BaseException:
         if owner is not None:
             owner.busy = False
         raise
-    return PendingParameterMix(parameters, flat, requests, size, owner)
+    return PendingParameterMix(storage, flat, requests, size, owner)
 
 
 def mix_parameters(model: nn.Module, topology: str, step: int, *, reuse: bool = False) -> None:
@@ -243,6 +247,7 @@ def averaged_model(model: nn.Module) -> nn.Module:
     import copy
 
     averaged = copy.deepcopy(model).float()
+    prepare_parameter_storage(averaged)
     if world_size() > 1:
         mix_parameters(averaged, "complete", 0)
     return averaged

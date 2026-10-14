@@ -19,6 +19,7 @@ from decentralized_llm.execution import build_execution, compiler_counters
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama
 from decentralized_llm.optim import make_optimizer
+from decentralized_llm.parameter_storage import parameter_storage
 from decentralized_llm.runtime import append_metric, atomic_json, environment
 from decentralized_llm.train import optimizer_update
 
@@ -147,6 +148,8 @@ def benchmark_training(config: Config) -> dict:
                         )
                     )
                 median = statistics.median(window["global_tokens_per_second"] for window in windows)
+                storage = parameter_storage(model)
+                parameter_bytes = sum(p.numel() * p.element_size() for p in storage.parameters)
                 result = {
                     "rank": rank(),
                     "world_size": world_size(),
@@ -166,6 +169,12 @@ def benchmark_training(config: Config) -> dict:
                     "per_gpu_tokens_per_second": median / world_size(),
                     "peak_allocated_bytes": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None,
                     "peak_reserved_bytes": torch.cuda.max_memory_reserved(device) if device.type == "cuda" else None,
+                    "parameter_storage": {
+                        "parameter_bytes": parameter_bytes,
+                        "communication_bytes": storage.flat.nbytes,
+                        "padding_bytes": storage.flat.nbytes - parameter_bytes,
+                        "allocation_bytes": storage.flat.untyped_storage().nbytes(),
+                    },
                     "loader": loader.metrics(),
                     "resident_at_measurement": resident_at_measurement,
                     "execution": execution.policy,

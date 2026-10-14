@@ -6,9 +6,11 @@ import torch
 from torch import nn
 
 from decentralized_llm.config import Config, WSDScheduleConfig
+from decentralized_llm.parameter_storage import prepare_parameter_storage
 
 
 def make_optimizer(model: nn.Module, config: Config, device: torch.device) -> torch.optim.AdamW:
+    prepare_parameter_storage(model)
     cfg = config.optimizer
     decay = [p for p in model.parameters() if p.ndim >= 2]
     no_decay = [p for p in model.parameters() if p.ndim < 2]

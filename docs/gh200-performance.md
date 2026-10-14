@@ -41,6 +41,10 @@ Shared software changes reduce overhead in both native and GH200 execution:
 
 - Reusable decentralized snapshot buffers avoid repeated allocation. Their ownership
   lasts through communication, and AWC installs mixed weights only after backward.
+- All training modes now bind canonical parameters to a shared allocation with
+  256-byte-aligned starts. Decentralized snapshots and installation use whole-buffer
+  copies. This later storage change is not covered by the historical measurements
+  below; see the [storage validation and reproduction commands](validation.md#contiguous-parameter-storage).
 - GPU scalar metrics are read only at logging steps. Nonfinite gradient checks remain
   enabled during clipping.
 - Validation uses pinned host tensors and asynchronous copies, with float64 loss
@@ -52,6 +56,11 @@ Shared software changes reduce overhead in both native and GH200 execution:
   avoiding repeated dependency synchronization when the environment is already ready.
 - Checkpoints record the resolved execution policy. Resume pins it; legacy checkpoints
   retain native execution.
+
+The contiguous-storage change invalidates the historical automatic qualification's
+compiler revision. Its measured hashes remain unchanged, so automatic selection uses
+the unqualified native policy until new evidence is recorded. Explicit GH200 presets
+remain available for validation; their performance must be remeasured with the new layout.
 
 DDP uses 25 MiB buckets without gradient bucket views or batched copies by default.
 The larger-bucket combination remains configurable because its gains were measured

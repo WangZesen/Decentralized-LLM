@@ -351,6 +351,15 @@ concurrent writers to the same study.
 
 ## Training and recovery semantics
 
+All training modes use one contiguous parameter allocation with 256-byte-aligned
+parameter starts. Existing parameter objects, tied weights, optimizer groups, and
+checkpoint tensor names/shapes are preserved. Storage is prepared after device/dtype
+placement and before optimizer or execution setup; evaluation copies are prepared
+independently. Decentralized mixing copies between this live allocation and a separate
+snapshot in bulk. `distributed.reuse_mix_buffers` controls snapshot allocation reuse,
+not the parameter layout. DDP continues to synchronize gradients through its normal
+buckets and does not allocate a parameter-mixing snapshot.
+
 `batch_tokens` is **global**; `micro_batch_size` is **per rank**. Accumulation supports a
 smaller last microbatch and global sequence counts not divisible by world size. DDP
 weights summed losses by their contribution to the global batch, uses `no_sync()` for

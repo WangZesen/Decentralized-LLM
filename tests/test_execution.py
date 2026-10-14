@@ -141,7 +141,8 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     assert len(registry["profiles"]) == 1
     entry = registry["profiles"][0]
     assert entry["kernel_revision"] == kernel_revision()
-    assert entry["compile_revision"] == compile_revision()
+    # Keep the measured profile intact; changed storage/compiler code is unqualified.
+    assert entry["compile_revision"] != compile_revision()
     assert entry["key"] == qualification_key(config)
     monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
@@ -149,6 +150,10 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     monkeypatch.setattr(torch.version, "cuda", entry["cuda"])
     monkeypatch.setattr("decentralized_llm.execution.qualification_environment", lambda: entry["environment"])
     device = torch.device("cuda", 0)
+    policy = resolve_execution(config, device)
+    assert policy["backend"] == "native" and policy["compile"] is False
+    # Reconstruct the historical revision to verify its original workload bounds.
+    monkeypatch.setattr("decentralized_llm.execution.compile_revision", lambda: entry["compile_revision"])
     policy = resolve_execution(config, device)
     assert policy["backend"] == "gh200" and policy["compile"] is True
     monkeypatch.setattr(

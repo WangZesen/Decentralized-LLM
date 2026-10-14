@@ -71,7 +71,7 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
             current["distributed"].update(gpus_per_node=size, mode=mode, topology=topology, scheme=scheme)
             current["training"].update(batch_tokens=40, micro_batch_size=2)
             cfg = Config.model_validate(current)
-            cfg.runtime.compile = compiled and mode == "ddp"
+            cfg.runtime.compile = compiled
             cache = TokenCache(cfg.data.cache_dir)
             references = []
             for r in range(size if mode == "decentralized" else 1):
@@ -261,11 +261,15 @@ def test_cuda_parameter_mix_snapshot(size: int) -> None:
 
 
 @pytest.mark.distributed
-@pytest.mark.parametrize("size,factor,compiled", [(2, 1, False), (4, 1, False), (4, 3, False), (4, 1, True)])
+@pytest.mark.parametrize(
+    "size,factor,compiled,reuse",
+    [(2, 1, False, True), (4, 1, False, True), (4, 3, False, True), (4, 1, True, True), (2, 1, True, False)],
+)
 def test_distributed_serial_references(
-    cache: TokenCache, tiny_config: Config, size: int, factor: int, compiled: bool
+    cache: TokenCache, tiny_config: Config, size: int, factor: int, compiled: bool, reuse: bool
 ) -> None:
     tiny_config.training.data_reuse_factor = factor
+    tiny_config.distributed.reuse_mix_buffers = reuse
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage] # Public torch API missing from its export stubs.
         distributed_comparisons,
         args=(size, free_port(), tiny_config.model_dump(mode="json"), compiled),
