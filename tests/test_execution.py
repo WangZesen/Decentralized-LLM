@@ -166,6 +166,7 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
         ("distributed", "nodes", 2),
         ("distributed", "mode", "ddp"),
         ("distributed", "backend", "gloo"),
+        ("distributed", "error_feedback", True),
         ("runtime", "sdpa_backend", "auto"),
         ("runtime", "cpu_affinity", "exclusive"),
         ("runtime", "deterministic", True),
@@ -177,7 +178,10 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
         assert policy["backend"] == "native" and policy["compile"] is False
 
 
-def test_benchmark_uses_complete_update_windows(tiny_config: Config, cache: TokenCache) -> None:
+@pytest.mark.parametrize("feedback", [False, True])
+def test_benchmark_uses_complete_update_windows(tiny_config: Config, cache: TokenCache, feedback: bool) -> None:
+    tiny_config.distributed.mode = "decentralized"
+    tiny_config.distributed.error_feedback = feedback
     tiny_config.benchmark.warmup = 2
     tiny_config.benchmark.steps = 2
     tiny_config.benchmark.windows = 2
@@ -191,6 +195,8 @@ def test_benchmark_uses_complete_update_windows(tiny_config: Config, cache: Toke
             window["updates"] * tiny_config.training.batch_tokens
         )
     assert (tiny_config.runtime.output_dir / "benchmark.json").is_file()
+    expected_bytes = result["parameter_storage"]["communication_bytes"] if feedback else 0
+    assert result["error_feedback"] == {"history_bytes": expected_bytes, "scratch_bytes": expected_bytes}
 
 
 def test_legacy_checkpoint_pins_native_execution(tiny_config: Config, cache: TokenCache) -> None:

@@ -382,6 +382,37 @@ the existing world group is reused. Every exchange is joined before switching gr
 All support a single-worker no-op. Evaluation
 and checkpoint coordination add their own collectives outside optimizer mixing.
 
+Set `--set distributed.error_feedback=true` in decentralized mode to apply
+`2 * current_update - previous_update` at each local optimizer step. An update is
+the full signed AdamW parameter displacement, including weight decay, after local
+gradient clipping. History starts at zero, so the first update is doubled. AdamW
+moments advance once per step, and the fused CUDA optimizer remains available.
+This adapts the update correction in
+[Algorithm 2 of Zmushko et al.](https://arxiv.org/pdf/2606.30634#page=7), with the
+zero-history, doubled-first-update initialization used here.
+
+AWC applies the correction after installing mixed parameters; ATC applies it before
+mixing. The saved update excludes mixing and stays local to each rank. The option
+also works with one decentralized worker and is rejected in DDP mode. It defaults
+to `false`.
+
+Error feedback uses two additional contiguous buffers per worker, each matching
+the padded parameter allocation's dtype and length: history and scratch. Bulk
+copy/subtraction computes the update, and the buffers swap roles after each step
+without another history copy. They are separate from communication snapshots and
+are reused regardless of `distributed.reuse_mix_buffers`. For FP32 parameters the
+additional memory is approximately 8 bytes per parameter, plus alignment padding.
+Training checkpoints save each rank's previous update alongside AdamW state;
+scratch is not saved. Resume requires matching error-feedback configuration and
+valid history. Training benchmarks report `error_feedback.history_bytes` and
+`error_feedback.scratch_bytes` in addition to overall CUDA peak memory.
+
+To isolate the local optimizer overhead, run
+`uv run python scripts/benchmark_error_feedback.py -c configs/base.yaml -c configs/20m.yaml --output runs/feedback-benchmark.json`.
+It compares ordinary AdamW and error feedback with identical fixed synthetic gradients
+and reports per-step time and buffer bytes. This excludes forward/backward and
+communication; use the training benchmark for end-to-end throughput.
+
 Models retain tied embeddings, RoPE, RMSNorm, SwiGLU, depth-scaled initialization,
 reference/SDPA attention, BF16 autocast, optional compilation, and fused CUDA AdamW.
 Weight decay applies to matrices, not normalization vectors. The token budget uses one

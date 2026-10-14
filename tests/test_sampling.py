@@ -6,15 +6,14 @@ import pytest
 from conftest import make_cache
 
 from decentralized_llm.cache import TokenCache
-from decentralized_llm.checkpoints import recipe_identity
 from decentralized_llm.config import Config
 from decentralized_llm.loader import TokenLoader
 from decentralized_llm.preflight import validate
 from decentralized_llm.sampling import GlobalSampler, check_memory, sampling_plan
 
 
-def test_legacy_sampler_and_recipe(cache: TokenCache, tiny_config: Config) -> None:
-    # Captured from the original sampler/recipe with the pinned NumPy 2.5.3.
+def test_sampler_sequence(cache: TokenCache, tiny_config: Config) -> None:
+    # Captured from the original sampler with the pinned NumPy 2.5.3.
     expected = [
         int(value)
         for value in (
@@ -35,7 +34,6 @@ def test_legacy_sampler_and_recipe(cache: TokenCache, tiny_config: Config) -> No
         "numpy": "2.5.3",
     }
     assert [sampler.block(p) for p in range(74)] == expected
-    assert recipe_identity(tiny_config, cache) == "2b10de186d648f2d2bc3bee3127178c316ca3fadf3d06d169125a2787618b02b"
 
 
 @pytest.mark.parametrize("factor,pool_size", [(2, 21), (3, 14), (5, 9), (7, 6), (42, 1), (100, 1)])

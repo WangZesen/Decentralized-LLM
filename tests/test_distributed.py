@@ -19,7 +19,8 @@ from decentralized_llm.evaluation import evaluate
 from decentralized_llm.execution import build_execution
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.optim import learning_rate, make_optimizer
+from decentralized_llm.optim import ErrorFeedbackAdamW, learning_rate, make_optimizer
+from decentralized_llm.parameter_storage import parameter_storage
 from decentralized_llm.runtime import clip_grad_norm_
 from decentralized_llm.sampling import GlobalSampler
 from decentralized_llm.train import optimizer_update, train
@@ -69,6 +70,7 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
         ]:
             current = copy.deepcopy(raw)
             current["distributed"].update(gpus_per_node=size, mode=mode, topology=topology, scheme=scheme)
+            current["distributed"]["error_feedback"] = raw["distributed"]["error_feedback"] and mode == "decentralized"
             current["training"].update(batch_tokens=40, micro_batch_size=2)
             cfg = Config.model_validate(current)
             cfg.runtime.compile = compiled
@@ -80,7 +82,10 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
             torch.manual_seed(42 + (worker if mode == "decentralized" else 0))
             model = Llama(cfg.model, "reference")
             optimizer = make_optimizer(model, cfg, torch.device("cpu"))
-            ref_opts = [make_optimizer(m, cfg, torch.device("cpu")) for m in references]
+            reference_config = cfg.model_copy(deep=True)
+            reference_config.distributed.error_feedback = False
+            ref_opts = [make_optimizer(m, reference_config, torch.device("cpu")) for m in references]
+            histories = [[torch.zeros_like(p) for p in m.parameters()] for m in references]
             forward = build_execution(model, cfg, torch.device("cpu"))
             with TokenLoader(cache, cfg, worker, 0, 40) as loader:
                 loader.warmup()
@@ -97,8 +102,15 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                             group["lr"] = learning_rate(cfg, stop * 4, 160)
                     if mode == "decentralized" and scheme == "awc":
                         reference_mix(references, topology, step)
-                    for opt in ref_opts:
+                    for reference, opt, history in zip(references, ref_opts, histories, strict=True):
+                        before_step = [p.detach().clone() for p in reference.parameters()]
                         opt.step()
+                        if cfg.distributed.error_feedback:
+                            with torch.no_grad():
+                                for p, base, previous in zip(reference.parameters(), before_step, history, strict=True):
+                                    delta = p - base
+                                    p.add_(delta).sub_(previous)
+                                    previous.copy_(delta)
                     if mode == "decentralized" and scheme == "atc":
                         reference_mix(references, topology, step)
                     optimizer_update(
@@ -120,9 +132,19 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                         torch.testing.assert_close(actual, expected, atol=3e-7, rtol=2e-5)
                     reference_opt = ref_opts[worker if mode == "decentralized" else 0]
                     for actual, expected in zip(optimizer.state.values(), reference_opt.state.values(), strict=True):
-                        for key in ("exp_avg", "exp_avg_sq"):
+                        for key in ("step", "exp_avg", "exp_avg_sq"):
                             torch.testing.assert_close(actual[key], expected[key], atol=3e-7, rtol=3e-5)
+                    if isinstance(optimizer, ErrorFeedbackAdamW):
+                        storage = parameter_storage(model)
+                        for p, offset, previous in zip(
+                            storage.parameters, storage.offsets, histories[worker], strict=True
+                        ):
+                            actual = optimizer.previous_update[offset : offset + p.numel()].view_as(p)
+                            torch.testing.assert_close(actual, previous, atol=3e-7, rtol=3e-5)
                 before = copy.deepcopy(model.state_dict())
+                history_before = (
+                    optimizer.previous_update.clone() if isinstance(optimizer, ErrorFeedbackAdamW) else None
+                )
                 for full in (False, True):
                     result = evaluate(model, cache, cfg, torch.device("cpu"), full)
                     if full:
@@ -143,6 +165,8 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                         assert result["loss"] == pytest.approx(loss_sum / 38, abs=2e-6)
                 for key, value in before.items():
                     torch.testing.assert_close(model.state_dict()[key], value, rtol=0, atol=0)
+                if isinstance(optimizer, ErrorFeedbackAdamW):
+                    torch.testing.assert_close(optimizer.previous_update, history_before, rtol=0, atol=0)
                 checkpoint = cfg.runtime.output_dir / f"{size}-{mode}-{topology}-{scheme}"
                 save_checkpoint(
                     checkpoint,
@@ -156,10 +180,14 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                 with torch.no_grad():
                     for parameter in model.parameters():
                         parameter.add_(10)
+                    if isinstance(optimizer, ErrorFeedbackAdamW):
+                        optimizer.previous_update.fill_(123)
                 manifest, _ = load_checkpoint(checkpoint, cfg, cache, model, optimizer)
                 assert manifest["cursor"] == 40
                 for key, value in before.items():
                     torch.testing.assert_close(model.state_dict()[key], value, rtol=0, atol=0)
+                if isinstance(optimizer, ErrorFeedbackAdamW):
+                    torch.testing.assert_close(optimizer.previous_update, history_before, rtol=0, atol=0)
                 transfer.close()
     finally:
         torch.compile = original_compile
@@ -262,14 +290,24 @@ def test_cuda_parameter_mix_snapshot(size: int) -> None:
 
 @pytest.mark.distributed
 @pytest.mark.parametrize(
-    "size,factor,compiled,reuse",
-    [(2, 1, False, True), (4, 1, False, True), (4, 3, False, True), (4, 1, True, True), (2, 1, True, False)],
+    "size,factor,compiled,reuse,feedback",
+    [
+        (2, 1, False, True, False),
+        (4, 1, False, True, False),
+        (4, 3, False, True, False),
+        (4, 1, True, True, False),
+        (2, 1, True, False, False),
+        (2, 1, False, True, True),
+        (4, 1, True, False, True),
+    ],
 )
 def test_distributed_serial_references(
-    cache: TokenCache, tiny_config: Config, size: int, factor: int, compiled: bool, reuse: bool
+    cache: TokenCache, tiny_config: Config, size: int, factor: int, compiled: bool, reuse: bool, feedback: bool
 ) -> None:
     tiny_config.training.data_reuse_factor = factor
     tiny_config.distributed.reuse_mix_buffers = reuse
+    tiny_config.distributed.mode = "decentralized"
+    tiny_config.distributed.error_feedback = feedback
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage] # Public torch API missing from its export stubs.
         distributed_comparisons,
         args=(size, free_port(), tiny_config.model_dump(mode="json"), compiled),
@@ -290,6 +328,7 @@ def resume_worker(worker: int, size: int, ports: list[int], raw: dict[str, Any])
     for mode in ("ddp", "decentralized"):
         current = copy.deepcopy(raw)
         current["distributed"].update(gpus_per_node=size, mode=mode)
+        current["distributed"]["error_feedback"] = raw["distributed"]["error_feedback"] and mode == "decentralized"
         root = Path(current["runtime"]["output_dir"])
         current["runtime"]["output_dir"] = str(root / f"{mode}-full")
         cfg = Config.model_validate(current)
@@ -315,14 +354,39 @@ def resume_worker(worker: int, size: int, ports: list[int], raw: dict[str, Any])
             for key, value in original["model"].items():
                 # Recreated DDP buckets may change FP32 collective summation order.
                 torch.testing.assert_close(actual["model"][key], value, rtol=1e-6, atol=1e-7)
+        if cfg.distributed.error_feedback:
+            torch.testing.assert_close(
+                actual["optimizer"]["error_feedback"]["previous_update"],
+                original["optimizer"]["error_feedback"]["previous_update"],
+                rtol=0,
+                atol=0,
+            )
+            for key, state in original["optimizer"]["state"].items():
+                for name, value in state.items():
+                    torch.testing.assert_close(actual["optimizer"]["state"][key][name], value, rtol=0, atol=0)
         assert original["loader"] == actual["loader"]
         assert torch.equal(original["rng"]["torch"], actual["rng"]["torch"])
 
 
 @pytest.mark.distributed
-@pytest.mark.parametrize("size,factor", [(2, 1), (4, 1), (2, 4), (4, 7)])
-def test_multiprocess_training_resume(cache: TokenCache, tiny_config: Config, size: int, factor: int) -> None:
+@pytest.mark.parametrize(
+    "size,factor,feedback,scheme",
+    [
+        (2, 1, False, "awc"),
+        (4, 1, False, "awc"),
+        (2, 4, False, "awc"),
+        (4, 7, False, "awc"),
+        (2, 1, True, "awc"),
+        (2, 1, True, "atc"),
+    ],
+)
+def test_multiprocess_training_resume(
+    cache: TokenCache, tiny_config: Config, size: int, factor: int, feedback: bool, scheme: str
+) -> None:
     tiny_config.training.data_reuse_factor = factor
+    tiny_config.distributed.mode = "decentralized"
+    tiny_config.distributed.error_feedback = feedback
+    tiny_config.distributed.scheme = scheme  # type: ignore[assignment]
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage] # Public torch API missing from its export stubs.
         resume_worker,
         args=(size, [free_port() for _ in range(6)], tiny_config.model_dump(mode="json")),

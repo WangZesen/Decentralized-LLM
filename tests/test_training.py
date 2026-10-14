@@ -12,15 +12,19 @@ from decentralized_llm.checkpoints import validate_checkpoint
 from decentralized_llm.config import Config
 from decentralized_llm.distributed import PendingParameterMix
 from decentralized_llm.model import Llama
-from decentralized_llm.optim import make_optimizer
+from decentralized_llm.optim import ErrorFeedbackAdamW, make_optimizer
 from decentralized_llm.parameter_storage import parameter_storage
 from decentralized_llm.sampling import BatchSpec
 from decentralized_llm.state import Batch
 from decentralized_llm.train import train
 
 
-def test_awc_failed_update_drains_without_applying(tiny_config: Config, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("feedback", [False, True])
+def test_awc_failed_update_drains_without_applying(
+    tiny_config: Config, monkeypatch: pytest.MonkeyPatch, feedback: bool
+) -> None:
     tiny_config.distributed.mode = "decentralized"
+    tiny_config.distributed.error_feedback = feedback
     model = Llama(tiny_config.model)
     before = {k: v.clone() for k, v in model.state_dict().items()}
     optimizer = make_optimizer(model, tiny_config, torch.device("cpu"))
@@ -42,8 +46,44 @@ def test_awc_failed_update_drains_without_applying(tiny_config: Config, monkeypa
     work.wait.assert_called_once()
     assert not pending.requests
     assert not optimizer.state
+    if isinstance(optimizer, ErrorFeedbackAdamW):
+        assert torch.count_nonzero(optimizer.previous_update) == 0
     for key, value in model.state_dict().items():
         torch.testing.assert_close(value, before[key], rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("scheme", ["awc", "atc"])
+@pytest.mark.parametrize("split_step", [1, 2])
+def test_error_feedback_resume(
+    cache: TokenCache, tiny_config: Config, tmp_path: Path, scheme: str, split_step: int
+) -> None:
+    tiny_config.distributed.mode = "decentralized"
+    tiny_config.distributed.error_feedback = True
+    tiny_config.distributed.scheme = scheme  # type: ignore[assignment]
+    train(tiny_config)
+    original = torch.load(tiny_config.runtime.output_dir / "final/rank-00000.pt", weights_only=False)
+    tiny_config.runtime.output_dir = tmp_path / "split"
+    train(tiny_config, stop_after_steps=split_step)
+    checkpoint = tiny_config.runtime.output_dir / f"step-{split_step:08d}"
+    tiny_config.runtime.output_dir = tmp_path / "resumed"
+    train(tiny_config, checkpoint)
+    actual = torch.load(tiny_config.runtime.output_dir / "final/rank-00000.pt", weights_only=False)
+    for key, value in original["model"].items():
+        torch.testing.assert_close(actual["model"][key], value, rtol=0, atol=0)
+    for key, state in original["optimizer"]["state"].items():
+        for name, value in state.items():
+            torch.testing.assert_close(actual["optimizer"]["state"][key][name], value, rtol=0, atol=0)
+    torch.testing.assert_close(
+        actual["optimizer"]["error_feedback"]["previous_update"],
+        original["optimizer"]["error_feedback"]["previous_update"],
+        rtol=0,
+        atol=0,
+    )
+    assert actual["loader"] == original["loader"]
+    assert torch.equal(actual["rng"]["torch"], original["rng"]["torch"])
+    tiny_config.distributed.error_feedback = False
+    with pytest.raises(ValueError, match="recipe"):
+        validate_checkpoint(checkpoint, tiny_config, cache)
 
 
 @pytest.mark.parametrize("factor", [1, 2, 5, 7])

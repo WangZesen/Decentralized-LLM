@@ -47,6 +47,7 @@ def qualification_key(config: Config) -> dict:
         "micro_batch_size": config.training.micro_batch_size,
         "topology": config.distributed.topology,
         "scheme": config.distributed.scheme,
+        "error_feedback": config.distributed.error_feedback,
         "execution_options": config.runtime.model_dump(
             include={
                 "compile_mode",

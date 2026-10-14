@@ -18,7 +18,7 @@ from decentralized_llm.distributed import barrier, rank, setup, world_size
 from decentralized_llm.execution import build_execution, compiler_counters
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama
-from decentralized_llm.optim import make_optimizer
+from decentralized_llm.optim import ErrorFeedbackAdamW, make_optimizer
 from decentralized_llm.parameter_storage import parameter_storage
 from decentralized_llm.runtime import append_metric, atomic_json, environment
 from decentralized_llm.train import optimizer_update
@@ -174,6 +174,12 @@ def benchmark_training(config: Config) -> dict:
                         "communication_bytes": storage.flat.nbytes,
                         "padding_bytes": storage.flat.nbytes - parameter_bytes,
                         "allocation_bytes": storage.flat.untyped_storage().nbytes(),
+                    },
+                    "error_feedback": {
+                        "history_bytes": optimizer.previous_update.nbytes
+                        if isinstance(optimizer, ErrorFeedbackAdamW)
+                        else 0,
+                        "scratch_bytes": optimizer.scratch.nbytes if isinstance(optimizer, ErrorFeedbackAdamW) else 0,
                     },
                     "loader": loader.metrics(),
                     "resident_at_measurement": resident_at_measurement,
