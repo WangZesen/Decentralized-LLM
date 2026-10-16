@@ -7,6 +7,8 @@ case "$architecture" in
     x86_64|aarch64) ;;
     *) echo "Unsupported architecture: $architecture" >&2; return 1 2>/dev/null || exit 1 ;;
 esac
+source "$project_root/scripts/toolchain.sh"
+activate_toolchain "$project_root" "$architecture" || { return 1 2>/dev/null || exit 1; }
 architecture_root="${DECENTRALIZED_ENV_ROOT:-$HOME/.local/share/decentralized-llm}/$architecture"
 export UV_PROJECT_ENVIRONMENT="$project_root/.venv-$architecture"
 export UV_PYTHON_INSTALL_DIR="$architecture_root/python"

@@ -49,6 +49,10 @@ The SLURM launcher sources this script on every node; a custom
 network-restricted compute job. Project, cache, output, and environment paths must be
 shared, and each allocation must have homogeneous GPUs.
 
+For compiled execution, configure the host C/C++ compilers using the
+[toolchain setup guide](docs/toolchain-setup.md). It covers per-architecture local
+settings, compiler modules, verification, and retrying a failed run.
+
 ## Configuration and preparation
 
 Configuration files merge from left to right; dotted `--set key=value` overrides apply

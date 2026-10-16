@@ -203,7 +203,8 @@ def test_environment_fast_activation_and_invalidation(tmp_path: Path) -> None:
     root = tmp_path / "project"
     (root / "scripts").mkdir(parents=True)
     script = root / "scripts/environment.sh"
-    script.write_text((Path(__file__).resolve().parents[1] / "scripts/environment.sh").read_text())
+    for name in ("environment.sh", "toolchain.sh"):
+        (root / "scripts" / name).write_text((Path(__file__).resolve().parents[1] / "scripts" / name).read_text())
     (root / "uv.lock").write_text("fixture")
     (root / "pyproject.toml").write_text("[project]\ndependencies=[]\n[dependency-groups]\ndev=[]\n")
     arch = platform.machine()
