@@ -334,20 +334,74 @@ Dry runs show a prominent total-job estimate and per-phase required, reused, and
 executions. One job means one complete configuration/seed training execution, regardless
 of its node or GPU count. The example specification searches 15 learning-rate/decay
 pairs on two seeds, then six momentum combinations, then confirms two survivors on
-five total seeds: **44 new jobs**, or **at most 132 submission attempts** with two
+five total seeds: **44 new jobs**, or **at most 132 training attempts** with two
 retries per trial. Dry runs for resume and extension also count existing results,
 outstanding jobs, and consumed retries. When unknown winners affect reuse or deduplication,
 the output explicitly labels a conservative upper estimate. Dry runs create no study
 artifacts and submit no jobs; normal cache and launcher prerequisites still apply.
 
-The controller settings default to `max_jobs: 50`, `max_retries: 2`,
-`poll_seconds: 30`, and `result_grace_seconds: 120`. The SLURM cap includes both queued
-and running seed jobs. Local training is sequential. Scheduler queries are batched.
+The controller settings default to `max_jobs: 50`, `jobs_per_allocation: 1`,
+`max_retries: 2`, `poll_seconds: 30`, and `result_grace_seconds: 120`. The SLURM cap
+counts queued and running **allocations**, each of which can contain multiple trials.
+Local training is sequential and ignores `jobs_per_allocation`. Scheduler queries are batched.
+
+To amortize queue waits over several short trials, for example:
+
+```yaml
+base:
+  configs: [base.yaml, 20m.yaml, gh200-8gpu.yaml]
+  overrides:
+    launcher.time: '00:15:00'  # Individual trial limit.
+controller:
+  jobs_per_allocation: 4
+  max_jobs: 2                # At most two queued/running sbatch allocations.
+```
+
+Keep the other required tuning fields (phases and seed counts) in your specification.
+`jobs_per_allocation` is a maximum count of configuration/seed trials, not candidates
+or nodes. Within each phase, including confirmation, compatible pending trials are
+balanced across the fewest allocations: ten trials with a limit of four become
+**4, 3, 3**, with walltimes **60, 45, 45 minutes** for the example above. Grouping happens
+before the concurrency cap is applied. Trials needing different node/GPU resources are
+grouped separately; retries are grouped separately from first attempts. Completed and
+already submitted trials are excluded. Group membership survives controller restarts.
+
+Each allocation submits one `sbatch` script and executes its trials sequentially as
+`srun` steps, retaining its resources between trials. Each step retains its individual
+time limit, environment, configuration, seed, and training output directory. Allocation
+walltime is the sum of the individual limits, rounded to [Slurm's minute resolution](https://slurm.schedmd.com/sbatch.html#OPT_time);
+there is no extra startup/cleanup allowance. Finite positive trial limits are required.
+The controller queries the partition's `MaxTime` before submitting a phase and rejects
+an oversized group with a suggested smaller `jobs_per_allocation`, without automatically
+splitting it. Dry runs also check exact allocation estimates against the partition limit.
+Unknown future winners/resource combinations are labeled as conservative estimates;
+their actual groups are checked before that phase is submitted.
+
+The allocation continues through individual trial failures. Each step publishes a
+durable start/exit record, so successful trials remain successful even if a later step
+or the parent allocation fails. When the allocation is ending, or the remaining time
+rounded up to minutes is smaller than the next trial's limit, remaining trials are left
+unstarted and rescheduled. Sub-minute launcher overhead is tolerated, but the parent
+allocation's deadline always applies. Even an allocation with all trials finished keeps
+its concurrency slot until Slurm reports the parent job has ended.
+
 Retries start from scratch with the same seed in a fresh attempt directory, preserving
-previous logs. Two retries means at most three attempts. A candidate requires every
-seed to succeed. Exhausting any required trial's retries stops new submissions and
-phase advancement, exits unsuccessfully, and writes a partial report. Already submitted
+previous logs. Two retries means at most three started training attempts. Unstarted
+trials do not consume training retries; unsuccessful allocation attempts before a trial
+starts have a separate budget, also bounded by `max_retries` (at most three with the
+default). Submission rejection counts against that allocation-failure budget. Legacy
+individual jobs and local processes retain their original submission-based retry counting.
+Exhausting either budget stops new submissions and phase advancement, exits unsuccessfully,
+and writes a partial report with a reason identifying the budget. A candidate requires
+every seed to succeed. Already submitted
 jobs can finish and their results are collected on resume.
+
+Dry-run JSON preserves trial counts such as `new_jobs` and `additional_attempts_upper_bound`
+(training attempts), and adds `new_allocations`, `already_submitted_allocations`,
+`allocations_exact`, and per-phase allocation sizes/durations. `additional_allocations_upper_bound`
+also allows for retries and failures before trial startup; it is conservative because
+retry groups need not fill an allocation. Status and reports list allocation membership,
+duration, scheduler state, and log locations separately from trial results.
 
 Ctrl-C stops the controller while retaining submitted work. `resume` reconciles persisted
 jobs and continues the frozen specification and retry counters. Active local processes
@@ -357,6 +411,11 @@ receipt, scheduler history, and original host; **after verifying it has no live 
 `tune resume DIR --retry-unresolved ATTEMPT_NAME` marks that attempt failed and permits
 a retry within the existing limit. This explicit recovery covers interruption between
 submission intent and a durable launch receipt.
+For grouped jobs, use the allocation name shown in the warning (a member attempt name
+also resolves to its allocation). Verify that the **whole allocation** has no live job:
+recovery reconciles all its members together, preserves completed results, and releases
+unfinished members for retry. Missing scheduler records never release individual members
+of a potentially live allocation.
 
 `extend` creates a new revision and replays phases using matching successful results.
 It supports revised grids, changed phase sequences, initial values, and seed counts.
@@ -379,6 +438,20 @@ reuse, retries, and failures. A successfully confirmed winner also produces `win
 with a fresh output destination. `tune status` reads the last persisted snapshot;
 `tune report` regenerates reports from that snapshot. A controller lock prevents
 concurrent writers to the same study.
+
+New SLURM tuning submissions, including groups of one, place shared batch artifacts in
+`slurm/<phase-name>/<allocation-id>/`: `submit.sh`, `manifest.json`, `receipt.json`,
+`slurm-<jobid>.out`, and `slurm-<jobid>.err`. Its `steps/` directory contains separate
+stdout, stderr, and execution JSON records for each trial attempt. Trial configurations,
+worker/step scripts, and training results remain in the trial attempt directories;
+attempt records and reports link to the allocation and step logs. Existing logs are
+never relocated. State version 1 studies are read compatibly and saved as version 2.
+Existing active individual jobs remain tracked alongside new grouped allocations.
+
+As with other code changes, updating the controller changes the source fingerprint:
+`resume` requires the same provenance, while `extend` creates a new revision and new
+trials for changed provenance. Use an isolated checkout while queued jobs still refer
+to an older checkout, so those jobs continue to load their intended code.
 
 Reports include Seaborn heatmaps of mean final validation loss over exactly the phase's
 requested seeds. Screening plots use the first two search fields as horizontal and

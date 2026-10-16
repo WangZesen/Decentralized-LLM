@@ -26,5 +26,6 @@ confirmation:
   seeds: 5
 controller:
   max_jobs: 50
+  jobs_per_allocation: 1
   max_retries: 2
   poll_seconds: 30

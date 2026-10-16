@@ -10,6 +10,8 @@ from pathlib import Path
 
 from decentralized_llm.config import Config, save_config
 from decentralized_llm.launch import launch
+from decentralized_llm.tuning.allocations import submit_allocation
+from decentralized_llm.tuning.batching import time_minutes
 from decentralized_llm.tuning.spec import Record
 
 ACTIVE = {
@@ -63,7 +65,7 @@ def query(arguments: list[str]) -> str:
 def scheduler_status(attempts: list[Record]) -> dict[str, Record]:
     groups: dict[str, list[Record]] = {}
     for attempt in attempts:
-        receipt = Path(attempt["directory"]) / "submission" / "receipt.json"
+        receipt = Path(attempt.get("receipt_path", Path(attempt["directory"]) / "submission" / "receipt.json"))
         if receipt.is_file():
             recovered = json.loads(receipt.read_text())
             attempt.update({key: recovered.get(key) for key in ("job_id", "cluster")})
@@ -72,6 +74,7 @@ def scheduler_status(attempts: list[Record]) -> dict[str, Record]:
     for cluster, group in groups.items():
         cluster_args = [f"--clusters={cluster}"] if cluster else []
         names = {attempt["name"] for attempt in group}
+        expected = {attempt["name"]: attempt.get("job_id") for attempt in group}
         queued = query(
             [
                 "squeue",
@@ -87,6 +90,10 @@ def scheduler_status(attempts: list[Record]) -> dict[str, Record]:
             parts = [part.strip() for part in line.split("|")]
             if len(parts) == 3 and parts[1] in names:
                 job, name, state = parts
+                if expected[name] is not None and expected[name] != job:
+                    raise RuntimeError(
+                        f"scheduler job {name} disagrees with its receipt; manual reconciliation required"
+                    )
                 if name in result and result[name]["job_id"] != job:
                     raise RuntimeError(
                         f"multiple scheduler jobs have attempt name {name}; manual reconciliation required"
@@ -114,6 +121,8 @@ def scheduler_status(attempts: list[Record]) -> dict[str, Record]:
             if len(parts) < 4 or parts[1] not in names or not parts[0].isdigit():
                 continue
             job, name, state, code = parts[:4]
+            if expected[name] is not None and expected[name] != job:
+                raise RuntimeError(f"scheduler job {name} disagrees with its receipt; manual reconciliation required")
             previous = result.get(name)
             if previous and previous["job_id"] != job:
                 raise RuntimeError(f"multiple scheduler jobs have attempt name {name}; manual reconciliation required")
@@ -131,6 +140,16 @@ def scheduler_status(attempts: list[Record]) -> dict[str, Record]:
 class Backend:
     def __init__(self) -> None:
         self.children: dict[str, subprocess.Popen] = {}
+
+    def partition_limit(self, partition: str) -> int | None:
+        output = query(["scontrol", "show", "partition", partition, "--oneliner"])
+        fields = dict(item.split("=", 1) for item in output.split() if "=" in item)
+        if fields.get("PartitionName") != partition or "MaxTime" not in fields:
+            raise RuntimeError(f"cannot determine MaxTime for partition {partition}")
+        return time_minutes(fields["MaxTime"])
+
+    def submit_allocation(self, configs: list[Config], allocation: Record, attempts: list[Record]) -> Record:
+        return submit_allocation(configs, allocation, attempts)
 
     def submit(self, config: Config, attempt: Record) -> Record:
         directory = Path(attempt["directory"])

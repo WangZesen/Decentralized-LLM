@@ -64,6 +64,8 @@ def slurm_scripts(
     resume: Path | None = None,
     action: str = "train",
     full: bool = True,
+    *,
+    step_time: str | None = None,
 ) -> tuple[str, str]:
     launcher = config.launcher
     if not isinstance(launcher, SlurmLauncher):
@@ -102,7 +104,8 @@ def slurm_scripts(
         'export MASTER_ADDR="${allocated_hosts[0]}"\n'
         "export OMP_NUM_THREADS=" + str(config.runtime.cpu_threads) + "\n"
         "export TORCH_NCCL_ASYNC_ERROR_HANDLING=1\n"
-        f"srun --ntasks={config.distributed.nodes} --ntasks-per-node=1 "
+        + (f"exec srun --time={shlex.quote(step_time)} " if step_time is not None else "srun ")
+        + f"--ntasks={config.distributed.nodes} --ntasks-per-node=1 "
         f"--gpus-per-task={gpu_request}{config.distributed.gpus_per_node} --gpu-bind=none "
         "--cpu-bind=none --kill-on-bad-exit=1 bash " + shlex.quote(str(worker_path)) + "\n"
     )
@@ -134,6 +137,24 @@ def scheduler_arguments(config: Config) -> list[str]:
         if value:
             arguments.append(f"--{key}={value}")
     return arguments
+
+
+def submit_batch(arguments: list[str], batch_path: Path) -> dict:
+    """Submit prepared artifacts; keep the account out of receipts and exceptions."""
+    account = os.environ["account"].strip()
+    process = subprocess.run(
+        [*arguments, "--account", account, str(batch_path)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if process.returncode:
+        reason = process.stderr.replace(account, "<redacted>")
+        raise SubmissionRejected(f"sbatch failed ({process.returncode}): {reason.strip()}")
+    job_id, _, cluster = process.stdout.strip().partition(";")
+    if not job_id.isdigit():
+        raise RuntimeError("sbatch returned an invalid job identifier")
+    return {"job_id": job_id, "cluster": cluster or None}
 
 
 def launch(
@@ -185,22 +206,7 @@ def launch(
     save_config(config, filename)
     batch_path.write_text(batch)
     worker_path.write_text(worker)
-    # The account is passed only to sbatch, never to shell text, config, receipts or exception command strings.
-    process = subprocess.run(
-        [*arguments, "--account", os.environ["account"].strip(), str(batch_path)],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if process.returncode:
-        # Scheduler error messages can echo the account; redact before reporting.
-        reason = process.stderr.replace(os.environ["account"].strip(), "<redacted>")
-        raise SubmissionRejected(f"sbatch failed ({process.returncode}): {reason.strip()}")
-    job_id, _, cluster = process.stdout.strip().partition(";")
-    if not job_id.isdigit():
-        raise RuntimeError("sbatch returned an invalid job identifier")
-    result["job_id"] = job_id
-    result["cluster"] = cluster or None
+    result.update(submit_batch(arguments, batch_path))
     atomic_json(destination / "receipt.json", result)
     return result
 

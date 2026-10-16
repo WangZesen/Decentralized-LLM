@@ -1,0 +1,50 @@
+# Run from the repository root. Prepare the shared cache first and set your SLURM partition.
+base:
+  configs: [base.yaml, 20m.yaml, slurm-ddp.yaml]
+  overrides:
+    training.checkpoint_policy: none
+    distributed.nodes: 1
+    distributed.gpus_per_node: 1
+    training.batch_tokens: 16384
+    model.context_length: 512
+    training.tokens_per_parameters: 20.0
+
+seed_start: 42
+screening_seeds: 1
+phases:
+  - name: beta1
+    initial_values:
+      optimizer.beta2: 0.987258544901434
+      optimizer.lr: 0.001953125
+    search:
+      optimizer.beta1:
+        scale: power
+        base: 0.9
+        exponent_scale: log
+        exponent_max: 1
+        exponent_min: 0.0625
+        points: 5
+    top_k: 3
+  - name: beta2-and-lr
+    search:
+      optimizer.beta2:
+        scale: power
+        base: 0.95
+        exponent_scale: log
+        exponent_max: 1
+        exponent_min: 0.0009765625
+        points: 6
+      optimizer.lr:
+        scale: power
+        base: 2
+        exponent_min: -11
+        exponent_max: -6
+        points: 6
+    top_k: 6
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 50
+  jobs_per_allocation: 4
+  max_retries: 1
+  poll_seconds: 30

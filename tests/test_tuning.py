@@ -17,6 +17,7 @@ from decentralized_llm.launch import SubmissionRejected
 from decentralized_llm.runtime import atomic_json, environment
 from decentralized_llm.tuning import backends, controller, report
 from decentralized_llm.tuning.backends import Backend, scheduler_status
+from decentralized_llm.tuning.batching import allocation_failures, training_attempts
 from decentralized_llm.tuning.controller import execute, load_state, reconcile, study_lock
 from decentralized_llm.tuning.estimate import estimate, ranking
 from decentralized_llm.tuning.spec import (
@@ -73,6 +74,19 @@ class FakeBackend(Backend):
         self.interrupt = False
         self.unknown = False
         self.max_active = 0
+        self.allocation_submissions: list[Record] = []
+        self.allocation_members: dict[str, list[Record]] = {}
+
+    def partition_limit(self, partition: str) -> int | None:
+        return 4320
+
+    def submit_allocation(self, configs: list[Config], allocation: Record, attempts: list[Record]) -> Record:
+        self.allocation_submissions.append(copy.deepcopy(allocation))
+        self.allocation_members[allocation["name"]] = copy.deepcopy(attempts)
+        for config, attempt in zip(configs, attempts, strict=True):
+            Path(attempt["directory"]).mkdir(parents=True)
+            self.submit(config, attempt)
+        return {"job_id": str(len(self.allocation_submissions))}
 
     def submit(self, config: Config, attempt: Record) -> Record:
         self.submissions.append(copy.deepcopy(attempt))
@@ -86,6 +100,26 @@ class FakeBackend(Backend):
         result = {}
         for attempt in attempts:
             if self.unknown:
+                continue
+            if "members" in attempt:
+                for member in self.allocation_members[attempt["name"]]:
+                    failed = member["number"] <= self.failures
+                    if not failed:
+                        publish_result(load_config(Path(member["directory"]) / "config.yaml"), invalid=self.invalid)
+                    path = Path(member["execution_record"])
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    atomic_json(
+                        path,
+                        {
+                            "allocation_id": attempt["id"],
+                            "trial_id": member["trial_id"],
+                            "attempt": member["number"],
+                            "started": True,
+                            "state": "FAILED" if failed else "COMPLETED",
+                            "exit_code": int(failed),
+                        },
+                    )
+                result[attempt["name"]] = {"state": "COMPLETED", "exit_code": "0:0"}
                 continue
             failed = attempt["number"] <= self.failures
             if not failed:
@@ -644,6 +678,442 @@ def test_rejected_submission_is_bounded(
     directory = tmp_path / "study"
     assert execute("run", directory, tuning_file)["status"] == "failed"
     assert len(next(iter(load_state(directory)["trials"].values()))["attempts"]) == 3
+
+
+@pytest.fixture
+def batched_spec(tuning_file: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    raw = yaml.safe_load(tuning_file.read_text())
+    raw["base"]["overrides"] = {"launcher.kind": "slurm", "launcher.partition": "gpu", "launcher.time": "00:15:00"}
+    raw["phases"] = [{"name": "screen", "search": {"optimizer.lr": [0.001 * i for i in range(1, 11)]}, "top_k": 1}]
+    raw["screening_seeds"] = raw["confirmation"]["seeds"] = 1
+    raw["controller"].update(jobs_per_allocation=4, max_jobs=2)
+    tuning_file.write_text(yaml.safe_dump(raw))
+    monkeypatch.setenv("account", "test-account")
+    monkeypatch.setattr("shutil.which", lambda _: "/bin/slurm")
+    return tuning_file
+
+
+def test_batched_controller_balances_before_concurrency_limit(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+) -> None:
+    destination = tmp_path / "study"
+    preview = execute("run", destination, batched_spec, dry_run=True)
+    assert not destination.exists()
+    assert preview["new_jobs"] == 10 and preview["new_allocations"] == 3 and preview["allocations_exact"]
+    assert [row["jobs"] for row in preview["phases"][0]["allocations"]] == [4, 3, 3]
+    assert execute("run", destination, batched_spec)["status"] == "complete"
+    assert [len(item["trial_ids"]) for item in fake_backend.allocation_submissions] == [4, 3, 3]
+    assert [item["time_minutes"] for item in fake_backend.allocation_submissions] == [60, 45, 45]
+    assert fake_backend.max_active == 2
+    state = load_state(destination)
+    assert all(training_attempts(trial) == 1 for trial in state["trials"].values())
+    assert all(
+        trial["attempts"][0]["stdout"].startswith(str(destination / "slurm")) for trial in state["trials"].values()
+    )
+    assert execute("status", destination)["allocations"] == {"finished": 3}
+    assert json.loads((destination / "report.json").read_text())["allocation_counts"] == {"finished": 3}
+    assert "Slurm allocations" in (destination / "report.md").read_text()
+    assert execute("resume", destination)["status"] == "complete"
+    assert len(fake_backend.submissions) == 10
+
+
+def test_batched_confirmation_and_reused_seeds(
+    cache: TokenCache,
+    tuning_file: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = yaml.safe_load(tuning_file.read_text())
+    raw["base"]["overrides"] = {"launcher.kind": "slurm", "launcher.partition": "gpu", "launcher.time": "00:15:00"}
+    raw["controller"].update(jobs_per_allocation=4, max_jobs=3)
+    tuning_file.write_text(yaml.safe_dump(raw))
+    monkeypatch.setenv("account", "test-account")
+    monkeypatch.setattr("shutil.which", lambda _: "/bin/slurm")
+    destination = tmp_path / "study"
+    preview = execute("run", destination, tuning_file, dry_run=True)
+    assert preview["new_jobs"] == 44 and preview["new_allocations"] == 12
+    assert execute("run", destination, tuning_file)["status"] == "complete"
+    assert len(fake_backend.submissions) == 44
+    assert len(fake_backend.allocation_submissions) == 12
+    confirmation = [item for item in fake_backend.allocation_submissions if item["phase"] == "confirmation"]
+    assert [len(item["trial_ids"]) for item in confirmation] == [3, 3]
+
+
+def test_batched_unknown_parent_and_publication_grace(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_backend.interrupt = True
+    destination = tmp_path / "study"
+    execute("run", destination, batched_spec)
+    state = load_state(destination)
+    fake_backend.interrupt = False
+    fake_backend.unknown = True
+    assert not reconcile(state, fake_backend, 120)
+    assert controller.outstanding_allocations(state) == 2
+    assert all(not trial["attempts"] or trial["status"] == "submitted" for trial in state["trials"].values())
+    assert len(fake_backend.submissions) == 7
+    # Terminal parent state alone does not mean the shared filesystem has published every record.
+    monkeypatch.setattr(
+        fake_backend,
+        "poll",
+        lambda parents: {item["name"]: {"state": "COMPLETED", "exit_code": "0:0"} for item in parents},
+    )
+    assert reconcile(state, fake_backend, 120)
+    assert controller.outstanding_allocations(state) == 0
+    assert sum(trial["status"] == "submitted" for trial in state["trials"].values()) == 7
+    for item in state["allocations"].values():
+        if item["status"] == "finished":
+            item["terminal_seen"] -= 121
+    assert reconcile(state, fake_backend, 120)
+    assert sum(trial["status"] == "failed" for trial in state["trials"].values()) == 7
+    assert all(training_attempts(trial) == 0 for trial in state["trials"].values())
+
+
+def test_unknown_resource_winners_have_conservative_allocation_estimates(batched_spec: Path) -> None:
+    raw = yaml.safe_load(batched_spec.read_text())
+    raw["base"]["overrides"]["training.batch_tokens"] = 48
+    raw["phases"][0]["search"] = {"distributed.gpus_per_node": [1, 2, 4]}
+    raw["confirmation"]["seeds"] = 3
+    batched_spec.write_text(yaml.safe_dump(raw))
+    spec, base = read_spec(batched_spec)
+    preview = estimate(spec, base, {})
+    assert preview["phases"][0]["new_allocations"] == 3
+    assert not preview["phases"][-1]["allocations_exact"]
+    assert preview["phases"][-1]["max_allocation_time_minutes_upper_bound"] == 30
+
+
+def test_partition_limit_rejects_entire_phase_before_submission(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(fake_backend, "partition_limit", lambda _: 59)
+    destination = tmp_path / "study"
+    with pytest.raises(ValueError, match="jobs_per_allocation <= 3"):
+        execute("run", destination, batched_spec, dry_run=True)
+    assert not destination.exists()
+    with pytest.raises(ValueError, match="exceeding partition"):
+        execute("run", destination, batched_spec)
+    assert not fake_backend.submissions
+    monkeypatch.setattr(fake_backend, "partition_limit", lambda _: 60)
+    assert execute("resume", destination)["status"] == "complete"
+
+
+def test_summed_limits_round_individual_trials_before_grouping(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = yaml.safe_load(batched_spec.read_text())
+    raw["base"]["overrides"]["launcher.time"] = "1-00:00:01"
+    batched_spec.write_text(yaml.safe_dump(raw))
+    monkeypatch.setattr(fake_backend, "partition_limit", lambda _: 4 * 1441)
+    destination = tmp_path / "study"
+    preview = execute("run", destination, batched_spec, dry_run=True)
+    assert [item["time_minutes"] for item in preview["phases"][0]["allocations"]] == [5764, 4323, 4323]
+    assert not destination.exists()
+
+
+def test_allocation_failure_keeps_success_and_retries_only_unfinished_trials(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = yaml.safe_load(batched_spec.read_text())
+    raw["phases"][0]["search"]["optimizer.lr"] = [0.001, 0.002, 0.003]
+    raw["controller"]["max_jobs"] = 1
+    batched_spec.write_text(yaml.safe_dump(raw))
+    original_poll = fake_backend.poll
+    first = True
+
+    def partial_failure(records: list[Record]) -> dict[str, Record]:
+        nonlocal first
+        statuses = original_poll(records)
+        if records and first:
+            first = False
+            parent = records[0]
+            members = fake_backend.allocation_members[parent["name"]]
+            path = Path(members[1]["execution_record"])
+            record = json.loads(path.read_text())
+            record.update(state="FAILED", exit_code=9)
+            atomic_json(path, record)
+            Path(members[2]["execution_record"]).unlink()
+            statuses[parent["name"]] = {"state": "NODE_FAIL", "exit_code": "1:0"}
+        return statuses
+
+    monkeypatch.setattr(fake_backend, "poll", partial_failure)
+    destination = tmp_path / "study"
+    assert execute("run", destination, batched_spec)["status"] == "complete"
+    trials = list(load_state(destination)["trials"].values())
+    assert [len(trial["attempts"]) for trial in trials] == [1, 2, 2]
+    assert [training_attempts(trial) for trial in trials] == [1, 2, 1]
+    assert [allocation_failures(trial) for trial in trials] == [0, 0, 1]
+    assert [len(item["trial_ids"]) for item in fake_backend.allocation_submissions] == [3, 2]
+
+
+@pytest.mark.parametrize("started", [False, True])
+def test_batched_retry_budgets_are_independent_and_bounded(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+    started: bool,
+) -> None:
+    raw = yaml.safe_load(batched_spec.read_text())
+    raw["phases"][0]["search"]["optimizer.lr"] = [0.001]
+    batched_spec.write_text(yaml.safe_dump(raw))
+    if started:
+        fake_backend.failures = 99
+    else:
+
+        def reject(*_: object) -> Record:
+            raise SubmissionRejected("scheduler rejected allocation")
+
+        monkeypatch.setattr(fake_backend, "submit_allocation", reject)
+    destination = tmp_path / "study"
+    result = execute("run", destination, batched_spec)
+    assert result["status"] == "failed"
+    trial = next(iter(load_state(destination)["trials"].values()))
+    assert len(trial["attempts"]) == 3
+    assert training_attempts(trial) == (3 if started else 0)
+    assert allocation_failures(trial) == (0 if started else 3)
+    assert ("retry limit" if started else "allocation-failure limit") in result["reason"]
+    assert execute("resume", destination)["status"] == "failed"
+    assert len(next(iter(load_state(destination)["trials"].values()))["attempts"]) == 3
+
+
+def test_step_launch_failure_does_not_consume_training_retry(tmp_path: Path) -> None:
+    path = tmp_path / "step.json"
+    attempt = {"number": 1, "allocation_id": "a", "execution_record": str(path), "status": "submitted"}
+    trial = {"id": "t", "status": "submitted", "attempts": [attempt]}
+    allocation = {"id": "a", "status": "submitted"}
+    record = {"allocation_id": "a", "trial_id": "t", "attempt": 1, "started": True, "state": "RUNNING"}
+    atomic_json(path, record)
+    controller.reconcile_step(trial, attempt, allocation, 0)
+    assert training_attempts(trial) == 1
+    # The runner could publish RUNNING before discovering it cannot spawn srun.
+    record.update(started=False, state="FAILED", exit_code=1, reason="Could not create process")
+    atomic_json(path, record)
+    controller.reconcile_step(trial, attempt, allocation, 0)
+    assert training_attempts(trial) == 0 and allocation_failures(trial) == 1
+
+
+def test_finished_steps_retain_parent_slot_until_allocation_ends(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = yaml.safe_load(batched_spec.read_text())
+    raw["controller"]["max_jobs"] = 1
+    batched_spec.write_text(yaml.safe_dump(raw))
+    original_poll = fake_backend.poll
+    seen = set()
+    active_counts = []
+
+    def delayed_parent(records: list[Record]) -> dict[str, Record]:
+        statuses = original_poll(records)
+        for record in records:
+            if record["name"] not in seen:
+                seen.add(record["name"])
+                statuses[record["name"]] = {"state": "RUNNING", "exit_code": None}
+                active_counts.append(len(fake_backend.allocation_submissions))
+        return statuses
+
+    monkeypatch.setattr(fake_backend, "poll", delayed_parent)
+    assert execute("run", tmp_path / "study", batched_spec)["status"] == "complete"
+    assert active_counts == [1, 2, 3]
+    assert fake_backend.max_active == 1
+
+
+@pytest.mark.parametrize("member_name", [False, True])
+def test_unresolved_recovery_releases_whole_allocation(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+    member_name: bool,
+) -> None:
+    fake_backend.interrupt = True
+    destination = tmp_path / "study"
+    assert execute("run", destination, batched_spec)["status"] == "interrupted"
+    state = load_state(destination)
+    first = next(item for item in state["allocations"].values() if item["status"] == "submitted")
+    fake_backend.interrupt = False
+    original_poll = fake_backend.poll
+    unknown_once = True
+
+    def missing_once(records: list[Record]) -> dict[str, Record]:
+        nonlocal unknown_once
+        if unknown_once:
+            unknown_once = False
+            return {}
+        return original_poll(records)
+
+    monkeypatch.setattr(fake_backend, "poll", missing_once)
+    name = state["trials"][first["trial_ids"][0]]["attempts"][0]["name"] if member_name else first["name"]
+    assert execute("resume", destination, retry_unresolved=[name])["status"] == "complete"
+    state = load_state(destination)
+    for key in first["trial_ids"]:
+        assert len(state["trials"][key]["attempts"]) == 2
+        assert allocation_failures(state["trials"][key]) == 1
+        assert training_attempts(state["trials"][key]) == 1
+
+
+def test_batched_extension_replans_only_unsubmitted_work(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+) -> None:
+    raw = yaml.safe_load(batched_spec.read_text())
+    raw["controller"]["max_jobs"] = 1
+    batched_spec.write_text(yaml.safe_dump(raw))
+    fake_backend.interrupt = True
+    destination = tmp_path / "study"
+    execute("run", destination, batched_spec)
+    raw["controller"]["jobs_per_allocation"] = 2
+    batched_spec.write_text(yaml.safe_dump(raw))
+    fake_backend.interrupt = False
+    assert execute("extend", destination, batched_spec)["status"] == "complete"
+    state = load_state(destination)
+    assert sum(item["status"] == "abandoned" for item in state["allocations"].values()) == 2
+    assert [len(item["trial_ids"]) for item in fake_backend.allocation_submissions] == [4, 2, 2, 2]
+    assert len(fake_backend.submissions) == 10
+
+
+def test_allocation_receipt_recovery_and_legacy_state(
+    cache: TokenCache,
+    tuning_file: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_backend.interrupt = True
+    destination = tmp_path / "study"
+    execute("run", destination, tuning_file)
+    state = load_state(destination)
+    state["version"] = 1
+    state.pop("allocations")
+    state["spec"]["controller"].pop("jobs_per_allocation")
+    atomic_json(destination / "state.json", state)
+    fake_backend.interrupt = False
+    assert execute("resume", destination)["status"] == "complete"
+    assert load_state(destination)["version"] == 2
+    parent = {
+        "name": "batch-a",
+        "directory": str(tmp_path),
+        "receipt_path": str(tmp_path / "receipt.json"),
+        "created": time.time(),
+    }
+    atomic_json(tmp_path / "receipt.json", {"job_id": "900", "cluster": "cluster-a"})
+    monkeypatch.setattr(backends, "query", lambda args: "900|batch-a|RUNNING\n" if args[0] == "squeue" else "")
+    assert scheduler_status([parent])["batch-a"]["state"] == "RUNNING"
+    assert parent["job_id"] == "900" and parent["cluster"] == "cluster-a"
+
+
+def test_legacy_slurm_jobs_share_concurrency_cap_with_new_allocations(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "study"
+
+    # Prepare the study without submitting, then populate one legacy individual intent.
+    def interrupt(_: str) -> int:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(fake_backend, "partition_limit", interrupt)
+    assert execute("run", destination, batched_spec)["status"] == "interrupted"
+    state = load_state(destination)
+    trial = next(iter(state["trials"].values()))
+    controller.submit(destination, state, trial, fake_backend)
+    legacy_name = trial["attempts"][-1]["name"]
+    state["version"] = 1
+    state.pop("allocations")
+    atomic_json(destination / "state.json", state)
+    original_poll = fake_backend.poll
+    seen = []
+
+    def hold_legacy(records: list[Record]) -> dict[str, Record]:
+        names = {record["name"] for record in records}
+        seen.append(names)
+        result = original_poll([record for record in records if record["name"] != legacy_name])
+        if legacy_name in names:
+            if len(seen) <= 2:
+                result[legacy_name] = {"state": "RUNNING", "exit_code": None}
+            else:
+                result.update(original_poll([record for record in records if record["name"] == legacy_name]))
+        return result
+
+    monkeypatch.setattr(fake_backend, "partition_limit", lambda _: 4320)
+    monkeypatch.setattr(fake_backend, "poll", hold_legacy)
+    assert execute("resume", destination)["status"] == "complete"
+    assert any(legacy_name in names and len(names) == 2 for names in seen)
+    assert max(map(len, seen)) == 2
+    assert len(fake_backend.submissions) == 10
+    assert [len(item["trial_ids"]) for item in fake_backend.allocation_submissions] == [3, 3, 3]
+
+
+def test_interrupt_after_allocation_receipt_recovers_without_duplicate_submission(
+    cache: TokenCache,
+    batched_spec: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_submit, original_poll = fake_backend.submit_allocation, fake_backend.poll
+    interrupt = True
+
+    def submitted(configs: list[Config], allocation: Record, attempts: list[Record]) -> Record:
+        nonlocal interrupt
+        receipt = original_submit(configs, allocation, attempts)
+        original_poll([allocation])
+        atomic_json(Path(allocation["receipt_path"]), receipt)
+        if interrupt:
+            interrupt = False
+            raise KeyboardInterrupt
+        return receipt
+
+    def query(args: list[str]) -> str:
+        if args[0] == "squeue":
+            return ""
+        return "\n".join(
+            f"{index}|{item['name']}|COMPLETED|0:0" for index, item in enumerate(fake_backend.allocation_submissions, 1)
+        )
+
+    monkeypatch.setattr(fake_backend, "submit_allocation", submitted)
+    monkeypatch.setattr(fake_backend, "poll", scheduler_status)
+    monkeypatch.setattr(backends, "query", query)
+    destination = tmp_path / "study"
+    assert execute("run", destination, batched_spec)["status"] == "interrupted"
+    state = load_state(destination)
+    first = next(iter(state["allocations"].values()))
+    assert first["status"] == "submitting" and "job_id" not in first
+    assert execute("resume", destination)["status"] == "complete"
+    state = load_state(destination)
+    assert state["allocations"][first["id"]]["job_id"] == "1"
+    assert len(fake_backend.allocation_submissions) == 3
+    assert all(len(trial["attempts"]) == 1 for trial in state["trials"].values())
 
 
 def test_real_local_tuning_cli(cache: TokenCache, tiny_config: Config, tmp_path: Path) -> None:

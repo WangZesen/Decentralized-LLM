@@ -131,6 +131,7 @@ class Confirmation(StrictModel):
 
 class Controller(StrictModel):
     max_jobs: int = Field(default=50, ge=1, strict=True)
+    jobs_per_allocation: int = Field(default=1, ge=1, strict=True)
     max_retries: int = Field(default=2, ge=0, strict=True)
     poll_seconds: float = Field(default=30, gt=0)
     result_grace_seconds: float = Field(default=120, ge=0)

@@ -221,7 +221,7 @@ class BenchmarkConfig(StrictModel):
 class SlurmLauncher(StrictModel):
     kind: Literal["slurm"] = "slurm"
     partition: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
-    time: str = Field(default="01:00:00", pattern=r"^(\d+-)?\d+:\d{2}(:\d{2})?$")
+    time: str = Field(default="01:00:00", pattern=r"^(\d+-)?\d+(:\d+){0,2}$")
     cpus_per_task: int | None = Field(default=None, gt=0)
     memory: str | None = Field(default=None, pattern=r"^\d+[KMGT]?$", min_length=1)
     gpu_type: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]+$")

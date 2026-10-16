@@ -1,10 +1,12 @@
 """Revision-aware machine-readable and human-readable tuning reports."""
 
 import json
+from collections import Counter
 from pathlib import Path
 
 from decentralized_llm.config import Config, save_config
 from decentralized_llm.runtime import atomic_json
+from decentralized_llm.tuning.batching import format_time
 from decentralized_llm.tuning.plots import write_heatmaps
 from decentralized_llm.tuning.spec import Record
 
@@ -78,6 +80,8 @@ def write_report(directory: Path, state: Record) -> Record:
         "provenance": state["provenance"],
         "updated": state["updated"],
         "phases": phase_rows,
+        "allocations": list(state.get("allocations", {}).values()),
+        "allocation_counts": dict(Counter(item["status"] for item in state.get("allocations", {}).values())),
         "winner": None
         if winner is None
         else {key: winner[key] for key in ("id", "values", "labels", "mean_loss", "std_loss", "seeds")},
@@ -88,6 +92,26 @@ def write_report(directory: Path, state: Record) -> Record:
         lines += [str(state["reason"]), ""]
     if state.get("warning"):
         lines += [str(state["warning"]), ""]
+    if report["allocations"]:
+        lines += [
+            "## Slurm allocations",
+            "",
+            "; ".join(f"{status}: {count}" for status, count in report["allocation_counts"].items()) + ".",
+            "",
+            "| Allocation | Phase / revision | Status | Trials | Walltime | Logs |",
+            "|---|---|---|---:|---|---|",
+        ]
+        for allocation in report["allocations"]:
+            job = str(allocation.get("job_id", allocation["name"]))
+            stdout = allocation["stdout"].replace("%j", job)
+            stderr = allocation["stderr"].replace("%j", job)
+            lines.append(
+                f"| [{job}]({allocation['directory']}/manifest.json) | "
+                f"{allocation['phase']} / {allocation['revision']} | {allocation['status']} | "
+                f"{len(allocation['trial_ids'])} | {format_time(allocation['time_minutes'])} | "
+                f"[stdout]({stdout}), [stderr]({stderr}) |"
+            )
+        lines += [""]
     for phase in phase_rows:
         lines += [
             f"## {phase['name']}",
@@ -128,6 +152,14 @@ def write_report(directory: Path, state: Record) -> Record:
                         f"  - Attempt {attempt['number']}: {attempt['status']}; job/process {label}; "
                         f"[artifacts]({attempt['directory']}); {message}"
                     )
+                    if "allocation_id" in attempt:
+                        allocation = state["allocations"][attempt["allocation_id"]]
+                        lines.append(
+                            f"    [Allocation {attempt['allocation_id']}]({allocation['directory']}/manifest.json); "
+                            f"[stdout]({attempt['stdout']}), [stderr]({attempt['stderr']}), "
+                            f"[execution record]({attempt['execution_record']}); "
+                            f"started={attempt.get('started', False)}."
+                        )
             lines += [""]
     if winner:
         lines += ["## Final winner", "", describe(winner), "", f"Mean final loss: {winner['mean_loss']:.8g}", ""]
