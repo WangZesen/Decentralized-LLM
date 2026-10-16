@@ -63,7 +63,7 @@ def test_fused_rope_default_follows_supported_execution(preset: str, monkeypatch
         with pytest.raises(ValueError, match="fused_rope requires projection_fusion"):
             resolve_execution(config, device)
     else:
-        with pytest.raises(ValueError, match="fused_rope requires the GH200 20M/90M path"):
+        with pytest.raises(ValueError, match="fused_rope requires the GH200 or A100 20M/90M path"):
             resolve_execution(config, device)
     config.runtime.fused_rope = "auto"
     config.runtime.projection_fusion = False
@@ -170,7 +170,8 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     registry = json.loads((root / "src/decentralized_llm/qualification.json").read_text())
     assert len(registry["profiles"]) == 1
     entry = registry["profiles"][0]
-    assert entry["kernel_revision"] == kernel_revision()
+    # The historical profile remains frozen as model dispatch evolves.
+    assert entry["kernel_revision"] != kernel_revision()
     # Keep the measured profile intact; changed storage/compiler code is unqualified.
     assert entry["compile_revision"] != compile_revision()
     assert entry["key"] == qualification_key(config)
@@ -184,6 +185,7 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     assert policy["backend"] == "native" and policy["compile"] is False
     # Reconstruct the historical revision to verify its original workload bounds.
     monkeypatch.setattr("decentralized_llm.execution.compile_revision", lambda: entry["compile_revision"])
+    monkeypatch.setattr("decentralized_llm.execution.kernel_revision", lambda: entry["kernel_revision"])
     policy = resolve_execution(config, device)
     assert policy["backend"] == "gh200" and policy["compile"] is True
     monkeypatch.setattr(
@@ -293,3 +295,50 @@ def test_gh200_kernel_gradients_and_mask(fusion: bool, rope: bool) -> None:
     zero.backward()
     assert float(zero) == 0
     assert all(p.grad is not None and not bool(p.grad.count_nonzero()) for p in fast.parameters())
+
+
+@pytest.mark.parametrize("preset", PRESETS)
+def test_a100_fused_policy_is_explicit(preset: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = Config(model=ModelConfig(**PRESETS[preset]))
+    device = torch.device("cuda", 0)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA A100-SXM4-80GB")
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (8, 0))
+    assert resolve_execution(config, device)["backend"] == "native"
+    config.runtime.execution_backend = "a100"
+    policy = resolve_execution(config, device)
+    assert policy["backend"] == "a100" and policy["compile"] and policy["projection_fusion"]
+    assert policy["fused_rope"] is (preset in ("20m", "90m"))
+    config.runtime.compile = False
+    with pytest.raises(ValueError, match="requires compilation"):
+        resolve_execution(config, device)
+    config.runtime.compile = True
+    config.runtime.deterministic = True
+    with pytest.raises(ValueError, match="A100 execution requires"):
+        resolve_execution(config, device)
+    config.runtime.deterministic = False
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
+    with pytest.raises(ValueError, match="A100 execution requires"):
+        resolve_execution(config, device)
+    with pytest.raises(ValueError, match="A100 execution requires"):
+        resolve_execution(config, torch.device("cpu"))
+
+
+@pytest.mark.cuda
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_a100_norm_schedule_preserves_gradients() -> None:
+    from decentralized_llm.gh200.gh200_pipeline import selected_norm
+
+    torch.manual_seed(42)
+    branch = torch.randn(32768, 640, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    residual = torch.randn_like(branch, dtype=torch.float32, requires_grad=True)
+    weight = torch.ones(640, device="cuda", requires_grad=True)
+    reference = selected_norm(branch, residual, weight)
+    candidate = selected_norm(branch, residual, weight, a100=True)
+    for actual, expected in zip(candidate, reference, strict=True):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    outputs = (torch.randn_like(residual), torch.randn_like(branch))
+    native_gradients = torch.autograd.grad(reference, (branch, residual, weight), outputs)
+    tuned_gradients = torch.autograd.grad(candidate, (branch, residual, weight), outputs)
+    for actual, expected in zip(tuned_gradients, native_gradients, strict=True):
+        assert float((actual.float() - expected.float()).norm() / expected.float().norm()) < 1e-6

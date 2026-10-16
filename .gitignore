@@ -24,3 +24,6 @@ docs/performance/gh200/
 
 # Installation-specific host compiler settings
 /.toolchain-*.sh
+
+# Local configuration experiments
+/configs/local/

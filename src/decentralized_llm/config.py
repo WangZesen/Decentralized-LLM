@@ -159,7 +159,7 @@ class RuntimeConfig(StrictModel):
     deterministic: bool = False
     device: Literal["cpu", "cuda"] = "cuda"
     amp: bool = True
-    execution_backend: Literal["auto", "native", "gh200"] = "auto"
+    execution_backend: Literal["auto", "native", "gh200", "a100"] = "auto"
     compile: bool | Literal["auto"] = "auto"
     compile_mode: Literal["default", "reduce-overhead", "max-autotune"] = "default"
     compile_cache_dir: Path = Path(".cache/compile")

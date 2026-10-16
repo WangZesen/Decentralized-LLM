@@ -18,8 +18,11 @@ def forward(model: Llama, inputs: Tensor) -> Tensor:
     cfg = model.config
     blocks = cast(list[Block], list(model.blocks))
     hidden = model.embedding(inputs)
+    a100 = model.execution_backend == "a100"
     rows = 8 if cfg.width == 320 and batch * length >= 4096 else 4
-    hidden, normalized = selected_norm(hidden, None, blocks[0].attention_norm.weight, cfg.norm_eps, rows=rows)
+    hidden, normalized = selected_norm(
+        hidden, None, blocks[0].attention_norm.weight, cfg.norm_eps, rows=rows, a100=a100
+    )
     for index, block in enumerate(blocks):
         attn = block.attention
         if model.projection_fusion:
@@ -38,7 +41,7 @@ def forward(model: Llama, inputs: Tensor) -> Tensor:
             q, k = attn._rotary(q), attn._rotary(k)
         attended = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         branch = attn.out_proj(attended.transpose(1, 2).contiguous().view(batch, length, cfg.width))
-        hidden, normalized = selected_norm(branch, hidden, block.ffn_norm.weight, cfg.norm_eps, rows=rows)
+        hidden, normalized = selected_norm(branch, hidden, block.ffn_norm.weight, cfg.norm_eps, rows=rows, a100=a100)
         ffn = block.ffn
         if model.projection_fusion:
             gate_up = F.linear(normalized, torch.cat((ffn.gate_proj.weight, ffn.up_proj.weight)))
@@ -47,5 +50,5 @@ def forward(model: Llama, inputs: Tensor) -> Tensor:
             activated = F.silu(ffn.gate_proj(normalized)) * ffn.up_proj(normalized)
         branch = ffn.down_proj(activated)
         norm = blocks[index + 1].attention_norm if index + 1 < len(blocks) else model.norm
-        hidden, normalized = selected_norm(branch, hidden, norm.weight, cfg.norm_eps, rows=rows)
+        hidden, normalized = selected_norm(branch, hidden, norm.weight, cfg.norm_eps, rows=rows, a100=a100)
     return F.linear(normalized, model.embedding.weight)

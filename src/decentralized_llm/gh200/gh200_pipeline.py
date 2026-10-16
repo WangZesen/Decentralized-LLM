@@ -205,11 +205,15 @@ def pipeline_norm(branch, residual, weight, eps=1e-5, *, policy=(4, 256, 4, 2, F
     return _PipelineNorm.apply(branch, residual, weight, eps, policy)
 
 
-def selected_norm(branch, residual, weight, eps=1e-5, *, rows=4):
+def selected_norm(branch, residual, weight, eps=1e-5, *, rows=4, a100=False):
     """Fixed, measured dispatch; small tensors retain the established kernel."""
     width = branch.shape[-1]
     replicas = weight.shape[0] if weight.ndim == 2 else 1
     tokens = branch.numel() // width // replicas
+    # The one-GPU A100 90M screen measured this shape; retain the existing
+    # schedules for other shapes and for GH200 (docs/a100-performance.md).
+    if a100 and width == 640 and tokens == 32768:
+        return pipeline_norm(branch, residual, weight, eps, policy=(4, 1024, 4, 1, True, ""))
     if width == 512:
         return residual_norm(branch, residual, weight, eps, rows=rows)
     if (width == 320 and tokens < 8192) or (width == 640 and tokens < 4096):

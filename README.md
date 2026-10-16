@@ -163,6 +163,16 @@ for checkpoint and evaluation commands. To measure the recipe before a larger ru
 replace `submit` with `benchmark-training`; bounded measurement and reproduction
 commands are in the [performance report](docs/gh200-performance.md#reproducing-the-measurements).
 
+## A100 fused execution
+
+The explicit A100 backend reuses the fused residual/RMSNorm, SwiGLU, projection,
+RoPE, and cross-entropy implementations. Layer `configs/a100-1gpu.yaml` after the
+base configuration and model preset, then set your site's partition and walltime.
+The [A100 performance report](docs/a100-performance.md) records measured throughput,
+numerical checks, and reproduction commands. Automatic backend selection retains
+its qualification requirements; an explicit A100 selection requires supported model
+geometry, BF16 SDPA, compilation, and nondeterministic execution on an A100.
+
 ## Local GPU smoke runs
 
 Prepare the small C4 cache once:

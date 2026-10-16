@@ -46,6 +46,9 @@ def main() -> None:
     parser.add_argument("--config", "-c", action="append", default=[])
     parser.add_argument("--set", dest="overrides", action="append", default=[])
     parser.add_argument("--steps", type=int, default=100)
+    parser.add_argument(
+        "--reference-compile", action="store_true", help="compare against compiled native instead of eager native"
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     config = load_config(args.config, args.overrides)
@@ -65,7 +68,7 @@ def main() -> None:
                 except StopIteration:
                     break
         native_cfg = config.model_copy(deep=True)
-        native_cfg.runtime.execution_backend, native_cfg.runtime.compile = "native", False
+        native_cfg.runtime.execution_backend, native_cfg.runtime.compile = "native", args.reference_compile
         native_cfg.runtime.fused_rope = False
         native = Llama(config.model).to(device)
         fast = copy.deepcopy(native)
@@ -163,6 +166,7 @@ def main() -> None:
             "candidate_validation": fast_result,
             "validation_delta": delta,
             "execution": fast_execution.policy,
+            "reference_execution": native_execution.policy,
             "compile_cache": fast_execution.cache,
             "compiler_options": {"emulate_precision_casts": inductor_config.emulate_precision_casts},
             "compiler_counters": compiler_counters(),

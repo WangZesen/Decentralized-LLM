@@ -1,0 +1,1844 @@
+{
+  "scope": "90M, one A100, context 1024, 32768 global batch tokens",
+  "raw_directory": "runs/a100-optimization",
+  "throughput": {
+    "accum2": {
+      "report": "runs/a100-optimization/accum2/benchmark.json",
+      "job_id": "17813070",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 245653.2633162097,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.657117883907631,
+          "global_tokens_per_second": 246643.1782982129
+        },
+        {
+          "updates": 20,
+          "seconds": 2.667825337033719,
+          "global_tokens_per_second": 245653.2633162097
+        },
+        {
+          "updates": 20,
+          "seconds": 2.6693974500522017,
+          "global_tokens_per_second": 245508.58845961062
+        }
+      ],
+      "peak_allocated_bytes": 10161858560,
+      "first_update_seconds": 31.781324617099017,
+      "startup_seconds": 41.78849087981507,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 2,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "autotune-a100": {
+      "report": "runs/a100-optimization/autotune-a100/benchmark.json",
+      "job_id": "17813406",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 256179.80448829336,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.547939067007974,
+          "global_tokens_per_second": 257211.8024665262
+        },
+        {
+          "updates": 20,
+          "seconds": 2.5582032171078026,
+          "global_tokens_per_second": 256179.80448829336
+        },
+        {
+          "updates": 20,
+          "seconds": 2.5628834310919046,
+          "global_tokens_per_second": 255711.98129787232
+        }
+      ],
+      "peak_allocated_bytes": 18220058112,
+      "first_update_seconds": 78.28543977998197,
+      "startup_seconds": 88.46904401783831,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "max-autotune",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "autotune-native": {
+      "report": "runs/a100-optimization/autotune-native/benchmark.json",
+      "job_id": "17813406",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 249781.60851459598,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.6145388218574226,
+          "global_tokens_per_second": 250659.88484134217
+        },
+        {
+          "updates": 20,
+          "seconds": 2.623732002917677,
+          "global_tokens_per_second": 249781.60851459598
+        },
+        {
+          "updates": 20,
+          "seconds": 2.626285991165787,
+          "global_tokens_per_second": 249538.7030218636
+        }
+      ],
+      "peak_allocated_bytes": 14946239488,
+      "first_update_seconds": 296.5311035721097,
+      "startup_seconds": 312.5963022178039,
+      "execution": {
+        "backend": "native",
+        "compile": true,
+        "compile_mode": "max-autotune",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "cudnn": {
+      "report": "runs/a100-optimization/cudnn/benchmark.json",
+      "job_id": "17813070",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 250008.62676224406,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.616960230981931,
+          "global_tokens_per_second": 250427.95539697484
+        },
+        {
+          "updates": 20,
+          "seconds": 2.621349544962868,
+          "global_tokens_per_second": 250008.62676224406
+        },
+        {
+          "updates": 20,
+          "seconds": 2.6225597178563476,
+          "global_tokens_per_second": 249893.2609762207
+        }
+      ],
+      "peak_allocated_bytes": 18220877312,
+      "first_update_seconds": 34.24425231479108,
+      "startup_seconds": 43.96837351890281,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "cudnn",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "final-a100": {
+      "report": "runs/a100-optimization/final-a100/benchmark.json",
+      "job_id": "17813443",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 256816.1821530851,
+      "windows": [
+        {
+          "updates": 30,
+          "seconds": 3.811812513973564,
+          "global_tokens_per_second": 257893.06173803535
+        },
+        {
+          "updates": 30,
+          "seconds": 3.8277961760759354,
+          "global_tokens_per_second": 256816.1821530851
+        },
+        {
+          "updates": 30,
+          "seconds": 3.8340044389478862,
+          "global_tokens_per_second": 256400.3291216226
+        }
+      ],
+      "peak_allocated_bytes": 18220221952,
+      "first_update_seconds": 33.897163037909195,
+      "startup_seconds": 43.10113646602258,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "17d0fe7a9b5156b791b727bcc5871de23f1d7e4eb4318e58864d066b1200f336"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 30,
+        "windows": 3,
+        "min_seconds": 3.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "final-max-autotune": {
+      "report": "runs/a100-optimization/final-max-autotune/benchmark.json",
+      "job_id": "17813443",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 253772.23512251608,
+      "windows": [
+        {
+          "updates": 30,
+          "seconds": 3.8588288698811084,
+          "global_tokens_per_second": 254750.86694639758
+        },
+        {
+          "updates": 30,
+          "seconds": 3.8737098230049014,
+          "global_tokens_per_second": 253772.23512251608
+        },
+        {
+          "updates": 30,
+          "seconds": 3.880208245012909,
+          "global_tokens_per_second": 253347.22724314232
+        }
+      ],
+      "peak_allocated_bytes": 18221532672,
+      "first_update_seconds": 120.69501478597522,
+      "startup_seconds": 130.25068915518932,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "max-autotune",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "17d0fe7a9b5156b791b727bcc5871de23f1d7e4eb4318e58864d066b1200f336"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 30,
+        "windows": 3,
+        "min_seconds": 3.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "final-native": {
+      "report": "runs/a100-optimization/final-native/benchmark.json",
+      "job_id": "17813443",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 241295.74679456378,
+      "windows": [
+        {
+          "updates": 30,
+          "seconds": 4.050259285140783,
+          "global_tokens_per_second": 242710.38735877635
+        },
+        {
+          "updates": 30,
+          "seconds": 4.07400467293337,
+          "global_tokens_per_second": 241295.74679456378
+        },
+        {
+          "updates": 30,
+          "seconds": 4.079227735986933,
+          "global_tokens_per_second": 240986.79054557913
+        }
+      ],
+      "peak_allocated_bytes": 14946763776,
+      "first_update_seconds": 36.94656145386398,
+      "startup_seconds": 47.47230141307227,
+      "execution": {
+        "backend": "native",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "17d0fe7a9b5156b791b727bcc5871de23f1d7e4eb4318e58864d066b1200f336"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 30,
+        "windows": 3,
+        "min_seconds": 3.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "final-native-repeat": {
+      "report": "runs/a100-optimization/final-native-repeat/benchmark.json",
+      "job_id": "17813443",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 241287.3006233106,
+      "windows": [
+        {
+          "updates": 30,
+          "seconds": 4.056074810912833,
+          "global_tokens_per_second": 242362.3936509109
+        },
+        {
+          "updates": 30,
+          "seconds": 4.0741472819354385,
+          "global_tokens_per_second": 241287.3006233106
+        },
+        {
+          "updates": 30,
+          "seconds": 4.07988034398295,
+          "global_tokens_per_second": 240948.2428693767
+        }
+      ],
+      "peak_allocated_bytes": 14946763776,
+      "first_update_seconds": 9.169277930166572,
+      "startup_seconds": 18.311442930949852,
+      "execution": {
+        "backend": "native",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "17d0fe7a9b5156b791b727bcc5871de23f1d7e4eb4318e58864d066b1200f336"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 30,
+        "windows": 3,
+        "min_seconds": 3.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "final-selected-repeat": {
+      "report": "runs/a100-optimization/final-selected-repeat/benchmark.json",
+      "job_id": "17813443",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 256474.9220841994,
+      "windows": [
+        {
+          "updates": 30,
+          "seconds": 3.8130888759624213,
+          "global_tokens_per_second": 257806.73673699287
+        },
+        {
+          "updates": 30,
+          "seconds": 3.8328893601428717,
+          "global_tokens_per_second": 256474.9220841994
+        },
+        {
+          "updates": 30,
+          "seconds": 3.8380518311169,
+          "global_tokens_per_second": 256129.94385068753
+        }
+      ],
+      "peak_allocated_bytes": 18220221952,
+      "first_update_seconds": 12.378957142820582,
+      "startup_seconds": 22.02077447506599,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "17d0fe7a9b5156b791b727bcc5871de23f1d7e4eb4318e58864d066b1200f336"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 30,
+        "windows": 3,
+        "min_seconds": 3.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "flash": {
+      "report": "runs/a100-optimization/flash/benchmark.json",
+      "job_id": "17813070",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 256711.63021501,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.5430495589971542,
+          "global_tokens_per_second": 257706.34224621236
+        },
+        {
+          "updates": 20,
+          "seconds": 2.552903424948454,
+          "global_tokens_per_second": 256711.63021501
+        },
+        {
+          "updates": 20,
+          "seconds": 2.555845927912742,
+          "global_tokens_per_second": 256416.0823791153
+        }
+      ],
+      "peak_allocated_bytes": 18220877312,
+      "first_update_seconds": 21.00831995997578,
+      "startup_seconds": 30.032700214069337,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "flash",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "fused": {
+      "report": "runs/a100-optimization/fused/benchmark.json",
+      "job_id": "17813070",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 256686.50385880316,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.5464500640518963,
+          "global_tokens_per_second": 257362.2036621425
+        },
+        {
+          "updates": 20,
+          "seconds": 2.555718882009387,
+          "global_tokens_per_second": 256428.8289347126
+        },
+        {
+          "updates": 20,
+          "seconds": 2.553153321845457,
+          "global_tokens_per_second": 256686.50385880316
+        }
+      ],
+      "peak_allocated_bytes": 18220877312,
+      "first_update_seconds": 32.23189476202242,
+      "startup_seconds": 41.8957120529376,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": true,
+        "wait_for_resident": true
+      }
+    },
+    "native": {
+      "report": "runs/a100-optimization/native/benchmark.json",
+      "job_id": "17813070",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 243792.83532716232,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.680294536985457,
+          "global_tokens_per_second": 244510.44128048973
+        },
+        {
+          "updates": 20,
+          "seconds": 2.6881840031128377,
+          "global_tokens_per_second": 243792.83532716232
+        },
+        {
+          "updates": 20,
+          "seconds": 2.692641507135704,
+          "global_tokens_per_second": 243389.25113619704
+        }
+      ],
+      "peak_allocated_bytes": 14946763776,
+      "first_update_seconds": 9.599906928138807,
+      "startup_seconds": 19.1047203799244,
+      "execution": {
+        "backend": "native",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": true,
+        "wait_for_resident": true
+      }
+    },
+    "native-repeat": {
+      "report": "runs/a100-optimization/native-repeat/benchmark.json",
+      "job_id": "17813070",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 243022.75011871933,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.6887714490294456,
+          "global_tokens_per_second": 243739.57118466223
+        },
+        {
+          "updates": 20,
+          "seconds": 2.696702262153849,
+          "global_tokens_per_second": 243022.75011871933
+        },
+        {
+          "updates": 20,
+          "seconds": 2.698716368060559,
+          "global_tokens_per_second": 242841.37738823457
+        }
+      ],
+      "peak_allocated_bytes": 14946763776,
+      "first_update_seconds": 9.560536643955857,
+      "startup_seconds": 19.11983759701252,
+      "execution": {
+        "backend": "native",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "no-projections": {
+      "report": "runs/a100-optimization/no-projections/benchmark.json",
+      "job_id": "17813070",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 248529.2800281225,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.6321895951405168,
+          "global_tokens_per_second": 248979.0253748854
+        },
+        {
+          "updates": 20,
+          "seconds": 2.6369528770446777,
+          "global_tokens_per_second": 248529.2800281225
+        },
+        {
+          "updates": 20,
+          "seconds": 2.641427433118224,
+          "global_tokens_per_second": 248108.27349753946
+        }
+      ],
+      "peak_allocated_bytes": 17043850752,
+      "first_update_seconds": 33.627558355918154,
+      "startup_seconds": 43.608522615162656,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "no-rope": {
+      "report": "runs/a100-optimization/no-rope/benchmark.json",
+      "job_id": "17813070",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 254214.093155936,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.5749599831178784,
+          "global_tokens_per_second": 254512.69312793761
+        },
+        {
+          "updates": 20,
+          "seconds": 2.5873397630639374,
+          "global_tokens_per_second": 253294.91292783295
+        },
+        {
+          "updates": 20,
+          "seconds": 2.5779845321085304,
+          "global_tokens_per_second": 254214.093155936
+        }
+      ],
+      "peak_allocated_bytes": 18220877312,
+      "first_update_seconds": 32.42489016894251,
+      "startup_seconds": 40.98879741691053,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "tuned-both": {
+      "report": "runs/a100-optimization/tuned-both/benchmark.json",
+      "job_id": "17813400",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 254522.9444978997,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.563899311935529,
+          "global_tokens_per_second": 255610.66183416467
+        },
+        {
+          "updates": 20,
+          "seconds": 2.574856271967292,
+          "global_tokens_per_second": 254522.9444978997
+        },
+        {
+          "updates": 20,
+          "seconds": 2.577617153059691,
+          "global_tokens_per_second": 254250.32543024185
+        }
+      ],
+      "peak_allocated_bytes": 18220221952,
+      "first_update_seconds": 28.33090701396577,
+      "startup_seconds": 37.64783171005547,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "tuned-ce": {
+      "report": "runs/a100-optimization/tuned-ce/benchmark.json",
+      "job_id": "17813400",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 252161.1335778718,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.585738018155098,
+          "global_tokens_per_second": 253451.81739161408
+        },
+        {
+          "updates": 20,
+          "seconds": 2.598973087966442,
+          "global_tokens_per_second": 252161.1335778718
+        },
+        {
+          "updates": 20,
+          "seconds": 2.6008311270270497,
+          "global_tokens_per_second": 251980.98914985187
+        }
+      ],
+      "peak_allocated_bytes": 18220877312,
+      "first_update_seconds": 32.01373805711046,
+      "startup_seconds": 40.938078250037506,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "tuned-control": {
+      "report": "runs/a100-optimization/tuned-control/benchmark.json",
+      "job_id": "17813400",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 251927.85409697783,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.5843055471777916,
+          "global_tokens_per_second": 253592.30479371542
+        },
+        {
+          "updates": 20,
+          "seconds": 2.601379678118974,
+          "global_tokens_per_second": 251927.85409697783
+        },
+        {
+          "updates": 20,
+          "seconds": 2.6013905969448388,
+          "global_tokens_per_second": 251926.79667931335
+        }
+      ],
+      "peak_allocated_bytes": 18220877312,
+      "first_update_seconds": 43.68576624011621,
+      "startup_seconds": 56.74848494515754,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "tuned-control-repeat": {
+      "report": "runs/a100-optimization/tuned-control-repeat/benchmark.json",
+      "job_id": "17813400",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 251730.37302712974,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.5925509207881987,
+          "global_tokens_per_second": 252785.77741522415
+        },
+        {
+          "updates": 20,
+          "seconds": 2.6064623289275914,
+          "global_tokens_per_second": 251436.59001956217
+        },
+        {
+          "updates": 20,
+          "seconds": 2.60342044592835,
+          "global_tokens_per_second": 251730.37302712974
+        }
+      ],
+      "peak_allocated_bytes": 18220877312,
+      "first_update_seconds": 12.564783927984536,
+      "startup_seconds": 21.640935583040118,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    },
+    "tuned-norm": {
+      "report": "runs/a100-optimization/tuned-norm/benchmark.json",
+      "job_id": "17813400",
+      "gpu": "NVIDIA A100-SXM4-80GB",
+      "tokens_per_second": 254151.66534534786,
+      "windows": [
+        {
+          "updates": 20,
+          "seconds": 2.5650802690070122,
+          "global_tokens_per_second": 255492.9792718344
+        },
+        {
+          "updates": 20,
+          "seconds": 2.578617767896503,
+          "global_tokens_per_second": 254151.66534534786
+        },
+        {
+          "updates": 20,
+          "seconds": 2.5812614581082016,
+          "global_tokens_per_second": 253891.36692890897
+        }
+      ],
+      "peak_allocated_bytes": 18220221952,
+      "first_update_seconds": 29.950479122111574,
+      "startup_seconds": 39.62159681809135,
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "cpu_threads": 8,
+      "cpu_count": 32,
+      "num_accumulation": 1,
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+      "loader_mode": "streaming",
+      "benchmark": {
+        "warmup": 10,
+        "steps": 20,
+        "windows": 3,
+        "min_seconds": 2.0,
+        "profile": false,
+        "wait_for_resident": true
+      }
+    }
+  },
+  "numerical": {
+    "final-numerical-42": {
+      "report": "runs/a100-optimization/final-numerical-42/numerical-rank-00000.json",
+      "job_id": "17813443",
+      "passed": true,
+      "steps": 100,
+      "seed": 42,
+      "validation_delta": 4.663019706185878e-05,
+      "native_validation_loss": 8.029590635164936,
+      "candidate_validation_loss": 8.029637265361998,
+      "first_five_maxima": {
+        "loss": 3.147125244140625e-05,
+        "loss_limit": 0.02297890090942383,
+        "parameters": 1.2725868145935237e-06,
+        "gradients": 0.004091161303222179,
+        "updates": 0.05387081950902939,
+        "loss_tolerance_ratio": 0.001370573276744993,
+        "exp_avg": 0.004039116203784943,
+        "exp_avg_sq": 0.0054265703074634075
+      },
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "reference_execution": {
+        "backend": "native",
+        "compile": false,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "17d0fe7a9b5156b791b727bcc5871de23f1d7e4eb4318e58864d066b1200f336"
+      },
+      "script_sha256": "a8055b4ccb85401ca898f94304e458b364d864fb2fc80285946945587acacd77"
+    },
+    "final-numerical-43": {
+      "report": "runs/a100-optimization/final-numerical-43/numerical-rank-00000.json",
+      "job_id": "17813443",
+      "passed": true,
+      "steps": 100,
+      "seed": 43,
+      "validation_delta": -2.2037516544060054e-05,
+      "native_validation_loss": 8.00057703365502,
+      "candidate_validation_loss": 8.000554996138476,
+      "first_five_maxima": {
+        "loss": 6.008148193359375e-05,
+        "loss_limit": 0.02298562431335449,
+        "parameters": 1.2510342912719352e-06,
+        "gradients": 0.003993260208517313,
+        "updates": 0.05267427861690521,
+        "loss_tolerance_ratio": 0.0026156833717769588,
+        "exp_avg": 0.003732263809069991,
+        "exp_avg_sq": 0.0050147227011621
+      },
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "reference_execution": {
+        "backend": "native",
+        "compile": false,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "17d0fe7a9b5156b791b727bcc5871de23f1d7e4eb4318e58864d066b1200f336"
+      },
+      "script_sha256": "a8055b4ccb85401ca898f94304e458b364d864fb2fc80285946945587acacd77"
+    },
+    "numerical-a100-42": {
+      "report": "runs/a100-optimization/numerical-a100-42/numerical-rank-00000.json",
+      "job_id": "17813071",
+      "passed": true,
+      "steps": 100,
+      "seed": 42,
+      "validation_delta": -0.00015348857408525873,
+      "native_validation_loss": 8.029690423859392,
+      "candidate_validation_loss": 8.029536935285307,
+      "first_five_maxima": {
+        "loss": 4.00543212890625e-05,
+        "loss_limit": 0.022978891372680665,
+        "parameters": 1.2716590163108776e-06,
+        "gradients": 0.004089601803570986,
+        "updates": 0.05389336869120598,
+        "loss_tolerance_ratio": 0.0017434368320457638,
+        "exp_avg": 0.004042009357362986,
+        "exp_avg_sq": 0.005442472640424967
+      },
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "reference_execution": {
+        "backend": "native",
+        "compile": false,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "script_sha256": "a8055b4ccb85401ca898f94304e458b364d864fb2fc80285946945587acacd77"
+    },
+    "numerical-a100-43": {
+      "report": "runs/a100-optimization/numerical-a100-43/numerical-rank-00000.json",
+      "job_id": "17813071",
+      "passed": true,
+      "steps": 100,
+      "seed": 43,
+      "validation_delta": -1.1315802339595393e-07,
+      "native_validation_loss": 8.000539735885582,
+      "candidate_validation_loss": 8.000539622727558,
+      "first_five_maxima": {
+        "loss": 4.863739013671875e-05,
+        "loss_limit": 0.02298562431335449,
+        "parameters": 1.2521021517386544e-06,
+        "gradients": 0.003999670967459679,
+        "updates": 0.05269142985343933,
+        "loss_tolerance_ratio": 0.002117188105188879,
+        "exp_avg": 0.003741220338270068,
+        "exp_avg_sq": 0.004992924630641937
+      },
+      "execution": {
+        "backend": "a100",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": true,
+        "fused_rope": true,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "reference_execution": {
+        "backend": "native",
+        "compile": false,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "script_sha256": "a8055b4ccb85401ca898f94304e458b364d864fb2fc80285946945587acacd77"
+    },
+    "numerical-native-42": {
+      "report": "runs/a100-optimization/numerical-native-42/numerical-rank-00000.json",
+      "job_id": "17813071",
+      "passed": true,
+      "steps": 100,
+      "seed": 42,
+      "validation_delta": -7.512023177014271e-05,
+      "native_validation_loss": 8.029700086137723,
+      "candidate_validation_loss": 8.029624965905953,
+      "first_five_maxima": {
+        "loss": 3.62396240234375e-05,
+        "loss_limit": 0.02297893333435059,
+        "parameters": 1.3591451306638191e-06,
+        "gradients": 0.004352651070803404,
+        "updates": 0.05749914050102234,
+        "loss_tolerance_ratio": 0.0015803681675589508,
+        "exp_avg": 0.004352651070803404,
+        "exp_avg_sq": 0.005759497173130512
+      },
+      "execution": {
+        "backend": "native",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "reference_execution": {
+        "backend": "native",
+        "compile": false,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "script_sha256": "a8055b4ccb85401ca898f94304e458b364d864fb2fc80285946945587acacd77"
+    },
+    "numerical-native-43": {
+      "report": "runs/a100-optimization/numerical-native-43/numerical-rank-00000.json",
+      "job_id": "17813071",
+      "passed": true,
+      "steps": 100,
+      "seed": 43,
+      "validation_delta": -2.4197485743115976e-05,
+      "native_validation_loss": 8.000515709796787,
+      "candidate_validation_loss": 8.000491512311044,
+      "first_five_maxima": {
+        "loss": 5.245208740234375e-05,
+        "loss_limit": 0.02298562431335449,
+        "parameters": 1.3353744634514442e-06,
+        "gradients": 0.004141484387218952,
+        "updates": 0.05622228607535362,
+        "loss_tolerance_ratio": 0.002283250415364764,
+        "exp_avg": 0.004021235276013613,
+        "exp_avg_sq": 0.005292527377605438
+      },
+      "execution": {
+        "backend": "native",
+        "compile": true,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "reference_execution": {
+        "backend": "native",
+        "compile": false,
+        "compile_mode": "default",
+        "compile_scope": "model",
+        "projection_fusion": false,
+        "fused_rope": false,
+        "sdpa_backend": "auto",
+        "reason": "explicit selection"
+      },
+      "compile_identity": {
+        "architecture": "x86_64",
+        "python": [
+          3,
+          14,
+          8
+        ],
+        "torch": "2.14.0+cu130",
+        "cuda": "13.0",
+        "triton": "3.8.0",
+        "capability": [
+          8,
+          0
+        ],
+        "source": "bc30d84ffd5bc5b0ebedc9f5bf30389f63182d9b2d0102898c6e4878ed100b00"
+      },
+      "script_sha256": "a8055b4ccb85401ca898f94304e458b364d864fb2fc80285946945587acacd77"
+    }
+  },
+  "kernel_screen": {
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "norm": [
+      {
+        "policy": null,
+        "ms": 0.4312980625658266,
+        "gradient_error": 0.0
+      },
+      {
+        "policy": [
+          4,
+          256,
+          4,
+          1,
+          true,
+          ""
+        ],
+        "ms": 0.4156218734356241,
+        "gradient_error": 0.0
+      },
+      {
+        "policy": [
+          4,
+          128,
+          4,
+          1,
+          true,
+          ""
+        ],
+        "ms": 0.4144466856062085,
+        "gradient_error": 2.0733753558488388e-07
+      },
+      {
+        "policy": [
+          4,
+          512,
+          4,
+          1,
+          true,
+          ""
+        ],
+        "ms": 0.3833866754054188,
+        "gradient_error": 1.8173247440245177e-07
+      },
+      {
+        "policy": [
+          4,
+          1024,
+          4,
+          1,
+          true,
+          ""
+        ],
+        "ms": 0.3721261853400278,
+        "gradient_error": 1.785238055163063e-07
+      },
+      {
+        "policy": [
+          4,
+          256,
+          8,
+          1,
+          true,
+          ""
+        ],
+        "ms": 0.3855966548678767,
+        "gradient_error": 1.125920618960663e-07
+      },
+      {
+        "policy": [
+          8,
+          256,
+          4,
+          1,
+          true,
+          ""
+        ],
+        "ms": 3.5560831904411314,
+        "gradient_error": 1.7623703740810015e-07
+      },
+      {
+        "policy": [
+          4,
+          256,
+          4,
+          2,
+          false,
+          ""
+        ],
+        "ms": 0.4182189810759907,
+        "gradient_error": 0.0
+      },
+      {
+        "policy": [
+          4,
+          128,
+          4,
+          2,
+          false,
+          ""
+        ],
+        "ms": 0.4058866119987267,
+        "gradient_error": 2.0733753558488388e-07
+      },
+      {
+        "policy": [
+          4,
+          512,
+          4,
+          2,
+          false,
+          ""
+        ],
+        "ms": 0.3840780861456225,
+        "gradient_error": 1.8173247440245177e-07
+      }
+    ],
+    "swiglu": [
+      {
+        "policy": [
+          256,
+          0,
+          1
+        ],
+        "ms": 0.5858635291749356,
+        "gradient_error": 0.0
+      },
+      {
+        "policy": [
+          512,
+          0,
+          1
+        ],
+        "ms": 0.5522741707037558,
+        "gradient_error": 0.0
+      },
+      {
+        "policy": [
+          1024,
+          0,
+          1
+        ],
+        "ms": 0.5422405933791941,
+        "gradient_error": 0.0
+      },
+      {
+        "policy": [
+          2048,
+          0,
+          1
+        ],
+        "ms": 0.543774404890461,
+        "gradient_error": 0.0
+      },
+      {
+        "policy": [
+          4096,
+          0,
+          1
+        ],
+        "ms": 0.5545916874832082,
+        "gradient_error": 0.0
+      }
+    ],
+    "ce": [
+      {
+        "warps": 4,
+        "ms": 4.875964641571045,
+        "max_loss_error": 9.5367431640625e-07
+      },
+      {
+        "warps": 8,
+        "ms": 3.9514757737721484,
+        "max_loss_error": 9.5367431640625e-07
+      },
+      {
+        "warps": 16,
+        "ms": 4.016455067528619,
+        "max_loss_error": 9.5367431640625e-07
+      },
+      {
+        "warps": 32,
+        "ms": 4.109589958190918,
+        "max_loss_error": 0.0
+      }
+    ]
+  },
+  "selection": {
+    "compile_mode": "default",
+    "default_tokens_per_second": 256816.1821530851,
+    "max_autotune_tokens_per_second": 253772.23512251608,
+    "numerical_42_exitcode": 0,
+    "numerical_43_exitcode": 0
+  }
+}
