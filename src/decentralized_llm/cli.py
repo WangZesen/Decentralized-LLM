@@ -4,10 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
-from decentralized_llm.config import initialize_local_defaults, load_config
 
-
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """Describe the CLI without loading configuration or starting a workload."""
     parser = argparse.ArgumentParser(prog="decentralized-llm")
     commands = parser.add_subparsers(dest="command", required=True)
     tuning = commands.add_parser("tune", help="run, resume, or inspect a phased hyperparameter search")
@@ -47,7 +46,14 @@ def main() -> None:
     ):
         command = commands.add_parser(name)
         command.add_argument("--config", "-c", type=Path, action="append", default=[])
-        command.add_argument("--set", dest="overrides", action="append", default=[])
+        command.add_argument(
+            "--set",
+            dest="overrides",
+            action="append",
+            default=[],
+            metavar="KEY=YAML",
+            help="override a dotted configuration field with a YAML value; repeat for multiple fields",
+        )
         if name != "worker":
             command.add_argument(
                 "--no-local-config",
@@ -77,6 +83,11 @@ def main() -> None:
             command.add_argument("--warmup", type=int, default=20)
             command.add_argument("--cache-state", choices=("cold", "warm"), default="warm")
             command.add_argument("--output", type=Path)
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
     if args.command == "tune":
         from decentralized_llm.tuning.controller import execute
@@ -93,6 +104,8 @@ def main() -> None:
         if result.get("status") in {"failed", "interrupted"}:
             raise SystemExit(1 if result["status"] == "failed" else 130)
         return
+    from decentralized_llm.config import initialize_local_defaults, load_config
+
     use_local_defaults = args.command != "worker" and not args.no_local_config
     if use_local_defaults:
         initialize_local_defaults(dry_run=getattr(args, "dry_run", False))

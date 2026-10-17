@@ -53,6 +53,58 @@ For compiled execution, configure the host C/C++ compilers using the
 [toolchain setup guide](docs/toolchain-setup.md). It covers per-architecture local
 settings, compiler modules, verification, and retrying a failed run.
 
+### Bash tab completion
+
+In interactive **Bash 4.4 or later**, `source scripts/environment.sh` also enables
+completion for commands, flags, configuration keys, finite values, and paths. For an
+already installed environment, enable completion on its own:
+
+```bash
+source scripts/completion.bash
+```
+
+Completion uses the existing project Python environment (`DECENTRALIZED_PYTHON`,
+`UV_PROJECT_ENVIRONMENT`, or this checkout's `.venv-<architecture>` / `.venv`). Install
+the locked dependencies first. Pressing Tab never installs dependencies, starts a
+training process, or creates local configuration files. If the environment is missing
+or incomplete, completion quietly supplies no project suggestions.
+
+The following examples use `<TAB>` to mean pressing the Tab key:
+
+```text
+decentralized-llm <TAB>                            # commands
+decentralized-llm tune <TAB>                       # tuning actions
+uv run decentralized-llm submit --<TAB>            # submit options
+uv run decentralized-llm train -c configs/<TAB>    # configuration paths
+decentralized-llm train --set runtime.<TAB>        # writable runtime keys
+decentralized-llm train --set runtime.compile=<TAB> # auto, false, true
+decentralized-llm train --set distributed.topology=<TAB>
+```
+
+Keys are completed with `=` attached so you can immediately type or complete the value.
+Both `--set key=value` and `--set=key=value` work, including repeated overrides.
+Suggestions follow the CLI and configuration schema, including the SLURM launcher and
+WSD schedule fields. Values accept YAML; enter numbers, arbitrary strings, and lists
+yourself, quoting spaces and list syntax when needed:
+
+```bash
+decentralized-llm train --set optimizer.lr=0.0003 \
+  --set training.checkpoint_policy=explicit --set 'training.checkpoint_epochs=[1, 2]' \
+  --set 'runtime.output_dir=runs/my experiment' --dry-run
+```
+
+Suggestions are enabled only inside the checkout where the script was sourced,
+including subdirectories and symlinked paths. They stop outside it and resume when
+you return. Source the script again to select a different checkout. No shell startup
+files are edited, and no completion is installed system-wide.
+
+The `uv` integration supports `uv run`, any combination of `--locked`, `--frozen`,
+`--offline`, and `--no-sync`, and an optional `--` before `decentralized-llm`. Other
+`uv` invocations retain their existing completion. Load your normal `uv` completion
+before sourcing this script. Unusual custom `uv` completion specifications are left
+intact; use direct `decentralized-llm` completion in that case. Batch jobs do not
+automatically load completion.
+
 ## Configuration and preparation
 
 Configuration starts with built-in defaults, then local execution defaults, then

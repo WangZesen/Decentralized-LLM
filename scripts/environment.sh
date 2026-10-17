@@ -61,3 +61,7 @@ if ! environment_ready 2>/dev/null; then
 fi
 export DECENTRALIZED_PYTHON="$UV_PROJECT_ENVIRONMENT/bin/python"
 export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+# Completion is local to this checkout and only belongs in interactive Bash.
+if [[ $- == *i* ]]; then
+    source "$project_root/scripts/completion.bash"
+fi

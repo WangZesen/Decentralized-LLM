@@ -109,7 +109,7 @@ def test_failures(tmp_path: Path, settings: str, commands: str, diagnostic: str)
 def environment_script(tmp_path: Path) -> Path:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
-    for name in ("environment.sh", "toolchain.sh"):
+    for name in ("environment.sh", "toolchain.sh", "completion.bash"):
         shutil.copy(ROOT / "scripts" / name, scripts / name)
     for name in ("pyproject.toml", "uv.lock"):
         shutil.copy(ROOT / name, tmp_path / name)
@@ -196,6 +196,31 @@ def test_environment_allows_completion_and_nonzero_commands(tmp_path: Path, envi
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "shell survived\n"
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_environment_completion_is_interactive_only(tmp_path: Path, environment_script: Path, interactive: bool):
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            "--noprofile",
+            "--norc",
+            *(["-i"] if interactive else []),
+            "-c",
+            'source "$1"; complete -p decentralized-llm',
+            "bash",
+            str(environment_script),
+        ],
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+        text=True,
+        capture_output=True,
+    )
+    if interactive:
+        assert result.returncode == 0, result.stderr
+        assert "decentralized-llm" in result.stdout
+    else:
+        assert result.returncode != 0
+        assert not result.stdout
 
 
 @pytest.mark.parametrize("failure", ["compiler", "fingerprint", "lock", "sync"])
