@@ -7,6 +7,7 @@ import time
 import traceback
 from collections.abc import Callable
 from contextlib import nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -262,7 +263,8 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                             )
                             return progress
                     window.pause()
-                    training_seconds += time.perf_counter() - segment_started
+                    epoch_training_seconds = time.perf_counter() - segment_started
+                    training_seconds += epoch_training_seconds
                     result = evaluate(model, cache, config, device, full=False)
                     progress["completed_epochs"] = epoch
                     if progress["best_loss"] is None or result["loss"] < progress["best_loss"]:
@@ -270,7 +272,17 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                         if rank() == 0:
                             atomic_json(output / "best.json", {"epoch": epoch, "loss": result["loss"]})
                     if rank() == 0:
-                        append_metric(output / "metrics.jsonl", {"event": "validation", "epoch": epoch, **result})
+                        append_metric(
+                            output / "metrics.jsonl",
+                            {
+                                "event": "validation",
+                                "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+                                "epoch": epoch,
+                                **{key: value for key, value in result.items() if key != "seconds"},
+                                "val_seconds": round(result["seconds"], 2),
+                                "train_seconds": round(epoch_training_seconds, 2),
+                            },
+                        )
                     if epoch in selected:
                         save_checkpoint(
                             output / f"epoch-{epoch:03d}",

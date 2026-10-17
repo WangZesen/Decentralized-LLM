@@ -825,6 +825,12 @@ The lifetime slowest read group is also retained. These wall-clock timings can i
 scheduling; they are not pure disk latency or a measure of GPU idle time.
 `metrics-rank-*.jsonl`, `loader-rank-*.json`, `rank-*.json`, failure tracebacks, resolved
 configuration, source digest, library versions, and evaluation metrics remain in the run.
+Validation entries in `metrics.jsonl` include a UTC `timestamp` with second precision
+(for example, `2026-10-17T14:30:00+00:00`), recorded when the result is written.
+They report validation duration as `val_seconds` and wall time in the last virtual
+epoch's training loop as `train_seconds`, both rounded to two decimal places.
+Training time excludes validation and checkpoint saving. On a mid-epoch resume,
+it covers only the training since resuming.
 
 The benchmark compares complete forward/backward/clip/AdamW/mixing pipelines after warmup,
 using either the network loader or a host-resident batch with the same conversion/transfer
