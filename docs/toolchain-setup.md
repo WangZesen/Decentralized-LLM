@@ -45,6 +45,22 @@ one in, source the helper and call `activate_toolchain /path/to/repository "$(un
 before activating Python. Launcher environment overlays still run after the environment
 script, including existing GH200 network overlays. No launcher or YAML changes are needed.
 
+Source `scripts/environment.sh` in the login shell before running compiled commands
+directly; `uv run` alone does not activate these compiler settings. The standard SLURM
+launcher sources the environment separately on each compute node, selecting that node's
+architecture. Existing valid Python environments can be reused without reinstalling
+dependencies when only compiler settings change.
+
+SLURM normally inherits exported `CC` and `CXX`. When the login and compute
+architectures differ, clear login-node selections for submission so the compute node
+can select its own settings, for example:
+
+```bash
+env -u CC -u CXX uv run decentralized-llm submit -c path/to/training.yaml
+```
+
+Retain those variables when intentionally overriding the compute-node compilers.
+
 ## Examples
 
 Module-based settings (replace placeholders using your site's documentation):

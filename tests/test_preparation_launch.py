@@ -223,6 +223,7 @@ def test_cli_local_end_to_end(cache: TokenCache, tiny_config: Config, tmp_path: 
         check=True,
         timeout=90,
         env=env,
+        cwd=tmp_path,
         capture_output=True,
     )
     assert (tiny_config.runtime.output_dir / "final/manifest.json").is_file()

@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
+from decentralized_llm import config as config_module
 from decentralized_llm.cache import TokenCache, training_boundaries
 from decentralized_llm.config import Config, load_config, save_config
 from decentralized_llm.launch import SubmissionRejected
@@ -466,6 +467,68 @@ def test_full_controller_reuses_trials_and_extends(
     assert len(fake_backend.submissions) == before + 2
     assert "optimizer.lr" not in load_state(destination)["winner"]["labels"]
     assert all(path.is_symlink() for path in (destination / "trials/renamed-first-phase").iterdir())
+
+
+def test_local_defaults_are_frozen_for_resume_and_refreshed_for_extend(
+    cache: TokenCache,
+    tuning_file: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+) -> None:
+    base_path = tuning_file.parent / "base.yaml"
+    base = yaml.safe_load(base_path.read_text())
+    base["runtime"].pop("execution_backend")
+    base["runtime"].pop("cpu_threads")
+    base_path.write_text(yaml.safe_dump(base))
+    spec = yaml.safe_load(tuning_file.read_text())
+    spec.update(
+        screening_seeds=1,
+        phases=[{"name": "lr", "search": {"optimizer.lr": [0.001]}, "top_k": 1}],
+        confirmation={"seeds": 1},
+    )
+    tuning_file.write_text(yaml.safe_dump(spec))
+    directory = tmp_path / "local-defaults-study"
+    assert execute("run", directory, tuning_file)["status"] == "complete"
+    defaults = config_module.LOCAL_DEFAULTS_PATH
+    assert defaults.is_file()
+    state = load_state(directory)
+    frozen = state["base"]
+    assert frozen["runtime"]["execution_backend"] == "native"
+    for changed in ("runtime: {execution_backend: gh200}", "runtime: [broken"):
+        defaults.write_text(changed)
+        assert execute("resume", directory, dry_run=True)["new_jobs"] == 0
+        assert execute("resume", directory)["status"] == "complete"
+        assert execute("status", directory)["status"] == "complete"
+        execute("report", directory)
+        assert load_state(directory)["base"] == frozen
+        assert defaults.read_text() == changed
+        for trial in state["trials"].values():
+            controller.check_result(trial, trial["attempts"][-1])
+    defaults.unlink()
+    execute("resume", directory, dry_run=True)
+    execute("status", directory)
+    execute("report", directory)
+    assert not defaults.exists()
+    defaults.write_text("runtime: {execution_backend: native, cpu_threads: 2}")
+    assert execute("extend", directory, tuning_file)["revision"] == 2
+    assert load_state(directory)["base"]["runtime"]["cpu_threads"] == 2
+    assert json.loads((directory / "revisions/0001/state.json").read_text())["base"] == frozen
+
+
+@pytest.mark.parametrize("dry_run,use_local_defaults", [(True, True), (True, False), (False, False)])
+def test_controller_dry_run_and_opt_out_do_not_initialize_defaults(
+    cache: TokenCache,
+    tuning_file: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    dry_run: bool,
+    use_local_defaults: bool,
+) -> None:
+    directory = tmp_path / "no-local-defaults-study"
+    execute("run", directory, tuning_file, dry_run=dry_run, use_local_defaults=use_local_defaults)
+    assert not config_module.LOCAL_DEFAULTS_PATH.parent.exists()
+    if dry_run:
+        assert not directory.exists()
 
 
 @pytest.mark.parametrize("invalid", [False, True])
@@ -1137,6 +1200,7 @@ def test_real_local_tuning_cli(cache: TokenCache, tiny_config: Config, tmp_path:
     result = subprocess.run(
         [sys.executable, "-m", "decentralized_llm", "tune", "run", "--spec", str(path), "--output", str(directory)],
         env=dict(os.environ, CUDA_VISIBLE_DEVICES="", OMP_NUM_THREADS="1"),
+        cwd=tmp_path,
         capture_output=True,
         text=True,
         # Five real jobs each import torch in the supervisor, launcher, and worker.

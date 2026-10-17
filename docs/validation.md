@@ -47,6 +47,7 @@ Both measured ratios exceed 95%. Values above 100% reflect short-run variation a
 not a speedup claim. Cold eviction used `POSIX_FADV_DONTNEED`; storage-server cache state
 was not controlled. Raw reports retain the exact source digest/configuration and machine
 provenance: [cold](validation/cpu-lustre-cold.json) and [warm](validation/cpu-lustre-warm.json).
+Hostnames in these reports are anonymized.
 Reports were generated against the final implementation source digest. The cold request
 had two empty-queue events and a maximum CPU wait of 60.3 ms; the warm run had no empty-queue
 events and a maximum wait of 0.111 ms. Neither run proves zero GPU starvation. The loader

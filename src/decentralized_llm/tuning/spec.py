@@ -242,7 +242,7 @@ def apply_values(config: Config, values: Record) -> Config:
     return Config.model_validate(raw)
 
 
-def read_spec(path: Path) -> tuple[TuningSpec, Config]:
+def read_spec(path: Path, *, use_local_defaults: bool = False) -> tuple[TuningSpec, Config]:
     spec = TuningSpec.model_validate(yaml.safe_load(path.read_text()))
     paths = [(path.parent / filename).resolve() for filename in spec.base.configs]
     overrides = [
@@ -251,7 +251,7 @@ def read_spec(path: Path) -> tuple[TuningSpec, Config]:
             spec.base.overrides.items(), key=lambda item: item[0] not in {"lr_schedule.name", "launcher.kind"}
         )
     ]
-    base = absolute_config(load_config(paths, overrides))
+    base = absolute_config(load_config(paths, overrides, use_local_defaults=use_local_defaults))
     spec.base.configs = paths
     validate_fields(spec, base)
     return spec, base

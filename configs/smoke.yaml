@@ -26,5 +26,7 @@ lr_schedule:
   name: cosine
   warmup_tokens_per_parameters: 0.002
 runtime:
+  execution_backend: native
   compile: false
+  cpu_affinity: none
   output_dir: runs/smoke-ddp

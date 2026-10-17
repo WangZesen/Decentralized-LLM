@@ -1,0 +1,8 @@
+# Local execution defaults, automatically loaded from the repository working directory.
+# Save as Git-ignored configs/local/defaults.yaml; experiment files and explicit overrides take precedence.
+# Set execution_backend to gh200 or a100 to enable fused execution on that hardware.
+# compile: auto keeps native execution eager and enables compilation for fused backends.
+runtime:
+  execution_backend: native
+  compile: auto
+  cpu_affinity: none

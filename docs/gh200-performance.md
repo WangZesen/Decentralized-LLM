@@ -14,6 +14,11 @@ explicitly enable GH200 execution; automatic numerical qualification remains sep
 
 ## Selected recipe and implementation
 
+For ordinary training and tuning, set `runtime.execution_backend: gh200` in the ignored
+`configs/local/defaults.yaml`; see [local configuration](../README.md#configuration-and-preparation).
+The presets below are optional reproduction recipes that override local defaults.
+The generic training and tuning configurations do not depend on them or activate CXI.
+
 Layer either `configs/gh200-4gpu.yaml` or `configs/gh200-8gpu.yaml` after the base and
 model configurations. Each preset is self-contained. Both use a 32,768-token global
 batch, BF16, model compilation, automatic SDPA selection, fused AdamW, eight PyTorch

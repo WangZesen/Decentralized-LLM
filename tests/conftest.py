@@ -4,10 +4,17 @@ import numpy as np
 import pytest
 import torch
 
+from decentralized_llm import config as config_module
 from decentralized_llm.cache import TokenCache, TokenWriter, fingerprint
 from decentralized_llm.config import Config
 from decentralized_llm.runtime import atomic_json
 from decentralized_llm.state import CacheContent, CacheManifest
+
+
+@pytest.fixture(autouse=True)
+def isolated_local_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Tests must not read or initialize a user's checkout-specific settings.
+    monkeypatch.setattr(config_module, "LOCAL_DEFAULTS_PATH", tmp_path / "configs/local/defaults.yaml")
 
 
 def make_cache(path: Path, config: Config, tokens: int = 151, shard_tokens: int = 11) -> TokenCache:

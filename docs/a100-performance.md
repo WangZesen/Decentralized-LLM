@@ -7,7 +7,10 @@ retain their canonical names and shapes. The backend requires an A100, a support
 model preset, nondeterministic BF16 SDPA, and compilation. `auto` retains the existing
 qualification policy and does not automatically select this experimental backend.
 
-Use `configs/a100-1gpu.yaml` after the base and model files. It selects one GPU,
+For ordinary training and tuning, set `runtime.execution_backend: a100` in the ignored
+`configs/local/defaults.yaml`; see [local configuration](../README.md#configuration-and-preparation).
+The shared specifications need no hardware preset. To reproduce this report, use
+`configs/a100-1gpu.yaml` after the base and model files. It overrides local defaults and selects one GPU,
 32,768 tokens per update, GPU-local exclusive CPU binding, eight PyTorch threads,
 and persistent compilation caches. Set the scheduler partition and walltime for your
 site. The compiler setup is described in [toolchain setup](toolchain-setup.md).

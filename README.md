@@ -55,10 +55,63 @@ settings, compiler modules, verification, and retrying a failed run.
 
 ## Configuration and preparation
 
-Configuration files merge from left to right; dotted `--set key=value` overrides apply
-last. Values use YAML syntax. Unknown fields and nonfinite numbers are rejected.
+Configuration starts with built-in defaults, then local execution defaults, then
+configuration files from left to right; dotted `--set key=value` overrides apply last.
+Values use YAML syntax. Unknown fields and nonfinite numbers are rejected.
 Changing `lr_schedule.name` or `launcher.kind` clears the previous variant's fields.
 Five dimension presets are in `configs/{20m,50m,90m,250m,500m}.yaml`.
+
+Run commands from the repository root. User-facing configuration commands, including
+training, submission, benchmarking, and `tune run`/`extend`, automatically read the
+Git-ignored `configs/local/defaults.yaml`. If it is missing, a normal command creates
+the following compatible baseline atomically, preserving any existing file:
+
+```yaml
+runtime:
+  execution_backend: native
+  compile: auto
+  cpu_affinity: none
+```
+
+This baseline uses eager native execution without exclusive CPU binding. Set
+`execution_backend: gh200` or `execution_backend: a100` in this one local file to
+select fused execution for new runs and tuning studies without adding a hardware
+overlay to each experiment. `compile: auto` enables compilation for either fused
+backend. Set `cpu_affinity: exclusive` locally if your GPU nodes support that placement.
+The [example](configs/local-defaults.example.yaml) also documents these settings.
+
+The file accepts partial `runtime` settings except `seed` and `output_dir`; all other
+sections are rejected. An empty existing file supplies no overrides. Explicit experiment
+settings (including `auto`), command-line overrides, and tuning `base.overrides` win over
+local defaults. Scheduler, network, model, and training settings belong in experiment
+configurations. Backend compatibility checks remain strict; incompatible hardware or
+workloads do not silently fall back to another backend.
+
+Use `--no-local-config` to bypass both creation and loading, for example for a CPU or
+small smoke run. Dry runs use the baseline in memory and report a missing defaults file
+on stderr without creating it. Normal creation notices also go to stderr, preserving
+JSON command output. Invalid or unreadable existing files fail with their path in the
+diagnostic and are never replaced.
+
+Workers and `tune resume`/`status`/`report` use saved configurations and do not read or
+create local defaults. `tune extend` resolves the current defaults into a new revision.
+The Python `load_config` and `read_spec` APIs remain explicit by default; opt in with
+`use_local_defaults=True`. These loaders never write files. The tuning controller
+initializes defaults for new runs/revisions unless `use_local_defaults=False` is passed.
+
+Other local experiments can remain in `configs/local/`. When copying a tuning spec
+there, change its `base.configs` references to `../base.yaml`, `../20m.yaml`, and the
+appropriate `../` launcher filename. No reference to `defaults.yaml` is needed.
+
+Tracked `tuning-*.yaml` specifications reference only the shared base, model, and
+launcher configurations. They do not require an ignored config or a GH200/A100 preset,
+and leave the execution backend to local defaults. The generic multi-node specifications
+also leave scheduler network selection and transport activation unset. Put site-specific
+`launcher.network` and `launcher.environment_overlays` in a local experiment or tuning
+copy, after checking its interconnect setup; these fields do not belong in `defaults.yaml`.
+The standard environment script supports both host architectures and does not require
+local toolchain files. Smoke and CPU benchmark configs explicitly choose eager native
+execution and no CPU binding, so they also work with fused local defaults.
 
 ```bash
 uv run decentralized-llm prepare -c configs/base.yaml -c configs/20m.yaml \
@@ -87,10 +140,28 @@ the configured global budget. A smaller already-prepared training cache may be r
 for multiple passes. `prepare_train_tokens` and `prepare_validation_tokens` provide
 bounded smoke fixtures; truncated validation is marked in all evaluation results.
 
-## Four- and eight-GPU GH200 training
+## Training across GPU platforms
+
+Select the backend once in `configs/local/defaults.yaml`, then use shared experiment
+and launcher files. For example, this four-GPU submission uses the local backend:
+
+```bash
+uv run decentralized-llm submit -c configs/base.yaml -c configs/90m.yaml \
+  -c configs/slurm-ddp.yaml --set distributed.nodes=1 --set distributed.gpus_per_node=4 \
+  --set data.cache_dir=/shared/tokens/c4 --set launcher.time=02:00:00 \
+  --set runtime.output_dir=runs/90m-4gpu --dry-run
+```
+
+Set the lowercase `account` environment variable and the site's GPU partition before
+submission. Changing the local backend does not change GPU counts, batching, search
+grids, or scheduler settings. Hardware and workload compatibility checks still apply.
+
+## Optional four- and eight-GPU GH200 presets
 
 After preparing the shared token cache, choose one hardware preset. Each is layered
-**directly after the base configuration and model preset**:
+**directly after the base configuration and model preset**. These explicit recipes
+override local execution defaults and are intended for reproducing the measured
+hardware setup. Generic training and tuning do not depend on them:
 
 ```bash
 uv run decentralized-llm submit -c configs/base.yaml -c configs/90m.yaml \
@@ -142,8 +213,9 @@ For comparisons, override the recipe explicitly:
 | Eager native | `runtime.execution_backend=native`, `runtime.compile=false` |
 | Strict qualified selection | `runtime.execution_backend=auto`, `runtime.compile=auto` |
 
-Pass each override with `--set`. Generic configurations retain strict automatic
-selection; unmatched workloads use eager native execution. The sole historical
+Pass each override with `--set`. Generic configurations use the local backend, initially
+`native`. Explicit `auto` selection retains strict qualification; unmatched workloads
+use eager native execution. The sole historical
 qualified profile is four-GPU 20M AWC with FlashAttention and 64 allowed CPUs per node,
 without exclusive binding. It does not qualify the new full-CPU presets. Compiled
 native also showed trajectory drift in the short comparisons. The GH200 backend
@@ -166,8 +238,11 @@ commands are in the [performance report](docs/gh200-performance.md#reproducing-t
 ## A100 fused execution
 
 The explicit A100 backend reuses the fused residual/RMSNorm, SwiGLU, projection,
-RoPE, and cross-entropy implementations. Layer `configs/a100-1gpu.yaml` after the
-base configuration and model preset, then set your site's partition and walltime.
+RoPE, and cross-entropy implementations. Set `execution_backend: a100` in local defaults
+for shared training and tuning configurations. To reproduce the measured hardware
+recipe, optionally layer `configs/a100-1gpu.yaml` after the base configuration and
+model preset, then set your site's partition and walltime. This preset overrides
+local execution defaults.
 The [A100 performance report](docs/a100-performance.md) records measured throughput,
 numerical checks, and reproduction commands. Automatic backend selection retains
 its qualification requirements; an explicit A100 selection requires supported model
@@ -260,25 +335,32 @@ uv run decentralized-llm tune report runs/tuning/example
 The tuning specification has a `base.configs` list and optional dotted `base.overrides`
 mapping. Referenced YAML filenames resolve relative to the tuning specification;
 paths inside training configurations retain the normal repository-working-directory
-semantics. Resolved configurations are frozen in the study state.
+semantics. Local execution defaults apply before these files and `base.overrides`;
+resolved configurations are frozen in the study state. The same specification can
+use GH200 or A100 by editing only `configs/local/defaults.yaml` when it does not
+explicitly select a backend. `--no-local-config` is available on `tune run` and `extend`.
 
-For GH200 tuning, copy the example specification and replace its `base` block with:
+For a four-GPU study using the local backend, copy the example and replace its `base`
+block with:
 
 ```yaml
 base:
-  configs: [base.yaml, 90m.yaml, gh200-4gpu.yaml]
+  configs: [base.yaml, 90m.yaml, slurm-ddp.yaml]
   overrides:
     data.cache_dir: /shared/tokens/c4
     training.checkpoint_policy: none
+    distributed.nodes: 1
+    distributed.gpus_per_node: 4
     launcher.time: '02:00:00'
-    runtime.compile_cache_dir: .cache/compile
 ```
 
-This example assumes the copied specification remains in `configs/`; adjust the
-relative filenames if it lives elsewhere. Use `gh200-8gpu.yaml` instead for two nodes.
+This example assumes the copied specification remains in `configs/`; use `../` prefixes
+for the references in a copy under `configs/local/`. Set `distributed.nodes: 2` for
+eight GPUs and configure any site-specific transport in that local copy.
 Keep the example's phases and seed settings, set the cache path and intended walltime,
-and run `tune run --dry-run` before starting the study. The same execution and affinity
-recipe then applies to every trial, with compatible compilation artifacts reused.
+and run `tune run --dry-run` before starting the study. The local execution defaults
+are resolved once for the study and apply to every trial, with compatible compilation
+artifacts reused. Set affinity and compilation-cache preferences in `defaults.yaml`.
 
 Each phase's `search` maps **one or more dotted configuration fields** to search
 specifications. The controller jointly evaluates their Cartesian product, averages

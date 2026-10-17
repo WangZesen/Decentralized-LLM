@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from decentralized_llm.config import load_config
+from decentralized_llm.config import initialize_local_defaults, load_config
 
 
 def main() -> None:
@@ -20,6 +20,11 @@ def main() -> None:
             action.add_argument("directory", type=Path)
         if name in ("run", "extend"):
             action.add_argument("--spec", type=Path, required=True)
+            action.add_argument(
+                "--no-local-config",
+                action="store_true",
+                help="skip initialization and loading of local execution defaults",
+            )
         if name in ("run", "resume", "extend"):
             action.add_argument("--dry-run", action="store_true")
         if name == "resume":
@@ -43,6 +48,12 @@ def main() -> None:
         command = commands.add_parser(name)
         command.add_argument("--config", "-c", type=Path, action="append", default=[])
         command.add_argument("--set", dest="overrides", action="append", default=[])
+        if name != "worker":
+            command.add_argument(
+                "--no-local-config",
+                action="store_true",
+                help="skip initialization and loading of local execution defaults",
+            )
         if name in ("validate", "train", "submit"):
             command.add_argument("--resume", type=Path)
         if name in ("train", "evaluate", "submit", "benchmark-training"):
@@ -76,12 +87,16 @@ def main() -> None:
             getattr(args, "spec", None),
             dry_run=getattr(args, "dry_run", False),
             retry_unresolved=getattr(args, "retry_unresolved", None),
+            use_local_defaults=not getattr(args, "no_local_config", False),
         )
         print(json.dumps(result, indent=2))
         if result.get("status") in {"failed", "interrupted"}:
             raise SystemExit(1 if result["status"] == "failed" else 130)
         return
-    config = load_config(args.config, args.overrides)
+    use_local_defaults = args.command != "worker" and not args.no_local_config
+    if use_local_defaults:
+        initialize_local_defaults(dry_run=getattr(args, "dry_run", False))
+    config = load_config(args.config, args.overrides, use_local_defaults=use_local_defaults)
     if args.command == "benchmark-training":
         for key in ("steps", "warmup", "windows", "min_seconds"):
             if getattr(args, key) is not None:

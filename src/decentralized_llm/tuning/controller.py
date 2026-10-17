@@ -19,7 +19,7 @@ import torch
 from loguru import logger
 
 from decentralized_llm.cache import TokenCache, training_boundaries
-from decentralized_llm.config import Config, load_config
+from decentralized_llm.config import Config, initialize_local_defaults, load_config
 from decentralized_llm.launch import SubmissionRejected
 from decentralized_llm.preflight import validate
 from decentralized_llm.runtime import atomic_json, dependency_digest, source_digest
@@ -550,6 +550,7 @@ def execute(
     *,
     dry_run: bool = False,
     retry_unresolved: list[str] | None = None,
+    use_local_defaults: bool = True,
 ) -> Record:
     directory = directory.resolve()
     if action == "run" and (directory / "state.json").exists():
@@ -572,8 +573,10 @@ def execute(
         with study_lock(directory):
             return write_report(directory, load_state(directory))
     existing = None if action == "run" else load_state(directory)
-    if spec_path is not None:
-        spec, base = read_spec(spec_path.resolve())
+    if spec_path is not None and action in ("run", "extend"):
+        if use_local_defaults:
+            initialize_local_defaults(dry_run=dry_run)
+        spec, base = read_spec(spec_path.resolve(), use_local_defaults=use_local_defaults)
     else:
         if existing is None:
             raise ValueError("a tuning specification is required")

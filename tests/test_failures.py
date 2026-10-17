@@ -133,6 +133,7 @@ def test_validate_cli_prevents_launch(cache: TokenCache, tiny_config: Config, tm
         text=True,
         timeout=30,
         env=dict(os.environ, CUDA_VISIBLE_DEVICES=""),
+        cwd=tmp_path,
     )
     assert result.returncode != 0 and "requires approximately" in result.stderr
     assert not tiny_config.runtime.output_dir.exists()

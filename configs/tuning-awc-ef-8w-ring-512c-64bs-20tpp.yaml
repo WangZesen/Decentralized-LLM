@@ -1,4 +1,5 @@
 # Run from the repository root. Prepare the shared cache first and set your SLURM partition.
+# Execution defaults load automatically; configure site-specific transport in a local copy.
 base:
   configs: [base.yaml, 20m.yaml, slurm-decentralized.yaml]
   overrides:
@@ -8,9 +9,6 @@ base:
     distributed.topology: one_peer_ring
     distributed.scheme: awc
     distributed.error_feedback: true
-    launcher.network: job_vni
-    launcher.environment_overlays:
-      - scripts/activate_cxi.sh
     training.batch_tokens: 32768
     model.context_length: 512
     training.tokens_per_parameters: 20.0

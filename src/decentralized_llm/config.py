@@ -1,5 +1,8 @@
 """Strict YAML configuration, shared by the CLI and Python API."""
 
+import os
+import sys
+import tempfile
 from collections.abc import Sequence
 from fractions import Fraction
 from pathlib import Path
@@ -7,6 +10,17 @@ from typing import Annotated, Literal, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+
+LOCAL_DEFAULTS_PATH = Path("configs/local/defaults.yaml")
+LOCAL_DEFAULTS_TEMPLATE = """# Local execution defaults, automatically loaded from the repository working directory.
+# Save as Git-ignored configs/local/defaults.yaml; experiment files and explicit overrides take precedence.
+# Set execution_backend to gh200 or a100 to enable fused execution on that hardware.
+# compile: auto keeps native execution eager and enables compilation for fused backends.
+runtime:
+  execution_backend: native
+  compile: auto
+  cpu_affinity: none
+"""
 
 
 class StrictModel(BaseModel):
@@ -291,10 +305,76 @@ def _merge_config(target: dict, source: dict, *, root: bool = True) -> None:
             target[key] = value
 
 
-def load_config(path: str | Path | Sequence[str | Path] | None = None, overrides: Sequence[str] = ()) -> Config:
-    """Merge YAML files in order, then apply dotted overrides and validate once."""
+def initialize_local_defaults(*, dry_run: bool = False) -> None:
+    """Publish a complete default file once; concurrent controllers never replace it."""
+    path = LOCAL_DEFAULTS_PATH
+    if path.exists() or path.is_symlink():
+        return
+    if dry_run:
+        print(
+            f"Local execution defaults missing: {path}; using native, compile=auto, cpu_affinity=none "
+            "in memory. Experiment settings and overrides take precedence; no file was created.",
+            file=sys.stderr,
+        )
+        return
+    temporary: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=f".{path.name}.", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(LOCAL_DEFAULTS_TEMPLATE)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            return
+        print(f"Created local execution defaults: {path} (native backend).", file=sys.stderr)
+    except OSError as error:
+        raise ValueError(
+            f"Could not initialize local execution defaults at {path}: {error}. "
+            "Use --no-local-config to bypass local defaults."
+        ) from error
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _local_defaults() -> dict:
+    path = LOCAL_DEFAULTS_PATH
+    try:
+        try:
+            text = path.read_text()
+        except FileNotFoundError:
+            if path.is_symlink():
+                raise
+            text = LOCAL_DEFAULTS_TEMPLATE
+        value = yaml.safe_load(text)
+        if value is None:
+            return {}
+        if not isinstance(value, dict) or value.keys() - {"runtime"}:
+            raise ValueError("expected a YAML mapping containing only runtime settings")
+        runtime = value.get("runtime", {})
+        if not isinstance(runtime, dict):
+            raise ValueError("runtime must be a YAML mapping")
+        if {"seed", "output_dir"} & runtime.keys():
+            raise ValueError("runtime.seed and runtime.output_dir belong in experiment configurations")
+        return {"runtime": RuntimeConfig.model_validate(runtime).model_dump(mode="json", exclude_unset=True)}
+    except (OSError, yaml.YAMLError, ValueError) as error:
+        raise ValueError(f"Invalid local execution defaults at {path}: {error}") from error
+
+
+def load_config(
+    path: str | Path | Sequence[str | Path] | None = None,
+    overrides: Sequence[str] = (),
+    *,
+    use_local_defaults: bool = False,
+) -> Config:
+    """Merge optional local defaults, YAML files, then dotted overrides; never write files."""
     paths = () if path is None else (path,) if isinstance(path, (str, Path)) else path
     raw: dict = Config().model_dump(mode="json")
+    if use_local_defaults:
+        _merge_config(raw, _local_defaults())
     for filename in paths:
         value = yaml.safe_load(Path(filename).read_text())
         if value is None:

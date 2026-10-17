@@ -9,5 +9,12 @@ data:
   reader_threads: 4
   prefetch_batches: 8
 training: {batch_tokens: 4096, num_accumulation: 1}
-runtime: {device: cpu, amp: false, compile: false, cpu_threads: 4, output_dir: runs/benchmark-cpu}
+runtime:
+  device: cpu
+  amp: false
+  execution_backend: native
+  compile: false
+  cpu_affinity: none
+  cpu_threads: 4
+  output_dir: runs/benchmark-cpu
 distributed: {backend: gloo}
