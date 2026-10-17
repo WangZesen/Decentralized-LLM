@@ -51,6 +51,12 @@ launcher sources the environment separately on each compute node, selecting that
 architecture. Existing valid Python environments can be reused without reinstalling
 dependencies when only compiler settings change.
 
+Activation preserves the caller's Bash options, including `errexit`, `nounset`, and
+`pipefail`, so interactive tab completion keeps working. Setup failures return a
+nonzero status; batch launchers already use strict mode to stop on these failures.
+If a shell sourced an older version that enabled strict mode, run
+`set +e +u; set +o pipefail` or start a fresh shell before activating again.
+
 SLURM normally inherits exported `CC` and `CXX`. When the login and compute
 architectures differ, clear login-node selections for submission so the compute node
 can select its own settings, for example:
@@ -120,8 +126,8 @@ the benchmark traceback if compilation fails.
 If the module command is unavailable, set its initialization file. If a module cannot
 be found, verify its name and search paths on the compute node. If a compiler remains
 unusable, inspect `CC`/`CXX`: stale environment overrides take precedence. Unset them
-to use the local settings. Module scripts must be compatible with the environment
-script's Bash strict mode. A working preexisting compiler intentionally skips all
+to use the local settings. Module scripts must also work with caller-enabled Bash
+strict mode, as used by SLURM launchers. A working preexisting compiler intentionally skips all
 configured module loads; use explicit compiler paths if a particular version is needed.
 
 Retry a failed training run in a **fresh output directory**, preserving the failed

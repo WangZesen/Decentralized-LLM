@@ -105,7 +105,8 @@ def test_failures(tmp_path: Path, settings: str, commands: str, diagnostic: str)
     assert diagnostic in result.stderr
 
 
-def test_environment_cached_activation_and_failure(tmp_path: Path):
+@pytest.fixture
+def environment_script(tmp_path: Path) -> Path:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     for name in ("environment.sh", "toolchain.sh"):
@@ -129,18 +130,107 @@ def test_environment_cached_activation_and_failure(tmp_path: Path):
     compiler = tmp_path / "compiler"
     executable(compiler)
     settings.write_text(f'TOOLCHAIN_CC="{compiler}"; TOOLCHAIN_CXX="{compiler}"')
+    return scripts / "environment.sh"
+
+
+def test_environment_cached_activation_and_failure(tmp_path: Path, environment_script: Path):
+    compiler = tmp_path / "compiler"
     env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}
-    command = f'source "{scripts}/environment.sh"; source "{scripts}/environment.sh"; echo "$CC"'
+    command = f'source "{environment_script}"; source "{environment_script}"; echo "$CC"'
     result = subprocess.run(["/bin/bash", "-c", command], env=env, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(compiler)
     executable(compiler, "exit 1")
     result = subprocess.run(
-        ["/bin/bash", "-c", f'if source "{scripts}/environment.sh"; then exit 99; else exit 42; fi'],
+        ["/bin/bash", "-c", f'if source "{environment_script}"; then exit 99; else exit 42; fi'],
         env=env,
         capture_output=True,
     )
     assert result.returncode == 42
+
+
+@pytest.mark.parametrize("errexit", [False, True])
+@pytest.mark.parametrize("nounset", [False, True])
+@pytest.mark.parametrize("pipefail", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_environment_preserves_shell_options(
+    tmp_path: Path, environment_script: Path, errexit: bool, nounset: bool, pipefail: bool, cached: bool
+):
+    arch = os.uname().machine
+    if not cached:
+        (tmp_path / f".uv-sync-{arch}.fingerprint").unlink()
+        executable(tmp_path / "uv")
+    options = (
+        f"set {'-' if errexit else '+'}e; set {'-' if nounset else '+'}u; set {'-' if pipefail else '+'}o pipefail; "
+    )
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            options + 'before=$SHELLOPTS; source "$1"; source "$1"; [[ $SHELLOPTS == "$before" ]]',
+            "bash",
+            str(environment_script),
+        ],
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin", "HOME": str(tmp_path)},
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_environment_allows_completion_and_nonzero_commands(tmp_path: Path, environment_script: Path):
+    # Completion functions legitimately read unset locals and return nonzero (e.g. 124 to retry).
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            'source "$1"; '
+            '_completion() { local optional; COMPREPLY=("$optional"); return 124; }; '
+            '_completion; false; printf "shell survived\\n"',
+            "bash",
+            str(environment_script),
+        ],
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "shell survived\n"
+
+
+@pytest.mark.parametrize("failure", ["compiler", "fingerprint", "lock", "sync"])
+@pytest.mark.parametrize("strict", [False, True])
+def test_environment_failures_return_without_changing_shell_options(
+    tmp_path: Path, environment_script: Path, failure: str, strict: bool
+):
+    arch = os.uname().machine
+    stamp = tmp_path / f".uv-sync-{arch}.fingerprint"
+    stamp.unlink()
+    executable(tmp_path / "uv")
+    if failure == "compiler":
+        executable(tmp_path / "compiler", "exit 7")
+    elif failure == "fingerprint":
+        (tmp_path / "uv.lock").unlink()
+    elif failure == "lock":
+        executable(tmp_path / "flock", "exit 7")
+    else:
+        executable(tmp_path / "uv", '[[ "$1" == --version ]]')
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            ("set -euo pipefail; " if strict else "") + 'before=$SHELLOPTS; if source "$1"; then exit 99; fi; '
+            '[[ $SHELLOPTS == "$before" ]] || exit 98; printf "failure caught\\n"',
+            "bash",
+            str(environment_script),
+        ],
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin", "HOME": str(tmp_path)},
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "failure caught\n"
+    assert not stamp.exists()
 
 
 @pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
