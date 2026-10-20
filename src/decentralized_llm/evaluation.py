@@ -59,17 +59,34 @@ def validation_batches(cache: TokenCache, config: Config, device: torch.device, 
 
 
 @torch.no_grad()
+def parameter_distance(model: nn.Module, reference: nn.Module) -> torch.Tensor:
+    """L2 distance over unique parameters, excluding buffers and storage padding."""
+    squared_distance = torch.zeros((), device=next(model.parameters()).device, dtype=torch.float64)
+    for parameter, averaged in zip(model.parameters(), reference.parameters(), strict=True):
+        # One parameter-sized scratch tensor; copy even if the source is already FP64.
+        difference = parameter.to(dtype=torch.float64, copy=True)
+        difference.sub_(averaged).square_()
+        squared_distance.add_(difference.sum())
+    return squared_distance.sqrt()
+
+
+@torch.no_grad()
 def evaluate(
     model: nn.Module, cache: TokenCache, config: Config, device: torch.device, full: bool, average: bool = True
 ) -> EvaluationResult:
     start = time.perf_counter()
     was_training = model.training
+    size = world_size()
+    decentralized = config.distributed.mode == "decentralized"
+    consensus_available = size == 1 or not decentralized or average
     with preserve_rng():
-        eval_model = averaged_model(model) if average and config.distributed.mode == "decentralized" else model
+        eval_model = averaged_model(model) if average and decentralized else model
+        totals = torch.zeros(3, device=device, dtype=torch.float64)
+        if size > 1 and decentralized and average:
+            totals[2] = parameter_distance(model, eval_model)
         eval_model.eval()
-        execution = build_execution(cast(Llama, eval_model), config, device, distributed=False)
-        totals = torch.zeros(2, device=device, dtype=torch.float64)
         try:
+            execution = build_execution(cast(Llama, eval_model), config, device, distributed=False)
             for x, y in prefetched_validation_batches(cache, config, device, full):
                 with torch.autocast(device.type, dtype=torch.bfloat16, enabled=config.runtime.amp):
                     loss = execution(x, y)
@@ -79,13 +96,14 @@ def evaluate(
                 dist.all_reduce(totals)
         finally:
             model.train(was_training)
-    loss_sum, valid = totals.tolist()
+    loss_sum, valid, distance_sum = totals.tolist()
     if valid == 0:
         raise ValueError("validation has no targets")
     loss = loss_sum / valid
     return EvaluationResult(
         loss=loss,
         perplexity=math.exp(loss) if loss < 700 else None,
+        consensus_error=distance_sum / size if consensus_available else None,
         tokens=int(valid),
         seconds=time.perf_counter() - start,
         split="full" if full else "subset",
