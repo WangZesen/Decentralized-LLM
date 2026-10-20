@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from decentralized_llm.algorithms.schedules import learning_rate, warmup_updates
 from decentralized_llm.config import Config, load_config, save_config
-from decentralized_llm.optim import learning_rate, warmup_updates
 
 
 @pytest.mark.parametrize("name", ["cosine", "wsd"])

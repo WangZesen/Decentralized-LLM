@@ -10,9 +10,9 @@ import torch.distributed as dist
 from qualification_gates import GATE_PROTOCOL, GATE_REVISION
 from qualify_gh200 import qualify
 
+from decentralized_llm.backends.distributed.runtime import prepare_parameter_groups, rank, setup
 from decentralized_llm.config import load_config
-from decentralized_llm.distributed import prepare_parameter_groups, rank, setup
-from decentralized_llm.execution import optimizer_revision
+from decentralized_llm.execution.qualification import optimizer_revision
 from decentralized_llm.runtime import atomic_json
 
 
@@ -48,7 +48,7 @@ def main() -> None:
                             output = args.output / model / scheme / topology / str(feedback) / str(seed)
                             gc.collect()
                             torch.cuda.empty_cache()
-                            torch.manual_seed(seed + rank())
+                            torch.manual_seed(seed)
                             if optimizer_revision() != revision:
                                 raise RuntimeError("optimizer sources changed during qualification")
                             result = None

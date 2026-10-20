@@ -49,7 +49,7 @@ def effective_config(trial: Record, base: Config) -> Config:
 def resource_key(config: Config) -> str:
     launcher = config.launcher.model_dump(mode="json", exclude={"time"})
     return json.dumps(
-        {"launcher": launcher, "nodes": config.distributed.nodes, "gpus": config.distributed.gpus_per_node},
+        {"launcher": launcher, "nodes": config.physical_nodes, "gpus": config.processes_per_node},
         sort_keys=True,
     )
 

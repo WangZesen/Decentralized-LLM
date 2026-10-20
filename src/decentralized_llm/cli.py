@@ -121,15 +121,15 @@ def main() -> None:
         if args.profile:
             config.benchmark.profile = True
     if args.command == "prepare":
-        from decentralized_llm.cache import prepare
+        from decentralized_llm.data.cache import prepare
 
         result = prepare(config)
     elif args.command == "validate":
-        from decentralized_llm.preflight import validate
+        from decentralized_llm.launch.preflight import validate
 
         result = validate(config, args.resume)
     elif args.command in ("train", "evaluate", "submit", "benchmark-training"):
-        from decentralized_llm.launch import launch
+        from decentralized_llm.launch.commands import launch
 
         if args.command not in ("submit", "benchmark-training") and config.launcher.kind != "local":
             parser.error("use submit for a SLURM launcher")
@@ -143,10 +143,10 @@ def main() -> None:
             config, checkpoint, dry_run=args.dry_run, action=action, full=not getattr(args, "subset", False)
         )
     elif args.command == "worker":
-        from decentralized_llm.train import evaluate_checkpoint, train
+        from decentralized_llm.training.loop import evaluate_checkpoint, train
 
         if args.action == "benchmark-training":
-            from decentralized_llm.training_benchmark import benchmark_training
+            from decentralized_llm.benchmarks.training import benchmark_training
 
             result = benchmark_training(config)
         elif args.action == "evaluate":
@@ -156,7 +156,7 @@ def main() -> None:
         else:
             result = train(config, args.checkpoint)
     else:
-        from decentralized_llm.benchmark import benchmark_data
+        from decentralized_llm.benchmarks.data import benchmark_data
 
         result = benchmark_data(config, args.steps, args.warmup, args.cache_state, args.output)
     print(json.dumps(result, indent=2))

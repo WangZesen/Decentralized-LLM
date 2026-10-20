@@ -9,10 +9,12 @@ from unittest.mock import Mock
 import pytest
 import torch
 
-from decentralized_llm import distributed
+from decentralized_llm.backends.distributed import runtime as distributed
 from decentralized_llm.config import Config, load_config
-from decentralized_llm.execution import resolve_execution
-from decentralized_llm.launch import absolute_config, local_command, scheduler_arguments, slurm_scripts
+from decentralized_llm.execution.policy import resolve_execution
+from decentralized_llm.launch.commands import absolute_config
+from decentralized_llm.launch.local import local_command
+from decentralized_llm.launch.slurm import scheduler_arguments, slurm_scripts
 
 
 @pytest.mark.parametrize("nodes", [1, 2])
@@ -137,7 +139,7 @@ def test_compile_cache_configuration_after_optimizer_import(tmp_path: Path) -> N
 import sys, torch
 from pathlib import Path
 from decentralized_llm.config import Config
-from decentralized_llm.execution import configure_compile_cache
+from decentralized_llm.execution.compilation import configure_compile_cache
 torch.optim.AdamW([torch.nn.Parameter(torch.zeros(1))])
 from torch._functorch import config as autograd_config
 assert not autograd_config.autograd_cache_allow_custom_autograd_functions
@@ -165,7 +167,9 @@ def test_numa_binding_preserves_pci_domain(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0, 2, 3, 7, 8})
     setter = Mock()
     monkeypatch.setattr(os, "sched_setaffinity", setter)
-    distributed.bind_local_cpus(1)
+    from decentralized_llm.execution.device import bind_local_cpus
+
+    bind_local_cpus(1)
     assert "--id=3" in query.call_args.args[0]
     setter.assert_called_once_with(0, {2, 3, 8})
 

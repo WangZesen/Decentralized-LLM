@@ -12,7 +12,7 @@ import yaml
 from decentralized_llm import cli
 from decentralized_llm import config as config_module
 from decentralized_llm.config import Config, initialize_local_defaults, load_config, save_config
-from decentralized_llm.execution import resolve_execution
+from decentralized_llm.execution.policy import resolve_execution
 from decentralized_llm.tuning import local_runner
 from decentralized_llm.tuning.spec import read_spec
 
@@ -135,7 +135,7 @@ def test_cli_initialization_and_opt_out(
     def launched(config: Config, *_args: Any, **_kwargs: Any) -> dict:
         return config.model_dump(mode="json")
 
-    monkeypatch.setattr("decentralized_llm.launch.launch", launched)
+    monkeypatch.setattr("decentralized_llm.launch.commands.launch", launched)
     arguments = ["decentralized-llm", command]
     if command == "submit":
         arguments += ["--set", "launcher.kind=slurm", "--set", "launcher.partition=gpu"]
@@ -161,7 +161,7 @@ def test_cli_and_tuning_use_local_backend_without_overlay(
     base = tmp_path / "base.yaml"
     base.write_text("runtime: {compile: auto}\n")
     monkeypatch.setattr(
-        "decentralized_llm.launch.launch", lambda config, *args, **kwargs: config.model_dump(mode="json")
+        "decentralized_llm.launch.commands.launch", lambda config, *args, **kwargs: config.model_dump(mode="json")
     )
     monkeypatch.setattr(sys, "argv", ["decentralized-llm", "train", "-c", str(base), "--dry-run"])
     cli.main()
@@ -245,7 +245,7 @@ def test_cli_opt_out_ignores_invalid_existing_defaults(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = write_local("runtime: [broken")
-    monkeypatch.setattr("decentralized_llm.launch.launch", lambda config, *args, **kwargs: {})
+    monkeypatch.setattr("decentralized_llm.launch.commands.launch", lambda config, *args, **kwargs: {})
     monkeypatch.setattr(sys, "argv", ["decentralized-llm", "train", "--no-local-config"])
     cli.main()
     assert path.read_text() == "runtime: [broken"
@@ -261,7 +261,9 @@ def test_saved_worker_and_local_runner_ignore_corrupt_defaults(
     save_config(tiny_config, filename)
     path = write_local("runtime: [broken")
     original = path.read_bytes()
-    monkeypatch.setattr("decentralized_llm.train.train", lambda config, checkpoint: config.model_dump(mode="json"))
+    monkeypatch.setattr(
+        "decentralized_llm.training.loop.train", lambda config, checkpoint: config.model_dump(mode="json")
+    )
     monkeypatch.setattr(sys, "argv", ["decentralized-llm", "worker", "-c", str(filename)])
     cli.main()
     assert Config.model_validate(json.loads(capsys.readouterr().out)) == tiny_config

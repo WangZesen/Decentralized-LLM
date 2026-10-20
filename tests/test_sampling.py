@@ -5,11 +5,11 @@ import numpy as np
 import pytest
 from conftest import make_cache
 
-from decentralized_llm.cache import TokenCache
 from decentralized_llm.config import Config
-from decentralized_llm.loader import TokenLoader
-from decentralized_llm.preflight import validate
-from decentralized_llm.sampling import GlobalSampler, check_memory, sampling_plan
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.data.loader import TokenLoader
+from decentralized_llm.data.sampling import GlobalSampler, check_memory, sampling_plan
+from decentralized_llm.launch.preflight import validate
 
 
 def test_sampler_sequence(cache: TokenCache, tiny_config: Config) -> None:
@@ -119,7 +119,7 @@ def test_reuse_rejects_small_cache(tiny_config: Config, tmp_path: Path, monkeypa
     def fail_start(*_: object) -> None:
         pytest.fail("loader threads started before cache size validation")
 
-    monkeypatch.setattr("decentralized_llm.loader.threading.Thread.start", fail_start)
+    monkeypatch.setattr("decentralized_llm.data.loader.threading.Thread.start", fail_start)
     for action in (
         lambda: validate(tiny_config),
         lambda: GlobalSampler.from_config(cache, tiny_config),

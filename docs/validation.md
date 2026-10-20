@@ -1,5 +1,48 @@
 # Validation record
 
+## Packed backend and source reorganization (2026-10-20)
+
+The full CPU/Gloo suite passed **615 tests** (36 CUDA cases deselected), followed by
+a passing packed local-launch smoke test and packed benchmark check. These cover
+one-, two-, four-, and eight-worker initialization; real four-process Gloo initialization
+against packed and synchronous models with two seeds and eager/compiled execution;
+all three topologies with AWC/ATC and error feedback; global sampling and accumulation;
+checkpoint resume, legacy initialization labels, physical resource requests, and tuning
+resource grouping. Ruff lint/format, Pyright with warnings enabled, and wheel building
+passed. The wheel was inspected for the new data/backend packages and JSON metadata.
+
+Single-GPU GH200 jobs exercised the packed CUDA path. All **nine packed GPU tests passed**,
+including native-versus-captured optimizer trajectories, restored nonzero moments/history,
+rotation counters, unchanged RNG during capture, nonfinite-update rejection, and fused
+GH200/A100 kernel schedules. The production test uses the eight-layer 20M geometry with
+a reduced 128-token vocabulary and context length 16, two decentralized workers, ATC,
+error feedback, and accumulation. It runs Inductor plus full-update CUDA capture, saves
+and reloads a checkpoint, recaptures, requires identical continued parameters, and
+checks averaged validation counts. These are bounded correctness checks, not throughput
+or long-run convergence measurements. No A100 hardware was allocated.
+
+The expanded GPU run passed **14 tests** and failed one existing compiled-versus-eager
+BF16 comparison in `test_cuda_storage_conversion_and_fused_optimizer[True]`. A separate
+GH200 comparison using the unmodified Git HEAD model/storage implementation reproduced
+exactly the same failure as the reorganized implementation: maximum absolute difference
+`0.0008018906228244305` in `blocks.0.attention.k_proj.weight`. The test tolerance is
+unchanged. Exact initialization and exact same-path resume do not imply identical
+compiled/eager BF16 training trajectories.
+
+Local evidence is under `runs/packed-validation/`: job `4141549` passed the original nine
+packed CUDA checks; job `4141599` ran the extended resume and regression checks; job
+`4141624` compared the original and current implementations. All used one GPU and finished.
+The earlier environment-activation attempt `4141511` failed before testing; subsequent
+jobs used the existing `.venv-aarch64` interpreter directly. Reproduce on a suitable GPU:
+
+```bash
+python -m pytest -q tests/test_packed_cuda.py -m cuda
+python -m pytest -q tests/test_execution.py tests/test_parameter_storage.py -m cuda
+CUDA_VISIBLE_DEVICES='' python -m pytest -q -m 'not cuda'
+```
+
+## Earlier validation records
+
 The earlier GH200 cleanup passed 135 CPU/Gloo tests, Ruff lint/format, Pyright, and
 shell syntax checks. Both hardware presets pass training, benchmark, and tuning dry
 runs. For the allocated multi-GPU measurements and numerical limitations, see the

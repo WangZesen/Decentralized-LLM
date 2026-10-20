@@ -6,19 +6,16 @@ from typing import Any
 import pytest
 import torch
 
-from decentralized_llm.cache import TokenCache
-from decentralized_llm.checkpoints import load_checkpoint, validate_checkpoint
+from decentralized_llm.benchmarks.training import benchmark_training
 from decentralized_llm.config import PRESETS, Config, ModelConfig
-from decentralized_llm.execution import (
-    LossModule,
-    build_execution,
-    configure_compile_cache,
-    qualification_key,
-    resolve_execution,
-)
-from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.train import train
-from decentralized_llm.training_benchmark import benchmark_training
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.execution.compilation import configure_compile_cache
+from decentralized_llm.execution.native import LossModule, build_execution
+from decentralized_llm.execution.policy import resolve_execution
+from decentralized_llm.execution.qualification import qualification_key
+from decentralized_llm.models.llama import Llama, token_losses
+from decentralized_llm.training.checkpoints import load_checkpoint, validate_checkpoint
+from decentralized_llm.training.loop import train
 
 
 def test_native_execution_and_canonical_state(tiny_config: Config) -> None:
@@ -105,9 +102,9 @@ def test_automatic_selection_requires_matching_evidence(monkeypatch: pytest.Monk
     config.distributed.gpus_per_node = 4
     monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
-    monkeypatch.setattr("decentralized_llm.execution.kernel_revision", lambda: "kernel-v1")
-    monkeypatch.setattr("decentralized_llm.execution.compile_revision", lambda: "compiler-v1")
-    monkeypatch.setattr("decentralized_llm.execution.qualification_environment", lambda: {"triton": "measured"})
+    monkeypatch.setattr("decentralized_llm.execution.policy.kernel_revision", lambda: "kernel-v1")
+    monkeypatch.setattr("decentralized_llm.execution.policy.compile_revision", lambda: "compiler-v1")
+    monkeypatch.setattr("decentralized_llm.execution.policy.qualification_environment", lambda: {"triton": "measured"})
     entry = {
         "key": qualification_key(config),
         "torch": torch.__version__,
@@ -154,7 +151,7 @@ def test_automatic_selection_requires_matching_evidence(monkeypatch: pytest.Monk
 
 def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pytest.MonkeyPatch) -> None:
     from decentralized_llm.config import load_config
-    from decentralized_llm.execution import compile_revision, kernel_revision
+    from decentralized_llm.execution.qualification import compile_revision, kernel_revision
 
     root = Path(__file__).resolve().parents[1]
     # Reconstruct the historical profile independently of current training presets.
@@ -168,7 +165,7 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
             "runtime.decentralized_optimizer=reference",
         ],
     )
-    registry = json.loads((root / "src/decentralized_llm/qualification.json").read_text())
+    registry = json.loads((root / "src/decentralized_llm/execution/qualification.json").read_text())
     assert len(registry["profiles"]) == 1
     entry = registry["profiles"][0]
     # The historical profile remains frozen as model dispatch evolves.
@@ -177,26 +174,28 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     assert entry["compile_revision"] != compile_revision()
     current_key = qualification_key(config)
     assert current_key["execution_options"].pop("decentralized_optimizer") == "reference"
+    assert current_key.pop("training_backend") == "distributed"
     assert entry["key"] == current_key
     monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
     monkeypatch.setattr(torch, "__version__", entry["torch"])
     monkeypatch.setattr(torch.version, "cuda", entry["cuda"])
-    monkeypatch.setattr("decentralized_llm.execution.qualification_environment", lambda: entry["environment"])
+    monkeypatch.setattr("decentralized_llm.execution.policy.qualification_environment", lambda: entry["environment"])
     device = torch.device("cuda", 0)
     policy = resolve_execution(config, device)
     assert policy["backend"] == "native" and policy["compile"] is False
     # Reconstruct the historical revision to verify its original workload bounds.
-    monkeypatch.setattr("decentralized_llm.execution.compile_revision", lambda: entry["compile_revision"])
-    monkeypatch.setattr("decentralized_llm.execution.kernel_revision", lambda: entry["kernel_revision"])
+    monkeypatch.setattr("decentralized_llm.execution.policy.compile_revision", lambda: entry["compile_revision"])
+    monkeypatch.setattr("decentralized_llm.execution.policy.kernel_revision", lambda: entry["kernel_revision"])
     policy = resolve_execution(config, device)
     assert policy["backend"] == "gh200" and policy["compile"] is True
     monkeypatch.setattr(
-        "decentralized_llm.execution.qualification_environment", lambda: {**entry["environment"], "allowed_cpus": 288}
+        "decentralized_llm.execution.policy.qualification_environment",
+        lambda: {**entry["environment"], "allowed_cpus": 288},
     )
     policy = resolve_execution(config, device)
     assert policy["backend"] == "native" and policy["compile"] is False
-    monkeypatch.setattr("decentralized_llm.execution.qualification_environment", lambda: entry["environment"])
+    monkeypatch.setattr("decentralized_llm.execution.policy.qualification_environment", lambda: entry["environment"])
     for section, field, value in [
         ("distributed", "nodes", 2),
         ("distributed", "mode", "ddp"),
@@ -270,7 +269,7 @@ def test_compile_cache_shared_across_trials(
     tiny_config.runtime.output_dir = tmp_path / "other-trial"
     second = configure_compile_cache(tiny_config, torch.device("cpu"))
     assert first == second
-    monkeypatch.setattr("decentralized_llm.execution.compile_revision", lambda: "changed-code")
+    monkeypatch.setattr("decentralized_llm.execution.compilation.compile_revision", lambda: "changed-code")
     assert configure_compile_cache(tiny_config, torch.device("cpu"))["directory"] != first["directory"]
 
 
@@ -330,7 +329,7 @@ def test_a100_fused_policy_is_explicit(preset: str, monkeypatch: pytest.MonkeyPa
 @pytest.mark.cuda
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 def test_a100_norm_schedule_preserves_gradients() -> None:
-    from decentralized_llm.gh200.gh200_pipeline import selected_norm
+    from decentralized_llm.execution.cuda.pipeline import selected_norm
 
     torch.manual_seed(42)
     branch = torch.randn(32768, 640, device="cuda", dtype=torch.bfloat16, requires_grad=True)

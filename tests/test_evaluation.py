@@ -5,13 +5,13 @@ import pytest
 import torch
 from torch import nn
 
-from decentralized_llm.cache import TokenCache
+from decentralized_llm.algorithms.adamw import make_optimizer
 from decentralized_llm.config import Config
-from decentralized_llm.evaluation import evaluate, parameter_distance
-from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.optim import make_optimizer
-from decentralized_llm.parameter_storage import prepare_parameter_storage
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.models.llama import Llama, token_losses
+from decentralized_llm.models.storage import prepare_parameter_storage
 from decentralized_llm.runtime import rng_state
+from decentralized_llm.training.evaluation import evaluate, parameter_distance
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float64])

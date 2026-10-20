@@ -1,7 +1,7 @@
 # decentralized-llm
 
-Reproducible Llama pretraining with one process per GPU, DDP or decentralized AdamW,
-and one immutable uint16 token cache on shared storage. Python **3.14** and dependencies
+Reproducible Llama pretraining with DDP or decentralized AdamW, using real distributed
+workers or packed workers on one GPU, and one immutable uint16 token cache on shared storage. Python **3.14** and dependencies
 are pinned in `uv.lock`.
 
 The portable model, optimizer grouping, learning-rate schedules, virtual-epoch rounding,
@@ -10,6 +10,7 @@ and C4 preparation conventions come from
 The distributed runtime, checkpoint format, global sampler, and network reader are new.
 The optional GH200 execution path also adapts upstream fused normalization, SwiGLU,
 RoPE, and cross-entropy kernels, preserving canonical parameters and distributed AdamW.
+Packed execution adapts upstream batched models, parameter/moment arenas, and complete-update CUDA graphs.
 Adaptive consensus, old training-checkpoint imports, and WSD branching workflows are
 outside this implementation.
 
@@ -169,6 +170,61 @@ Set the lowercase `account` environment variable and the site's GPU partition be
 submission. Changing the local backend does not change GPU counts, batching, search
 grids, or scheduler settings. Hardware and workload compatibility checks still apply.
 
+## Simulating multiple workers on one GPU
+
+Set `runtime.training_backend=packed` or layer `configs/setups/packed.yaml` after
+an existing recipe. `distributed.nodes * distributed.gpus_per_node` remains the
+**logical world size**, controlling data partitioning and decentralized topology.
+Local and Slurm launches use **one process on one node with one GPU**. Packed runs
+create no process group and require no NCCL communication.
+
+```bash
+# Eight logical decentralized workers on one GH200 GPU.
+uv run decentralized-llm submit -c configs/base.yaml -c configs/models/20m.yaml \
+  -c configs/setups/gh200-1gpu.yaml -c configs/setups/packed.yaml \
+  --set distributed.nodes=2 --set distributed.gpus_per_node=4 \
+  --set distributed.mode=decentralized --set distributed.topology=one_peer_exponential \
+  --set data.cache_dir=/shared/tokens/c4 --set runtime.output_dir=runs/packed-8 \
+  --set launcher.time=01:00:00 --dry-run
+```
+
+Inspect the dry run, then remove `--dry-run` to submit. The ordinary hardware presets
+still choose the execution kernels; the packed overlay chooses training placement.
+For a local GPU, use `train` with `launcher.kind=local`. Native eager/compiled execution
+works through `runtime.execution_backend=native`; the GH200 and A100 presets enable
+their fused paths on the corresponding hardware. Automatic selection still requires
+matching qualification evidence and otherwise uses native execution.
+
+`distributed.mode=decentralized` keeps separate parameters and AdamW moments for every
+logical worker. Complete, reciprocal ring, and reciprocal exponential topologies,
+AWC/ATC ordering, local gradient clipping, accumulation, and error feedback retain their
+ordinary semantics. Batched operations process worker-specific samples in parallel.
+`distributed.mode=ddp` simulates synchronous training with one shared model and optimizer,
+processing the entire global batch. In both cases the sampler visits exactly the same
+global positions as a real distributed run.
+
+`training.batch_tokens` and the token budget remain global. The configured microbatch
+size is per logical worker; packed staging holds `world_size * micro_batch_size` sequences.
+Decentralized parameter and optimizer memory scale with the logical world size, so a
+large simulated run must still fit on one GPU. Host loader estimates include the larger
+staging buffers while sharing the resident token cache and sampler permutation.
+
+With fused GH200/A100 execution and `runtime.fused_optimizer=true`, packed mode captures
+the complete accumulated forward/backward, clipping, AdamW, and mixing update in a CUDA
+graph. Warmup and capture restore parameters, moments, feedback history, counters, and
+RNG before training begins. `runtime.decentralized_optimizer=reference` disables this
+captured optimizer path. A nonfinite update prevents every worker from committing and
+raises before the sampler cursor advances. `compile_scope=blocks` is unsupported for
+packed execution; use the default `model` scope.
+
+Packed checkpoints store all worker state in `packed.pt` and publish `manifest.json`
+last. Resume requires the same training backend and logical world size; conversion
+between packed and distributed checkpoints is unsupported. Validation evaluates the
+averaged decentralized model without modifying local workers. Packed training metrics
+are in `metrics-rank-00000.jsonl`, with `local_losses` and `local_gradient_norms` arrays
+in logical-rank order (one entry for the shared synchronous model). Preflight, run metadata,
+and benchmarks report both logical world size and physical resource counts.
+
 ## Optional A100 and GH200 setup presets
 
 After preparing the shared token cache, choose one hardware preset. Each is layered
@@ -254,7 +310,7 @@ requires supported model geometry on GH200, BF16, SDPA, and nondeterministic exe
 Compiled processes share `.cache/compile` by default. Set `runtime.compile_cache_dir`
 to one persistent shared directory when tuning from different checkouts. Namespaces
 include architecture, Python/PyTorch/CUDA/Triton versions, GPU capability, and executable
-model/compiler code. Seeds, optimizer hyperparameters, and output directories do not
+model/compiler code, training backend, and logical world size. Seeds, optimizer hyperparameters, and output directories do not
 create separate namespaces; different tensor shapes or compiler guards can still
 require compilation. Keep the cache between trials. Hits reduce compilation work,
 while Python imports, NCCL setup, and input loading still take time.
@@ -652,9 +708,9 @@ batches, and restart on resume. Compilation can affect the first interval; later
 reflect recent training speed rather than a cumulative average. Benchmark throughput
 retains its separate warmup and measurement windows.
 
-All training modes use one contiguous parameter allocation with 256-byte-aligned
+Real distributed training uses one contiguous parameter allocation with 256-byte-aligned
 parameter starts. Existing parameter objects, tied weights, optimizer groups, and
-checkpoint tensor names/shapes are preserved. Storage is prepared after device/dtype
+checkpoint tensor names/shapes are preserved. Packed workers use aligned rows in a shared arena. Storage is prepared after device/dtype
 placement and before optimizer or execution setup; evaluation copies are prepared
 independently. Decentralized mixing copies between this live allocation and a separate
 snapshot in bulk. `distributed.reuse_mix_buffers` controls snapshot allocation reuse,
@@ -687,9 +743,17 @@ for intermediate backwards, clips synchronized gradients, then steps AdamW. Load
 truncated ranges may still produce smaller or empty final rank micro-batches; empty
 ones perform a zero-loss backward so every rank participates.
 
-Decentralized workers initialize independently and retain independent AdamW moments.
-Each normalizes its local loss, clips local gradients, and communicates parameters once
-per optimizer update. AWC starts an asynchronous exchange of a parameter snapshot before
+All new runs construct one canonical CPU FP32 initialization from `runtime.seed`.
+Every decentralized worker starts with an exact copy, and synchronous training with the
+same model and seed starts with exactly the same parameter values. This holds across
+packed/distributed placement, world sizes, and native/fused/compiled execution. Rank
+numbers never offset the model seed. Workers retain independent parameter storage and
+AdamW moments. The initialization contract is recorded as `shared_seed_v1` in run and
+checkpoint metadata and participates in tuning identities. Existing checkpoints restore
+their saved parameters without reinitialization and retain a legacy initialization label.
+
+In real decentralized training, each worker normalizes its local loss, clips local gradients,
+and communicates parameters once per optimizer update. AWC starts an asynchronous exchange of a parameter snapshot before
 forward, overlapping communication with forward and all accumulated backwards. It waits
 after local gradient clipping and uses the mixed weights as the AdamW base; the live
 weights used by autograd stay unchanged until backward finishes. The fused optimizer reads
@@ -836,7 +900,7 @@ uv run decentralized-llm submit -c runs/slurm-ddp/config.yaml \
   --action evaluate --resume runs/slurm-ddp/final
 ```
 
-Resume requires the same world size, training recipe, cache, and sampler version/NumPy
+Resume requires the same training backend, world size, training recipe, cache, and sampler version/NumPy
 version. Output paths, loader mode, reader threads, prefetch depth, host budget, and homogeneous physical
 node placement may change. Only **optimizer-committed global sample positions** are saved;
 prefetched or transferred unused samples are discarded and deterministically regenerated.
@@ -1001,3 +1065,25 @@ CUDA_VISIBLE_DEVICES='' uv run decentralized-llm benchmark-data -c configs/setup
 The fixture is explicitly labeled synthetic and must not be used to claim language-model
 quality. See [validation evidence](docs/validation.md) for what was actually tested and
 which hardware checks still require an allocated GPU job.
+
+## Source layout
+
+Python imports use responsibility-based packages under `src/decentralized_llm`:
+
+| Package | Responsibility |
+| --- | --- |
+| `models` | Canonical Llama initialization, model representations, parameter storage |
+| `algorithms` | AdamW, error feedback, schedules, topology rules |
+| `backends` | Training/runtime contracts, factory, distributed and packed implementations |
+| `execution` | Hardware policy, compilation, qualification, native and CUDA kernels |
+| `data` | Token cache, global sampling, host/device loading |
+| `training` | Shared lifecycle, evaluation, checkpoint validation and publication |
+| `launch` | Preflight, local processes, Slurm allocations and scripts |
+| `benchmarks` | Data-path and complete-training benchmarks |
+| `tuning` | Trial planning, allocation grouping, execution, and results |
+
+`config.py`, `runtime.py`, and `state.py` hold common configuration, utilities, and types.
+The CLI is unchanged. Python callers must migrate the former flat imports; for example,
+`decentralized_llm.train` becomes `decentralized_llm.training.loop`, `model` becomes
+`models.llama`, `loader` becomes `data.loader`, and `launch` helpers move to `launch.local`
+or `launch.slurm`. There are no forwarding modules. CUDA kernels load only when selected.

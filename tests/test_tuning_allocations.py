@@ -13,8 +13,8 @@ import pytest
 
 from decentralized_llm.config import Config, SlurmLauncher
 from decentralized_llm.runtime import atomic_json
-from decentralized_llm.tuning import allocations, backends
-from decentralized_llm.tuning.backends import Backend
+from decentralized_llm.tuning import allocations
+from decentralized_llm.tuning import jobs as backends
 from decentralized_llm.tuning.batching import (
     allocation_failures,
     balanced_sizes,
@@ -25,6 +25,7 @@ from decentralized_llm.tuning.batching import (
     training_attempts,
     trial_minutes,
 )
+from decentralized_llm.tuning.jobs import Backend
 from decentralized_llm.tuning.spec import Controller, Record
 
 

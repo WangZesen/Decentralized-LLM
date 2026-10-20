@@ -8,16 +8,17 @@ from unittest.mock import Mock
 import pytest
 import torch
 
-from decentralized_llm import train as training
-from decentralized_llm.cache import TokenCache
+from decentralized_llm.backends.distributed import update as updates
 from decentralized_llm.config import Config, load_config
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.training import loop as training
 
 
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     clock = SimpleNamespace(now=0.0, updates=0)
     monkeypatch.setattr(training, "time", SimpleNamespace(perf_counter=lambda: clock.now, time_ns=time.time_ns))
-    update = training.optimizer_update
+    update = updates.optimizer_update
 
     def timed_update(*args: Any, **kwargs: Any) -> dict[str, float]:
         result = update(*args, **kwargs)
@@ -25,7 +26,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         clock.updates += 1
         return result
 
-    monkeypatch.setattr(training, "optimizer_update", timed_update)
+    monkeypatch.setattr(updates, "optimizer_update", timed_update)
     for name in ("evaluate", "save_checkpoint", "append_metric"):
         original = getattr(training, name)
 
@@ -112,7 +113,7 @@ def test_short_run_logs_once_and_keeps_failure_diagnostics(
     training.train(tiny_config)
     assert [row["step"] for row in records(tiny_config.runtime.output_dir)] == [7]
     tiny_config.runtime.output_dir = tmp_path / "failed"
-    monkeypatch.setattr(training, "optimizer_update", Mock(side_effect=RuntimeError("injected failure")))
+    monkeypatch.setattr(updates, "optimizer_update", Mock(side_effect=RuntimeError("injected failure")))
     with pytest.raises(RuntimeError, match="injected failure"):
         training.train(tiny_config)
     assert (tiny_config.runtime.output_dir / "loader-rank-00000.json").is_file()
@@ -130,8 +131,8 @@ def test_throughput_uses_slowest_rank_and_completed_cuda_work(monkeypatch: pytes
         assert float(elapsed) == 2
         elapsed.fill_(5)
 
-    monkeypatch.setattr(training.dist, "is_initialized", lambda: True)
-    monkeypatch.setattr(training.dist, "all_reduce", slowest)
+    monkeypatch.setattr(torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(torch.distributed, "all_reduce", slowest)
     assert window.measure(20, 4) == 8
     assert window.seconds == 0 and window.started is None
 

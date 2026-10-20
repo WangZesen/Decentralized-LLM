@@ -9,10 +9,10 @@ import pytest
 import torch
 from conftest import make_cache
 
-from decentralized_llm.cache import TokenCache
 from decentralized_llm.config import Config
-from decentralized_llm.loader import DevicePrefetcher, PositionalReader, ReadCancelled, Segment, TokenLoader
-from decentralized_llm.sampling import GlobalSampler, check_memory
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.data.loader import DevicePrefetcher, PositionalReader, ReadCancelled, Segment, TokenLoader
+from decentralized_llm.data.sampling import GlobalSampler, check_memory
 
 
 def collect(

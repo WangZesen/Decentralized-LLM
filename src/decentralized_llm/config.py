@@ -169,6 +169,7 @@ class EvaluationConfig(StrictModel):
 
 
 class RuntimeConfig(StrictModel):
+    training_backend: Literal["distributed", "packed"] = "distributed"
     seed: int = Field(default=42, ge=0, lt=2**32)
     deterministic: bool = False
     device: Literal["cpu", "cuda"] = "cuda"
@@ -264,6 +265,27 @@ class Config(StrictModel):
     )
 
     @property
+    def physical_nodes(self) -> int:
+        return 1 if self.runtime.training_backend == "packed" else self.distributed.nodes
+
+    @property
+    def processes_per_node(self) -> int:
+        return 1 if self.runtime.training_backend == "packed" else self.distributed.gpus_per_node
+
+    @property
+    def physical_world_size(self) -> int:
+        return self.physical_nodes * self.processes_per_node
+
+    @property
+    def physical_gpu_count(self) -> int:
+        return self.physical_world_size if self.runtime.device == "cuda" else 0
+
+    @property
+    def process_micro_batch_size(self) -> int:
+        multiplier = self.distributed.world_size if self.runtime.training_backend == "packed" else 1
+        return self.micro_batch_size * multiplier
+
+    @property
     def micro_batch_size(self) -> int:
         """Sequences per rank and backward, derived from the current global recipe."""
         divisor = self.model.context_length * self.distributed.world_size * self.training.num_accumulation
@@ -280,10 +302,16 @@ class Config(StrictModel):
 
     @model_validator(mode="after")
     def compatible(self) -> Self:
-        if self.launcher.kind == "local" and self.distributed.nodes != 1:
+        if self.launcher.kind == "local" and self.physical_nodes != 1:
             raise ValueError("local launch supports exactly one node")
+        if self.runtime.training_backend == "packed" and self.runtime.compile_scope == "blocks":
+            raise ValueError("packed execution supports compile_scope=model only")
         _ = self.micro_batch_size
-        if self.runtime.device == "cpu" and self.distributed.backend != "gloo":
+        if (
+            self.runtime.training_backend == "distributed"
+            and self.runtime.device == "cpu"
+            and self.distributed.backend != "gloo"
+        ):
             raise ValueError("CPU runs require the gloo communication backend")
         if self.runtime.device == "cpu" and self.runtime.cpu_affinity == "exclusive":
             raise ValueError("exclusive CPU affinity requires GPU placement through torchrun")

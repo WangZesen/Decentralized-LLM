@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from decentralized_llm.config import SlurmLauncher, load_config
-from decentralized_llm.launch import scheduler_arguments, slurm_scripts
+from decentralized_llm.launch.slurm import scheduler_arguments, slurm_scripts
 from decentralized_llm.tuning.spec import read_spec
 
 HARDWARE = [

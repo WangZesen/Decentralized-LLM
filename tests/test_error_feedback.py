@@ -6,13 +6,14 @@ import pytest
 import torch
 from torch import nn
 
-from decentralized_llm.cache import TokenCache
-from decentralized_llm.checkpoints import recipe_identity
+from decentralized_llm.algorithms.adamw import ErrorFeedbackAdamW, make_optimizer
 from decentralized_llm.config import Config, load_config, save_config
-from decentralized_llm.execution import qualification_key
-from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.optim import ErrorFeedbackAdamW, FusedDecentralizedAdamW, make_optimizer
-from decentralized_llm.parameter_storage import parameter_storage
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.execution.cuda.adamw import FusedDecentralizedAdamW
+from decentralized_llm.execution.qualification import qualification_key
+from decentralized_llm.models.llama import Llama, token_losses
+from decentralized_llm.models.storage import parameter_storage
+from decentralized_llm.training.checkpoints import recipe_identity
 
 
 def test_configuration_and_identity(tiny_config: Config, cache: TokenCache) -> None:

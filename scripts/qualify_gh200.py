@@ -13,16 +13,18 @@ import torch.distributed as dist
 from qualification_gates import assess_numerical
 from torch import Tensor
 
-from decentralized_llm.cache import TokenCache
+from decentralized_llm.algorithms.adamw import make_optimizer, optimizer_report
+from decentralized_llm.backends.distributed.engine import build_distributed_execution
+from decentralized_llm.backends.distributed.runtime import rank, setup, world_size
+from decentralized_llm.backends.distributed.update import optimizer_update
 from decentralized_llm.config import Config, load_config
-from decentralized_llm.distributed import rank, setup, world_size
-from decentralized_llm.evaluation import evaluate
-from decentralized_llm.execution import build_execution, compiler_counters, optimizer_revision
-from decentralized_llm.loader import DevicePrefetcher, LoadedBatch, TokenLoader
-from decentralized_llm.model import Llama
-from decentralized_llm.optim import make_optimizer, optimizer_report
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.data.loader import DevicePrefetcher, LoadedBatch, TokenLoader
+from decentralized_llm.execution.compilation import compiler_counters
+from decentralized_llm.execution.qualification import optimizer_revision
+from decentralized_llm.models.initialization import initialize_model
 from decentralized_llm.runtime import atomic_json, environment
-from decentralized_llm.train import optimizer_update
+from decentralized_llm.training.evaluation import evaluate
 
 
 class Replay:
@@ -77,10 +79,10 @@ def qualify(
         else:
             native_cfg.runtime.execution_backend, native_cfg.runtime.compile = "native", reference_compile
             native_cfg.runtime.fused_rope = False
-        native = Llama(config.model).to(device)
+        native = initialize_model(config).to(device)
         fast = copy.deepcopy(native)
-        native_execution = build_execution(native, native_cfg, device)
-        fast_execution = build_execution(fast, config, device)
+        native_execution = build_distributed_execution(native, native_cfg, device)
+        fast_execution = build_distributed_execution(fast, config, device)
         if optimizer_only and (
             {key: value for key, value in native_execution.policy.items() if key != "reason"}
             != {key: value for key, value in fast_execution.policy.items() if key != "reason"}

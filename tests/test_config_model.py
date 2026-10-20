@@ -4,10 +4,11 @@ import pytest
 import torch
 from pydantic import ValidationError
 
-from decentralized_llm.cache import training_boundaries
+from decentralized_llm.algorithms.adamw import make_optimizer
+from decentralized_llm.algorithms.schedules import learning_rate
 from decentralized_llm.config import PRESETS, Config, ModelConfig, load_config, save_config
-from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.optim import learning_rate, make_optimizer
+from decentralized_llm.data.cache import training_boundaries
+from decentralized_llm.models.llama import Llama, token_losses
 
 
 def test_config_layers(tmp_path: Path) -> None:

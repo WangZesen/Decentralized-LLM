@@ -58,7 +58,9 @@ def estimate(
     compatible_history = any(trial.get("provenance") == provenance for trial in trials.values())
     varying_resources = False
     for phase in spec.phases:
-        varying_resources |= bool({"distributed.nodes", "distributed.gpus_per_node"} & phase.search.keys())
+        varying_resources |= bool(
+            {"distributed.nodes", "distributed.gpus_per_node", "runtime.training_backend"} & phase.search.keys()
+        )
         searches = {key: search_points(base, key, search) for key, search in phase.search.items()}
         initial = {key: field_value(base, key, value) for key, value in phase.initial_values.items()}
         revisited = bool(previous_fields & phase.search.keys())
@@ -196,8 +198,8 @@ def allocation_estimate(row: Record, spec: TuningSpec, base: Config) -> None:
                 {
                     "trial_ids": [trial["id"] for trial in group],
                     "jobs": len(group),
-                    "nodes": config.distributed.nodes,
-                    "gpus_per_node": config.distributed.gpus_per_node,
+                    "nodes": config.physical_nodes,
+                    "gpus_per_node": config.processes_per_node,
                     "time_minutes": duration,
                     "time": format_time(duration),
                 }

@@ -5,8 +5,8 @@ import pytest
 import torch
 
 from decentralized_llm import config as config_module
-from decentralized_llm.cache import TokenCache, TokenWriter, fingerprint
 from decentralized_llm.config import Config
+from decentralized_llm.data.cache import TokenCache, TokenWriter, fingerprint
 from decentralized_llm.runtime import atomic_json
 from decentralized_llm.state import CacheContent, CacheManifest
 

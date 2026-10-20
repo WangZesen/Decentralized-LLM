@@ -10,11 +10,11 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 
+from decentralized_llm.backends.distributed.runtime import prepare_parameter_groups, rank, setup
+from decentralized_llm.benchmarks.training import benchmark_training
 from decentralized_llm.config import Config, load_config
-from decentralized_llm.distributed import prepare_parameter_groups, rank, setup
-from decentralized_llm.execution import optimizer_revision
+from decentralized_llm.execution.qualification import optimizer_revision
 from decentralized_llm.runtime import atomic_json, environment
-from decentralized_llm.training_benchmark import benchmark_training
 
 
 def summarize(rows: list[dict]) -> dict:
@@ -131,7 +131,7 @@ def main() -> None:
                                 current.runtime.output_dir = directory
                                 gc.collect()
                                 torch.cuda.empty_cache()
-                                torch.manual_seed(current.runtime.seed + rank())
+                                torch.manual_seed(current.runtime.seed)
                                 if optimizer_revision() != source_revision:
                                     raise RuntimeError("optimizer sources changed during the matrix; discard this run")
                                 result = (

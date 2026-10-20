@@ -6,17 +6,17 @@ import pytest
 import torch
 from conftest import make_cache
 
-from decentralized_llm import train as training
-from decentralized_llm.cache import TokenCache
-from decentralized_llm.checkpoints import validate_checkpoint
+from decentralized_llm.algorithms.adamw import ErrorFeedbackAdamW, make_optimizer
+from decentralized_llm.backends.distributed import update as updates
+from decentralized_llm.backends.distributed.runtime import PendingParameterMix
 from decentralized_llm.config import Config
-from decentralized_llm.distributed import PendingParameterMix
-from decentralized_llm.model import Llama
-from decentralized_llm.optim import ErrorFeedbackAdamW, make_optimizer
-from decentralized_llm.parameter_storage import parameter_storage
-from decentralized_llm.sampling import BatchSpec
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.data.sampling import BatchSpec
+from decentralized_llm.models.llama import Llama
+from decentralized_llm.models.storage import parameter_storage
 from decentralized_llm.state import Batch
-from decentralized_llm.train import train
+from decentralized_llm.training.checkpoints import validate_checkpoint
+from decentralized_llm.training.loop import train
 
 
 @pytest.mark.parametrize("feedback", [False, True])
@@ -32,7 +32,7 @@ def test_awc_failed_update_drains_without_applying(
     storage = parameter_storage(model)
     pending = PendingParameterMix(storage, torch.zeros_like(storage.flat), [work], 2)
     launch = Mock(return_value=pending)
-    monkeypatch.setattr(training, "begin_parameter_mix", launch)
+    monkeypatch.setattr(updates, "begin_parameter_mix", launch)
 
     def fail() -> tuple[Batch, BatchSpec]:
         launch.assert_called_once()
@@ -40,7 +40,7 @@ def test_awc_failed_update_drains_without_applying(
         raise OSError("injected loader failure")
 
     with pytest.raises(OSError, match="injected loader failure"):
-        training.optimizer_update(
+        updates.optimizer_update(
             model, model, optimizer, tiny_config, torch.device("cpu"), fail, lambda: None, 0, 6, 0, 42
         )
     work.wait.assert_called_once()

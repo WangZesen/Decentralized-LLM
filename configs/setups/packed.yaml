@@ -1,0 +1,4 @@
+# Keep distributed.nodes * distributed.gpus_per_node as the logical worker count.
+# Local and Slurm launches use one process and one GPU.
+runtime:
+  training_backend: packed

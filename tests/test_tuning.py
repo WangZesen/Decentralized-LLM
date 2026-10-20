@@ -13,15 +13,16 @@ import yaml
 
 from decentralized_llm import cli
 from decentralized_llm import config as config_module
-from decentralized_llm.cache import TokenCache, training_boundaries
 from decentralized_llm.config import Config, load_config, save_config
-from decentralized_llm.launch import SubmissionRejected
+from decentralized_llm.data.cache import TokenCache, training_boundaries
+from decentralized_llm.launch.slurm import SubmissionRejected
 from decentralized_llm.runtime import atomic_json, environment
-from decentralized_llm.tuning import backends, controller, report
-from decentralized_llm.tuning.backends import Backend, scheduler_status
+from decentralized_llm.tuning import controller, report
+from decentralized_llm.tuning import jobs as backends
 from decentralized_llm.tuning.batching import allocation_failures, training_attempts
 from decentralized_llm.tuning.controller import execute, load_state, reconcile, study_lock
 from decentralized_llm.tuning.estimate import estimate, ranking
+from decentralized_llm.tuning.jobs import Backend, scheduler_status
 from decentralized_llm.tuning.spec import (
     Interval,
     Phase,

@@ -12,9 +12,10 @@ from typing import Annotated, Any, Literal, Self
 import yaml
 from pydantic import Field, TypeAdapter, model_validator
 
-from decentralized_llm.cache import fingerprint
 from decentralized_llm.config import Config, CosineScheduleConfig, StrictModel, WSDScheduleConfig, load_config
-from decentralized_llm.launch import absolute_config
+from decentralized_llm.data.cache import fingerprint
+from decentralized_llm.launch.commands import absolute_config
+from decentralized_llm.models.initialization import INITIALIZATION
 
 type Record = dict[str, Any]
 type Scalar = str | int | float | bool | None
@@ -268,6 +269,7 @@ def read_spec(
 
 def numeric_recipe(config: Config) -> Record:
     raw = config.model_dump(mode="json")
+    raw["initialization"] = INITIALIZATION
     raw.pop("launcher")
     raw["runtime"].pop("output_dir")
     raw["runtime"].pop("seed")

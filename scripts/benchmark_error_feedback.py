@@ -7,11 +7,11 @@ from pathlib import Path
 
 import torch
 
+from decentralized_llm.algorithms.adamw import make_optimizer, optimizer_report
 from decentralized_llm.config import Config, load_config
-from decentralized_llm.execution import optimizer_revision
-from decentralized_llm.model import Llama
-from decentralized_llm.optim import make_optimizer, optimizer_report
-from decentralized_llm.parameter_storage import parameter_storage
+from decentralized_llm.execution.qualification import optimizer_revision
+from decentralized_llm.models.llama import Llama
+from decentralized_llm.models.storage import parameter_storage
 from decentralized_llm.runtime import atomic_json, environment
 
 

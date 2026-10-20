@@ -5,14 +5,14 @@ import torch
 import yaml
 from pydantic import ValidationError
 
-from decentralized_llm.cache import TokenCache
-from decentralized_llm.checkpoints import recipe_identity
 from decentralized_llm.config import Config, load_config, save_config
-from decentralized_llm.execution import build_execution
-from decentralized_llm.loader import DevicePrefetcher, TokenLoader
-from decentralized_llm.model import Llama
-from decentralized_llm.preflight import validate
-from decentralized_llm.sampling import GlobalSampler, memory_estimate
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.data.loader import DevicePrefetcher, TokenLoader
+from decentralized_llm.data.sampling import GlobalSampler, memory_estimate
+from decentralized_llm.execution.native import build_execution
+from decentralized_llm.launch.preflight import validate
+from decentralized_llm.models.llama import Llama
+from decentralized_llm.training.checkpoints import recipe_identity
 
 
 @pytest.mark.parametrize("workers,batch", [(1, 32), (4, 8), (8, 4)])
@@ -163,4 +163,5 @@ def test_historical_batching_recipe_identity(cache: TokenCache, workers: int, ac
             "runtime.fused_rope=false",
         ]
     )
-    assert recipe_identity(config, cache) == identity
+    assert recipe_identity(config, cache, initialization=None) == identity
+    assert recipe_identity(config, cache) != identity

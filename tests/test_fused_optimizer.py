@@ -12,16 +12,17 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch import nn
 
-from decentralized_llm.cache import TokenCache
-from decentralized_llm.checkpoints import recipe_identity
+from decentralized_llm.algorithms.adamw import ErrorFeedbackAdamW, make_optimizer, optimizer_report
+from decentralized_llm.backends.distributed.runtime import parameter_mix_report
+from decentralized_llm.backends.distributed.update import optimizer_update
 from decentralized_llm.config import Config, load_config, save_config
-from decentralized_llm.distributed import parameter_mix_report
-from decentralized_llm.execution import qualification_key
-from decentralized_llm.loader import DevicePrefetcher, TokenLoader
-from decentralized_llm.model import Llama
-from decentralized_llm.optim import ErrorFeedbackAdamW, FusedDecentralizedAdamW, make_optimizer, optimizer_report
-from decentralized_llm.parameter_storage import parameter_storage
-from decentralized_llm.train import optimizer_update
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.data.loader import DevicePrefetcher, TokenLoader
+from decentralized_llm.execution.cuda.adamw import FusedDecentralizedAdamW
+from decentralized_llm.execution.qualification import qualification_key
+from decentralized_llm.models.llama import Llama
+from decentralized_llm.models.storage import parameter_storage
+from decentralized_llm.training.checkpoints import recipe_identity
 
 
 def test_selector_and_checkpoint_identity(tiny_config: Config, cache: TokenCache, tmp_path: Path) -> None:
@@ -273,8 +274,8 @@ def test_cuda_fused_mixing(cache: TokenCache, tiny_config: Config, size: int) ->
 def test_fused_failed_awc_drains(tiny_config: Config, monkeypatch: pytest.MonkeyPatch, feedback: bool) -> None:
     from unittest.mock import Mock
 
-    from decentralized_llm import train as training
-    from decentralized_llm.distributed import PendingParameterMix
+    from decentralized_llm.backends.distributed import update as updates
+    from decentralized_llm.backends.distributed.runtime import PendingParameterMix
 
     if not torch.cuda.is_available():
         pytest.skip("requires CUDA")
@@ -285,7 +286,7 @@ def test_fused_failed_awc_drains(tiny_config: Config, monkeypatch: pytest.Monkey
     before = storage.flat.clone()
     work = Mock(spec=dist.Work)
     pending = PendingParameterMix(storage, torch.zeros_like(storage.flat), [work], 2)
-    monkeypatch.setattr(training, "begin_parameter_mix", lambda *args, **kwargs: pending)
+    monkeypatch.setattr(updates, "begin_parameter_mix", lambda *args, **kwargs: pending)
 
     def fail() -> Any:
         raise OSError("injected loader failure")
@@ -300,7 +301,7 @@ def test_fused_failed_awc_drains(tiny_config: Config, monkeypatch: pytest.Monkey
 
 
 def test_live_mix_launch_failure_releases_storage(tiny_config: Config, monkeypatch: pytest.MonkeyPatch) -> None:
-    from decentralized_llm import distributed
+    from decentralized_llm.backends.distributed import runtime as distributed
 
     model = nn.Linear(3, 2)
     make_optimizer(model, tiny_config, torch.device("cpu"))

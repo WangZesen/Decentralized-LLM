@@ -12,11 +12,13 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from decentralized_llm import cache as cache_module
-from decentralized_llm.cache import TokenCache, _tokenized_batches, prepare
 from decentralized_llm.config import Config, SlurmLauncher, save_config
-from decentralized_llm.launch import launch, local_command, slurm_scripts
-from decentralized_llm.preflight import validate
+from decentralized_llm.data import cache as cache_module
+from decentralized_llm.data.cache import TokenCache, _tokenized_batches, prepare
+from decentralized_llm.launch.commands import launch
+from decentralized_llm.launch.local import local_command
+from decentralized_llm.launch.preflight import validate
+from decentralized_llm.launch.slurm import slurm_scripts
 
 
 class FakeTokenizer:
@@ -142,7 +144,7 @@ def test_launcher_validation_account_dryrun(
     cache: TokenCache, tiny_config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cfg = slurm_config(tiny_config, tmp_path)
-    monkeypatch.setattr("decentralized_llm.preflight.shutil.which", lambda exe: f"/bin/{exe}")
+    monkeypatch.setattr("decentralized_llm.launch.preflight.shutil.which", lambda exe: f"/bin/{exe}")
     monkeypatch.delenv("account", raising=False)
     with pytest.raises(ValueError, match="lowercase"):
         launch(cfg, dry_run=True)
@@ -179,7 +181,7 @@ def test_launcher_validation_account_dryrun(
         calls.append(args)
         return subprocess.CompletedProcess(args, 0, "12345;cluster\n", "")
 
-    monkeypatch.setattr("decentralized_llm.launch.subprocess.run", fake_run)
+    monkeypatch.setattr("decentralized_llm.launch.commands.subprocess.run", fake_run)
     receipt = launch(cfg)
     assert receipt["job_id"] == "12345"
     assert calls[0][calls[0].index("--account") + 1] == secret
@@ -208,7 +210,7 @@ def test_local_command_failure_and_gpu_preflight(
     def fail(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         raise subprocess.CalledProcessError(7, args)
 
-    monkeypatch.setattr("decentralized_llm.launch.subprocess.run", fail)
+    monkeypatch.setattr("decentralized_llm.launch.commands.subprocess.run", fail)
     with pytest.raises(subprocess.CalledProcessError) as error:
         launch(tiny_config)
     assert error.value.returncode == 7

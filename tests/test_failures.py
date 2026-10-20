@@ -8,14 +8,14 @@ from typing import Any
 import pytest
 import torch
 
-from decentralized_llm import checkpoints
-from decentralized_llm.cache import TokenCache, fingerprint
-from decentralized_llm.checkpoints import save_checkpoint, validate_checkpoint
+from decentralized_llm.algorithms.adamw import make_optimizer
 from decentralized_llm.config import Config, save_config
-from decentralized_llm.loader import TokenLoader
-from decentralized_llm.model import Llama
-from decentralized_llm.optim import make_optimizer
-from decentralized_llm.sampling import GlobalSampler
+from decentralized_llm.data.cache import TokenCache, fingerprint
+from decentralized_llm.data.loader import TokenLoader
+from decentralized_llm.data.sampling import GlobalSampler
+from decentralized_llm.models.llama import Llama
+from decentralized_llm.training import checkpoints
+from decentralized_llm.training.checkpoints import save_checkpoint, validate_checkpoint
 
 
 def test_manifest_last_failure(
@@ -103,7 +103,7 @@ def test_torchrun_rank_failure_propagates(tmp_path: Path) -> None:
 def test_compilation_wrapper_and_benchmark(
     cache: TokenCache, tiny_config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, factor: int
 ) -> None:
-    from decentralized_llm.benchmark import benchmark_data
+    from decentralized_llm.benchmarks.data import benchmark_data
 
     original = torch.compile
 

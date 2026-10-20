@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 
 from decentralized_llm.config import load_config
-from decentralized_llm.launch import launch
+from decentralized_llm.launch.commands import launch
 from decentralized_llm.runtime import atomic_json
-from decentralized_llm.tuning.backends import process_identity
+from decentralized_llm.tuning.jobs import process_identity
 
 
 def run(directory: Path) -> None:

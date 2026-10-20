@@ -1,0 +1,37 @@
+{
+  "repository": "https://github.com/WangZesen/tiny-llm",
+  "revision": "dd03e5037b46961b1bbcbd014c445b6efebb4841",
+  "sources": [
+    {
+      "source": "packed.py",
+      "destination": "models/packed.py",
+      "original_sha256": "808335d28d7f4314236e9e3b2e81da95961409df33c7314e5dcb5cd49d3bd145"
+    },
+    {
+      "source": "packed_optimizer.py",
+      "destination": "algorithms/packed_adamw.py",
+      "original_sha256": "02e88031282d29ffd65c1ff2b60f930e16fe3e3f03156eeb60763747993b44b8"
+    },
+    {
+      "source": "gh200/model.py",
+      "destination": "execution/cuda/packed_model.py",
+      "original_sha256": "750fca6390d8b47b9749ff79bfc4b845fafcb0ced25625ecd298c9760315e2cd"
+    },
+    {
+      "source": "gh200/optimizer.py",
+      "destination": "execution/cuda/packed_optimizer.py",
+      "original_sha256": "ac158bb413287acf34c70046fa9859b6e9a421059aa9d6740ee07a3446ca5df1"
+    },
+    {
+      "source": "gh200/engine.py",
+      "destination": "execution/cuda/capture.py",
+      "original_sha256": "be06928df03370b8af9d6f4a23881fd8f1f23cde820a93f56114283bdaae0f12"
+    }
+  ],
+  "adaptations": [
+    "Canonical CPU initialization copied identically into every worker, without rank-offset seeds.",
+    "Canonical individual parameters for packed native, GH200, and A100 execution; fused projections are composed during forward.",
+    "Repository global sampler, accumulation, AWC/ATC topology, full-displacement error feedback, and checkpoint contracts.",
+    "Complete-update CUDA capture with persistent state/RNG restoration and finite checks before host cursor commit."
+  ]
+}

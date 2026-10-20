@@ -8,12 +8,12 @@ import pytest
 import torch
 from torch import nn
 
-from decentralized_llm import distributed
+from decentralized_llm.algorithms.adamw import make_optimizer
+from decentralized_llm.backends.distributed import runtime as distributed
 from decentralized_llm.config import Config
-from decentralized_llm.execution import build_execution
-from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.optim import make_optimizer
-from decentralized_llm.parameter_storage import PARAMETER_ALIGNMENT, parameter_storage, prepare_parameter_storage
+from decentralized_llm.execution.native import build_execution
+from decentralized_llm.models.llama import Llama, token_losses
+from decentralized_llm.models.storage import PARAMETER_ALIGNMENT, parameter_storage, prepare_parameter_storage
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.bfloat16])

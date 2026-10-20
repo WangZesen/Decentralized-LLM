@@ -31,7 +31,7 @@ with `distributed.mode=decentralized`. The presets leave CPU allocation to Slurm
 
 The kernel implementation is adapted from
 [tiny-llm revision dd03e5037b46961b1bbcbd014c445b6efebb4841](https://github.com/WangZesen/tiny-llm/tree/dd03e5037b46961b1bbcbd014c445b6efebb4841/src/tiny_llm/gh200).
-Original source hashes are retained in `src/decentralized_llm/gh200/provenance.json`.
+Original source hashes are retained in `src/decentralized_llm/execution/cuda/provenance.json`.
 The port combines Q/K/V and gate/up projections during execution while retaining
 independent canonical parameters. It adds fused residual/RMSNorm, paired SwiGLU, and
 masked per-token cross entropy that avoids an FP32 vocabulary-sized copy. Parameter

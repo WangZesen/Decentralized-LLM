@@ -4,7 +4,7 @@ import shlex
 from pathlib import Path
 
 from decentralized_llm.config import Config, SlurmLauncher, save_config
-from decentralized_llm.launch import scheduler_arguments, slurm_scripts, submit_batch
+from decentralized_llm.launch.slurm import scheduler_arguments, slurm_scripts, submit_batch
 from decentralized_llm.runtime import atomic_json
 from decentralized_llm.tuning.batching import format_time, trial_minutes
 from decentralized_llm.tuning.spec import Record

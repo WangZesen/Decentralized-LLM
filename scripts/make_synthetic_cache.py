@@ -5,8 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
-from decentralized_llm.cache import TokenWriter, fingerprint
 from decentralized_llm.config import load_config
+from decentralized_llm.data.cache import TokenWriter, fingerprint
 from decentralized_llm.runtime import atomic_json
 from decentralized_llm.state import CacheContent, CacheManifest
 

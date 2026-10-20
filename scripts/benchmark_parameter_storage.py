@@ -10,8 +10,8 @@ from pathlib import Path
 import torch
 
 from decentralized_llm.config import load_config
-from decentralized_llm.model import Llama
-from decentralized_llm.parameter_storage import prepare_parameter_storage
+from decentralized_llm.models.llama import Llama
+from decentralized_llm.models.storage import prepare_parameter_storage
 from decentralized_llm.runtime import atomic_json, environment
 
 

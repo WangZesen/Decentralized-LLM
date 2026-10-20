@@ -12,19 +12,22 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from decentralized_llm.cache import TokenCache
-from decentralized_llm.checkpoints import load_checkpoint, save_checkpoint
+from decentralized_llm.algorithms.adamw import ErrorFeedbackAdamW, make_optimizer
+from decentralized_llm.algorithms.schedules import learning_rate
+from decentralized_llm.algorithms.topology import peer_for
+from decentralized_llm.backends.distributed.engine import build_distributed_execution
+from decentralized_llm.backends.distributed.runtime import begin_parameter_mix, prepare_parameter_groups
+from decentralized_llm.backends.distributed.update import optimizer_update
 from decentralized_llm.config import Config
-from decentralized_llm.distributed import begin_parameter_mix, peer_for, prepare_parameter_groups
-from decentralized_llm.evaluation import evaluate
-from decentralized_llm.execution import build_execution
-from decentralized_llm.loader import DevicePrefetcher, TokenLoader
-from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.optim import ErrorFeedbackAdamW, learning_rate, make_optimizer
-from decentralized_llm.parameter_storage import parameter_storage
+from decentralized_llm.data.cache import TokenCache
+from decentralized_llm.data.loader import DevicePrefetcher, TokenLoader
+from decentralized_llm.data.sampling import GlobalSampler
+from decentralized_llm.models.llama import Llama, token_losses
+from decentralized_llm.models.storage import parameter_storage
 from decentralized_llm.runtime import clip_grad_norm_
-from decentralized_llm.sampling import GlobalSampler
-from decentralized_llm.train import optimizer_update, train
+from decentralized_llm.training.checkpoints import load_checkpoint, save_checkpoint
+from decentralized_llm.training.evaluation import evaluate
+from decentralized_llm.training.loop import train
 
 
 def reference_batch(cache: TokenCache, config: Config, positions: list[int]) -> tuple[torch.Tensor, torch.Tensor]:
@@ -79,17 +82,17 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
             cfg.runtime.compile = compiled
             cache = TokenCache(cfg.data.cache_dir)
             references = []
-            for r in range(size if mode == "decentralized" else 1):
-                torch.manual_seed(42 + r)
+            for _ in range(size if mode == "decentralized" else 1):
+                torch.manual_seed(42)
                 references.append(Llama(cfg.model, "reference"))
-            torch.manual_seed(42 + (worker if mode == "decentralized" else 0))
+            torch.manual_seed(42)
             model = Llama(cfg.model, "reference")
             optimizer = make_optimizer(model, cfg, torch.device("cpu"))
             reference_config = cfg.model_copy(deep=True)
             reference_config.distributed.error_feedback = False
             ref_opts = [make_optimizer(m, reference_config, torch.device("cpu")) for m in references]
             histories = [[torch.zeros_like(p) for p in m.parameters()] for m in references]
-            forward = build_execution(model, cfg, torch.device("cpu"))
+            forward = build_distributed_execution(model, cfg, torch.device("cpu"))
             with TokenLoader(cache, cfg, worker, 0, total_blocks) as loader:
                 loader.warmup()
                 transfer = DevicePrefetcher(loader, torch.device("cpu"))
