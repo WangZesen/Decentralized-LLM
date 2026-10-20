@@ -840,6 +840,21 @@ epoch's training loop as `train_seconds`, both rounded to two decimal places.
 Training time excludes validation and checkpoint saving. On a mid-epoch resume,
 it covers only the training since resuming.
 
+Validation also reports `consensus_error` in `metrics.jsonl`, the final
+`result.json` validation object, and checkpoint evaluation output:
+
+$$
+\mathrm{consensus\_error} = \frac{1}{W}\sum_{i=1}^{W}\|\theta_i-\bar{\theta}\|_2,
+\qquad \bar{\theta} = \frac{1}{W}\sum_{i=1}^{W}\theta_i.
+$$
+
+This is the mean L2 distance across workers, with no parameter-count normalization.
+Before validation, each local model is compared with the existing FP32 global average,
+using FP64 accumulation over unique parameters; tied weights count once, and buffers
+and storage padding are excluded. Evaluation leaves local training weights unchanged.
+Single-worker runs and synchronized DDP report `0.0`. Multi-worker decentralized
+evaluation with `average=False` reports `null`, since no global reference is computed.
+
 The benchmark compares complete forward/backward/clip/AdamW/mixing pipelines after warmup,
 using either the network loader or a host-resident batch with the same conversion/transfer
 path and microbatch shapes. It reports a **95% baseline throughput target** and marks misses;

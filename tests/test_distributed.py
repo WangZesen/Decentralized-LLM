@@ -152,8 +152,16 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                 history_before = (
                     optimizer.previous_update.clone() if isinstance(optimizer, ErrorFeedbackAdamW) else None
                 )
+                gradients_before = [p.grad.clone() if p.grad is not None else None for p in model.parameters()]
+                optimizer_before = copy.deepcopy(optimizer.state_dict())
+                rng_before = torch.get_rng_state()
+                vectors = torch.stack(
+                    [torch.cat([p.detach().flatten() for p in m.parameters()]) for m in references]
+                ).double()
+                expected_consensus = float((vectors - vectors.mean(0)).norm(dim=1).mean())
                 for full in (False, True):
                     result = evaluate(model, cache, cfg, torch.device("cpu"), full)
+                    assert result["consensus_error"] == pytest.approx(expected_consensus, abs=3e-6)
                     if full:
                         assert result["tokens"] == 38
                         averaged = copy.deepcopy(references[0])
@@ -172,6 +180,15 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                         assert result["loss"] == pytest.approx(loss_sum / 38, abs=2e-6)
                 for key, value in before.items():
                     torch.testing.assert_close(model.state_dict()[key], value, rtol=0, atol=0)
+                assert model.training
+                torch.testing.assert_close(torch.get_rng_state(), rng_before, rtol=0, atol=0)
+                for parameter, gradient in zip(model.parameters(), gradients_before, strict=True):
+                    torch.testing.assert_close(parameter.grad, gradient, rtol=0, atol=0)
+                optimizer_after = optimizer.state_dict()
+                assert optimizer_after["param_groups"] == optimizer_before["param_groups"]
+                for key, state in optimizer_before["state"].items():
+                    for name, value in state.items():
+                        torch.testing.assert_close(optimizer_after["state"][key][name], value, rtol=0, atol=0)
                 if isinstance(optimizer, ErrorFeedbackAdamW):
                     torch.testing.assert_close(optimizer.previous_update, history_before, rtol=0, atol=0)
                 checkpoint = cfg.runtime.output_dir / f"{size}-{mode}-{topology}-{scheme}"
@@ -205,6 +222,53 @@ def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+def consensus_worker(worker: int, port: int, raw: dict[str, Any]) -> None:
+    torch.set_num_threads(1)
+    os.environ.update(MASTER_ADDR="127.0.0.1", MASTER_PORT=str(port))
+    dist.init_process_group("gloo", rank=worker, world_size=4, timeout=timedelta(seconds=30))
+    try:
+        cfg = Config.model_validate(raw)
+        cfg.distributed.mode = "decentralized"
+        cfg.evaluation.subset_blocks = 1  # Workers without validation samples still contribute their distance.
+        cache = TokenCache(cfg.data.cache_dir)
+        model = Llama(cfg.model, "reference")
+        # Mean (3, 4), worker distances 5, 4, 3, 10: mean L2 = 5.5, mean square = 37.5.
+        coordinates = [(0, 0), (3, 0), (0, 4), (9, 12)]
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.zero_()
+            next(model.parameters()).view(-1)[:2].copy_(torch.tensor(coordinates[worker]))
+        before = copy.deepcopy(model.state_dict())
+        for full in (False, True):
+            with patch.object(dist, "all_reduce", wraps=dist.all_reduce) as reduce:
+                result = evaluate(model, cache, cfg, torch.device("cpu"), full=full)
+            assert result["consensus_error"] == 5.5
+            # One model average and the existing totals collective, with a third scalar.
+            assert reduce.call_count == 2
+            assert reduce.call_args is not None and reduce.call_args.args[0].numel() == 3
+            result = evaluate(model, cache, cfg, torch.device("cpu"), full=full, average=False)
+            assert result["consensus_error"] is None
+            assert json.loads(json.dumps(result))["consensus_error"] is None
+        for key, value in model.state_dict().items():
+            torch.testing.assert_close(value, before[key], rtol=0, atol=0)
+        # Identical replicas have zero consensus error in both execution modes.
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.fill_(0.125)
+        for mode in ("ddp", "decentralized"):
+            cfg.distributed.mode = mode
+            assert evaluate(model, cache, cfg, torch.device("cpu"), full=True)["consensus_error"] == 0.0
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.distributed
+def test_consensus_mean_l2_and_disabled_averaging(cache: TokenCache, tiny_config: Config) -> None:
+    mp.spawn(  # pyright: ignore[reportPrivateImportUsage]
+        consensus_worker, args=(free_port(), tiny_config.model_dump(mode="json")), nprocs=4, join=True
+    )
 
 
 def snapshot_worker(worker: int, size: int, ports: list[int], device_type: str) -> None:

@@ -25,6 +25,7 @@ class RNGState(TypedDict):
 class EvaluationResult(TypedDict):
     loss: float
     perplexity: float | None
+    consensus_error: float | None
     tokens: int
     seconds: float
     split: str

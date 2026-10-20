@@ -73,6 +73,15 @@ def test_compact_logs_measure_recent_training(
     diagnostics = json.loads((tiny_config.runtime.output_dir / "loader-rank-00000.json").read_text())
     assert "largest_waits" in diagnostics and "memory_estimate_bytes" in diagnostics
     assert clock.updates == 7
+    validation = [
+        json.loads(line) for line in (tiny_config.runtime.output_dir / "metrics.jsonl").read_text().splitlines()
+    ]
+    assert len(validation) == 2
+    assert all(row["event"] == "validation" and row["consensus_error"] == 0.0 for row in validation)
+    result = json.loads((tiny_config.runtime.output_dir / "result.json").read_text())
+    assert result["validation"]["consensus_error"] == 0.0
+    checkpoint_result = training.evaluate_checkpoint(tiny_config, tiny_config.runtime.output_dir / "final")
+    assert checkpoint_result["consensus_error"] == 0.0
 
 
 def test_logging_resets_on_resume(
