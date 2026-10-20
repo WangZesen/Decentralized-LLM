@@ -30,9 +30,18 @@ def kernel_revision() -> str:
     return digest.hexdigest()
 
 
+def optimizer_revision() -> str:
+    package = Path(__file__).parent
+    digest = hashlib.sha256()
+    for name in ("optim.py", "optimizer_kernels.py", "distributed.py", "train.py"):
+        digest.update((package / name).read_bytes())
+    return digest.hexdigest()
+
+
 def compile_revision() -> str:
     digest = hashlib.sha256(Path(__file__).read_bytes())
     digest.update(kernel_revision().encode())
+    digest.update(optimizer_revision().encode())
     digest.update(Path(__file__).with_name("parameter_storage.py").read_bytes())
     return digest.hexdigest()
 
@@ -56,6 +65,7 @@ def qualification_key(config: Config) -> dict:
                 "fused_rope",
                 "sdpa_backend",
                 "fused_optimizer",
+                "decentralized_optimizer",
                 "cpu_threads",
                 "cpu_affinity",
             }
@@ -86,6 +96,17 @@ def qualification_environment() -> dict:
     }
 
 
+def profile_key(entry: dict) -> dict:
+    """Historical measurements used the reference optimizer before this selector existed."""
+    return {
+        **entry["key"],
+        "execution_options": {
+            "decentralized_optimizer": "reference",
+            **entry["key"]["execution_options"],
+        },
+    }
+
+
 def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
     runtime = config.runtime
     fused_inputs = (
@@ -111,7 +132,7 @@ def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
             (
                 entry
                 for entry in registry["profiles"]
-                if entry["key"] == qualification_key(config)
+                if profile_key(entry) == qualification_key(config)
                 and entry["torch"] == torch.__version__
                 and entry["cuda"] == torch.version.cuda
                 and entry["kernel_revision"] == kernel_revision()

@@ -19,12 +19,21 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from decentralized_llm.cache import TokenCache, training_boundaries
 from decentralized_llm.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.config import Config, save_config
-from decentralized_llm.distributed import barrier, begin_parameter_mix, mix_parameters, rank, setup, world_size
+from decentralized_llm.distributed import (
+    barrier,
+    begin_parameter_mix,
+    mix_parameters,
+    parameter_mix_group,
+    rank,
+    setup,
+    sum_updated_parameters,
+    world_size,
+)
 from decentralized_llm.evaluation import evaluate
 from decentralized_llm.execution import TrainingExecution, build_execution, compiler_counters
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.optim import learning_rate, make_optimizer
+from decentralized_llm.optim import FusedDecentralizedAdamW, learning_rate, make_optimizer
 from decentralized_llm.runtime import append_metric, atomic_json, clip_grad_norm_, environment, restore_rng
 from decentralized_llm.sampling import BatchSpec, check_memory, rank_count, sampling_plan
 from decentralized_llm.state import Batch
@@ -111,11 +120,22 @@ def optimizer_update(
             # Compute is already queued on CUDA; enqueue the upcoming transfer alongside it.
             preload()
         norm = clip_grad_norm_(model.parameters(), config.optimizer.grad_clip)
-        if pending is not None:
-            pending.apply()
-        optimizer.step()
-        if config.distributed.mode == "decentralized" and config.distributed.scheme == "atc":
-            mix_parameters(model, config.distributed.topology, step, reuse=config.distributed.reuse_mix_buffers)
+        if isinstance(optimizer, FusedDecentralizedAdamW):
+            if pending is not None:
+                pending.wait()
+                optimizer.step_fused(base=pending.flat, base_divisor=pending.size)
+            elif config.distributed.scheme == "atc":
+                mix = parameter_mix_group(config.distributed.topology, step)
+                optimizer.step_fused(output_divisor=mix.size)
+                sum_updated_parameters(model, mix)
+            else:
+                optimizer.step()
+        else:
+            if pending is not None:
+                pending.apply()
+            optimizer.step()
+            if config.distributed.mode == "decentralized" and config.distributed.scheme == "atc":
+                mix_parameters(model, config.distributed.topology, step, reuse=config.distributed.reuse_mix_buffers)
         if not collect_metrics:
             return {}
         return {"lr": lr, "gradient_norm": float(norm), "local_loss": float(loss_sum) / (local_count * length)}

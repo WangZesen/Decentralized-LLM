@@ -11,7 +11,7 @@ from decentralized_llm.checkpoints import recipe_identity
 from decentralized_llm.config import Config, load_config, save_config
 from decentralized_llm.execution import qualification_key
 from decentralized_llm.model import Llama, token_losses
-from decentralized_llm.optim import ErrorFeedbackAdamW, make_optimizer
+from decentralized_llm.optim import ErrorFeedbackAdamW, FusedDecentralizedAdamW, make_optimizer
 from decentralized_llm.parameter_storage import parameter_storage
 
 
@@ -185,10 +185,12 @@ def test_fused_cuda_and_compilation(tiny_config: Config, compiled: bool) -> None
     tiny_config.runtime.fused_optimizer = True
     model = Llama(tiny_config.model).cuda()
     reference = copy.deepcopy(model)
-    plain = make_optimizer(reference, tiny_config, torch.device("cuda"))
+    reference_config = tiny_config.model_copy(deep=True)
+    reference_config.runtime.decentralized_optimizer = "reference"
+    plain = make_optimizer(reference, reference_config, torch.device("cuda"))
     tiny_config.distributed.error_feedback = True
     optimizer = make_optimizer(model, tiny_config, torch.device("cuda"))
-    assert isinstance(optimizer, ErrorFeedbackAdamW)
+    assert isinstance(optimizer, FusedDecentralizedAdamW)
     assert all(group["fused"] for group in optimizer.param_groups)
     forward = torch.compile(model) if compiled else model
     history = [torch.zeros_like(p) for p in reference.parameters()]
@@ -207,9 +209,13 @@ def test_fused_cuda_and_compilation(tiny_config: Config, compiled: bool) -> None
                 p.add_(delta).sub_(previous)
                 previous.copy_(delta)
         for actual, expected in zip(model.parameters(), reference.parameters(), strict=True):
-            torch.testing.assert_close(actual, expected, rtol=2e-2 if compiled else 0, atol=2e-4 if compiled else 0)
+            torch.testing.assert_close(
+                actual, expected, rtol=2e-2 if compiled else 1e-5, atol=2e-4 if compiled else 1e-6
+            )
     # Check CPU-loaded history is copied back to the CUDA allocation.
     state = optimizer.state_dict()
-    state["error_feedback"]["previous_update"] = optimizer.previous_update.cpu()
+    state["error_feedback"]["previous_update"] = (
+        optimizer.previous_update.cpu() if optimizer.previous_update is not None else None
+    )
     optimizer.load_state_dict(state)
-    assert optimizer.previous_update.is_cuda
+    assert optimizer.previous_update is not None and optimizer.previous_update.is_cuda

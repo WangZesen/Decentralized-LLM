@@ -165,6 +165,7 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
             "distributed.mode=decentralized",
             "runtime.sdpa_backend=flash",
             "runtime.fused_rope=false",
+            "runtime.decentralized_optimizer=reference",
         ],
     )
     registry = json.loads((root / "src/decentralized_llm/qualification.json").read_text())
@@ -174,7 +175,9 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     assert entry["kernel_revision"] != kernel_revision()
     # Keep the measured profile intact; changed storage/compiler code is unqualified.
     assert entry["compile_revision"] != compile_revision()
-    assert entry["key"] == qualification_key(config)
+    current_key = qualification_key(config)
+    assert current_key["execution_options"].pop("decentralized_optimizer") == "reference"
+    assert entry["key"] == current_key
     monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
     monkeypatch.setattr(torch, "__version__", entry["torch"])

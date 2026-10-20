@@ -183,6 +183,7 @@ class RuntimeConfig(StrictModel):
     sdpa_backend: Literal["auto", "flash", "cudnn"] = "auto"
     cpu_affinity: Literal["none", "local", "exclusive"] = "none"
     fused_optimizer: bool = True
+    decentralized_optimizer: Literal["auto", "reference"] = "auto"
     attention_backend: Literal["sdpa", "reference"] = "sdpa"
     output_dir: Path = Path("runs/default")
     cpu_threads: int = Field(default=8, gt=0)

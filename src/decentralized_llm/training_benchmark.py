@@ -14,11 +14,11 @@ from torch.cuda.nccl import version as nccl_version
 
 from decentralized_llm.cache import TokenCache
 from decentralized_llm.config import Config
-from decentralized_llm.distributed import barrier, rank, setup, world_size
-from decentralized_llm.execution import build_execution, compiler_counters
+from decentralized_llm.distributed import barrier, parameter_mix_report, rank, setup, world_size
+from decentralized_llm.execution import build_execution, compiler_counters, optimizer_revision
 from decentralized_llm.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.model import Llama
-from decentralized_llm.optim import ErrorFeedbackAdamW, make_optimizer
+from decentralized_llm.optim import make_optimizer, optimizer_report
 from decentralized_llm.parameter_storage import parameter_storage
 from decentralized_llm.runtime import append_metric, atomic_json, environment
 from decentralized_llm.train import optimizer_update
@@ -52,12 +52,18 @@ def synchronized_seconds(start: float, device: torch.device) -> float:
     return float(value)
 
 
-def benchmark_training(config: Config) -> dict:
+def benchmark_training(config: Config, *, device: torch.device | None = None) -> dict:
+    from torch._dynamo.utils import calculate_time_spent
+
+    compiler_before = calculate_time_spent()
     session_start = time.perf_counter()
+    source_revision = optimizer_revision()
     import_seconds = time.time() - float(os.environ.get("DECENTRALIZED_WORKER_STARTED", time.time()))
     output = config.runtime.output_dir
     output.mkdir(parents=True, exist_ok=True)
-    device = setup(config)
+    owns_group = device is None
+    if device is None:
+        device = setup(config)
     try:
         setup_seconds = synchronized_seconds(session_start, device)
         cache = TokenCache(config.data.cache_dir)
@@ -76,7 +82,9 @@ def benchmark_training(config: Config) -> dict:
         windows = []
         step = 0
         with TokenLoader(cache, config, rank(), 0, total) as loader:
-            loader.warmup()
+            # Finish preload before warming compute so later variants do not idle
+            # between their warmup and timing windows.
+            loader.warmup(resident=bench.wait_for_resident)
             transfer = DevicePrefetcher(loader, device)
             try:
                 transfer.preload()
@@ -108,8 +116,12 @@ def benchmark_training(config: Config) -> dict:
                 for _ in range(warmup - 1):
                     update()
                 warmup_seconds = synchronized_seconds(first_started, device)
-                # Compilation must not give only one candidate a fully resident input pool.
-                loader.warmup(resident=bench.wait_for_resident)
+                # Per-rank compiler phases overlap; they are not additive wall time.
+                compilation_seconds = {
+                    key: value - compiler_before.get(key, 0.0)
+                    for key, value in calculate_time_spent().items()
+                    if value > compiler_before.get(key, 0.0)
+                }
                 resident_at_measurement = loader.metrics()["resident_complete"]
                 startup_seconds = synchronized_seconds(session_start, device)
                 if device.type == "cuda":
@@ -137,7 +149,7 @@ def benchmark_training(config: Config) -> dict:
                     activities = [torch.profiler.ProfilerActivity.CPU]
                     if device.type == "cuda":
                         activities.append(torch.profiler.ProfilerActivity.CUDA)
-                    with torch.profiler.profile(activities=activities) as profile:
+                    with torch.profiler.profile(activities=activities, record_shapes=True) as profile:
                         for _ in range(cycle):
                             update()
                     profile.export_chrome_trace(str(output / f"trace-rank-{rank():05d}.json"))
@@ -163,6 +175,7 @@ def benchmark_training(config: Config) -> dict:
                     "worker_import_seconds": import_seconds,
                     "first_update_seconds": first_update_seconds,
                     "warmup_seconds": warmup_seconds,
+                    "compilation_seconds_by_phase": compilation_seconds,
                     "startup_seconds": startup_seconds,
                     "windows": windows,
                     "global_tokens_per_second": median,
@@ -175,12 +188,11 @@ def benchmark_training(config: Config) -> dict:
                         "padding_bytes": storage.flat.nbytes - parameter_bytes,
                         "allocation_bytes": storage.flat.untyped_storage().nbytes(),
                     },
+                    "optimizer": {**optimizer_report(optimizer), "source_revision": source_revision},
                     "error_feedback": {
-                        "history_bytes": optimizer.previous_update.nbytes
-                        if isinstance(optimizer, ErrorFeedbackAdamW)
-                        else 0,
-                        "scratch_bytes": optimizer.scratch.nbytes if isinstance(optimizer, ErrorFeedbackAdamW) else 0,
+                        key: optimizer_report(optimizer)[key] for key in ("history_bytes", "scratch_bytes")
                     },
+                    "parameter_mixing": parameter_mix_report(model),
                     "loader": loader.metrics(),
                     "resident_at_measurement": resident_at_measurement,
                     "execution": execution.policy,
@@ -191,6 +203,8 @@ def benchmark_training(config: Config) -> dict:
                     "environment": environment(),
                     "session_seconds": synchronized_seconds(session_start, device),
                 }
+                if optimizer_revision() != source_revision:
+                    raise RuntimeError("optimizer sources changed during measurement; discard this run")
                 atomic_json(output / f"benchmark-rank-{rank():05d}.json", result)
                 if rank() == 0:
                     atomic_json(output / "benchmark.json", result)
@@ -198,5 +212,5 @@ def benchmark_training(config: Config) -> dict:
             finally:
                 transfer.close()
     finally:
-        if dist.is_initialized():
+        if owns_group and dist.is_initialized():
             dist.destroy_process_group()

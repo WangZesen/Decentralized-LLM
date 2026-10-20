@@ -20,6 +20,7 @@ _peer_group_world: dist.ProcessGroup | None = None
 _peer_groups: dict[tuple[int, int], dist.ProcessGroup | None] = {}
 _prepared_topologies: set[str] = set()
 _mix_buffers: weakref.WeakKeyDictionary[nn.Module, MixBuffer] = weakref.WeakKeyDictionary()
+_snapshot_bytes: weakref.WeakKeyDictionary[nn.Module, int] = weakref.WeakKeyDictionary()
 
 
 def rank() -> int:
@@ -193,23 +194,63 @@ class PendingParameterMix:
         self.closed = True
 
 
-@torch.no_grad()
-def begin_parameter_mix(
-    model: nn.Module, topology: str, step: int, *, reuse: bool = False
-) -> PendingParameterMix | None:
-    """Exchange a snapshot asynchronously; the live weights remain unchanged."""
+@dataclass(frozen=True)
+class ParameterMixGroup:
+    group: dist.ProcessGroup | None
+    size: int
+
+
+def parameter_mix_group(topology: str, step: int) -> ParameterMixGroup:
+    """Resolve the mixing divisor and communicator without touching weights."""
     size = world_size()
     if size == 1:
-        return None
+        return ParameterMixGroup(None, 1)
     group = dist.group.WORLD
     if topology != "complete":
-        # setup() prepares these before training; direct callers may prepare lazily.
         prepare_parameter_groups(topology)
         worker = rank()
         peer = peer_for(worker, size, topology, step)
         group = _peer_groups[(min(worker, peer), max(worker, peer))]
         assert group is not None
         size = 2
+    return ParameterMixGroup(group, size)
+
+
+@torch.no_grad()
+def sum_updated_parameters(model: nn.Module, mix: ParameterMixGroup) -> None:
+    """Sum pre-normalized ATC weights in place, after all backwards have finished."""
+    _snapshot_bytes[model] = 0
+    if mix.size == 1:
+        return
+    storage = parameter_storage(model)
+    if storage.active_mixes:
+        raise RuntimeError("cannot mix live weights during an active exchange")
+    pending = PendingParameterMix(storage, storage.flat, [], 1)
+    try:
+        pending.requests.append(dist.all_reduce(storage.flat, group=mix.group, async_op=True))
+    finally:
+        pending.close()
+        torch.autograd.graph.increment_version(storage.parameters)
+
+
+def parameter_mix_report(model: nn.Module) -> dict[str, int]:
+    owner = _mix_buffers.get(model)
+    return {
+        "snapshot_bytes": _snapshot_bytes.get(model, 0),
+        "retained_snapshot_bytes": owner.flat.nbytes if owner is not None else 0,
+    }
+
+
+@torch.no_grad()
+def begin_parameter_mix(
+    model: nn.Module, topology: str, step: int, *, reuse: bool = False
+) -> PendingParameterMix | None:
+    """Exchange a snapshot asynchronously; the live weights remain unchanged."""
+    mix = parameter_mix_group(topology, step)
+    if mix.size == 1:
+        _snapshot_bytes[model] = 0
+        return None
+    group, size = mix.group, mix.size
     storage = parameter_storage(model)
     owner = None
     if reuse:
@@ -230,6 +271,7 @@ def begin_parameter_mix(
         if owner is not None:
             owner.busy = False
         raise
+    _snapshot_bytes[model] = flat.nbytes
     return PendingParameterMix(storage, flat, requests, size, owner)
 
 

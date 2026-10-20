@@ -49,8 +49,10 @@ universal speedup or convergence equivalence. Raw reports and the source snapsho
 are retained locally under `runs/fused-rope-90m-20261015-001618/`.
 The historical measurements below used `fused_rope=false`.
 
-The distributed runtime keeps ordinary fused AdamW, real DDP gradient synchronization,
-independent decentralized optimizer moments, and NCCL parameter exchanges. It does not
+The historical measurements below used ordinary fused AdamW. FP32 CUDA decentralized
+training now has a [grouped optimizer and fused mixing path](decentralized-optimizer-performance.md),
+selected independently of the forward backend. DDP gradient synchronization, independent
+decentralized optimizer moments, and NCCL parameter exchanges remain in place. It does not
 adopt the upstream packed multi-worker engine or whole-update CUDA graphs. Compilation
 wraps DDP while preserving `no_sync()` during accumulation. CUDA graph capture is disabled
 for this path. Incomplete microbatches and validation tails use eager execution to limit

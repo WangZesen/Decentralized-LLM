@@ -626,9 +626,12 @@ Decentralized workers initialize independently and retain independent AdamW mome
 Each normalizes its local loss, clips local gradients, and communicates parameters once
 per optimizer update. AWC starts an asynchronous exchange of a parameter snapshot before
 forward, overlapping communication with forward and all accumulated backwards. It waits
-after local gradient clipping, installs the mixed weights, and then steps AdamW; the live
-weights used by autograd stay unchanged until backward finishes. The snapshot is temporary
-and each update joins its exchange before checkpointing. ATC updates before mixing.
+after local gradient clipping and uses the mixed weights as the AdamW base; the live
+weights used by autograd stay unchanged until backward finishes. The fused optimizer reads
+the reduced snapshot directly, normalizing and updating in one pass. The reference path
+installs mixed weights before stepping. Each update joins its exchange before checkpointing.
+ATC updates before mixing; the fused path pre-normalizes its output and sums live weights
+in place, avoiding a communication snapshot and a separate normalization/copy.
 `complete` uses all-reduce over the world group. `one_peer_ring` alternates reciprocal
 neighbor pairings and requires an even world size; `one_peer_exponential` flips one rank
 bit per update and requires a power of two. Both peer topologies use asynchronous
@@ -647,27 +650,48 @@ This adapts the update correction in
 [Algorithm 2 of Zmushko et al.](https://arxiv.org/pdf/2606.30634#page=7), with the
 zero-history, doubled-first-update initialization used here.
 
-AWC applies the correction after installing mixed parameters; ATC applies it before
+AWC computes the correction from mixed base weights; ATC applies it before
 mixing. The saved update excludes mixing and stays local to each rank. The option
 also works with one decentralized worker and is rejected in DDP mode. It defaults
 to `false`.
 
-Error feedback uses two additional contiguous buffers per worker, each matching
-the padded parameter allocation's dtype and length: history and scratch. Bulk
-copy/subtraction computes the update, and the buffers swap roles after each step
-without another history copy. They are separate from communication snapshots and
-are reused regardless of `distributed.reuse_mix_buffers`. For FP32 parameters the
-additional memory is approximately 8 bytes per parameter, plus alignment padding.
-Training checkpoints save each rank's previous update alongside AdamW state;
-scratch is not saved. Resume requires matching error-feedback configuration and
-valid history. Training benchmarks report `error_feedback.history_bytes` and
-`error_feedback.scratch_bytes` in addition to overall CUDA peak memory.
+`runtime.decentralized_optimizer: auto` selects grouped Triton updates for FP32 CUDA
+decentralized training when `runtime.fused_optimizer=true` and deterministic mode is off.
+Selection is independent of `runtime.execution_backend`. Set it to `reference` to use
+PyTorch AdamW with the original correction and mixing passes. CPU, other dtypes, and
+unsupported configurations retain the reference implementation. Small floating-point
+differences are expected, including ATC normalization before reduction.
+
+The fused path calculates the ordinary AdamW displacement and applies feedback in
+registers, keeping one padded history buffer and no feedback scratch: approximately
+4 bytes per FP32 parameter. The reference correction keeps history and scratch,
+approximately 8 bytes per FP32 parameter, and swaps their roles after each update.
+AWC additionally retains its isolated communication snapshot; fused ATC needs none.
+History excludes mixing and includes weight decay in both paths. Missing gradients
+leave moments and counters unchanged but still subtract and clear previous history.
+
+Checkpoints retain the existing rank-local `error_feedback.previous_update` tensor and
+AdamW state. The selector can change on resume without migrating checkpoints; a resumed
+trajectory across implementations need not be bitwise identical. Training benchmarks
+report the resolved optimizer, source revision, history/scratch bytes, and communication
+snapshot bytes alongside overall CUDA peak memory.
 
 To isolate the local optimizer overhead, run
 `uv run python scripts/benchmark_error_feedback.py -c configs/base.yaml -c configs/20m.yaml --output runs/feedback-benchmark.json`.
-It compares ordinary AdamW and error feedback with identical fixed synthetic gradients
-and reports per-step time and buffer bytes. This excludes forward/backward and
-communication; use the training benchmark for end-to-end throughput.
+It compares reference and fused execution, each with ordinary AdamW and error feedback,
+using identical fixed synthetic gradients. It reports per-step time, speedups, and buffer
+bytes; `--profile` also exports traces. This excludes forward/backward and communication.
+Use `scripts/benchmark_decentralized_optimizer.py` under torchrun for three paired trials
+of the 20M/90M, AWC/ATC, complete/ring, feedback on/off matrix. Use
+`scripts/qualify_decentralized_optimizer.py` for the corresponding 100-update trajectories
+with seeds 42 and 43, or `scripts/qualify_gh200.py --optimizer-only` for a single case.
+Both comparisons keep the forward backend fixed. The matrix runners support `--resume`;
+only complete timing pairs from the same allocation are reused. These scripts accept the
+same layered configs and overrides. Numerical acceptance retains the existing first-five-update
+state probe, adds history to that probe, and checks validation loss after 100 updates.
+All-update diagnostics are also recorded, with exact step counters required throughout.
+See [measurements and reproduction](docs/decentralized-optimizer-performance.md), including
+the distinction between the accepted gates and later trajectory drift.
 
 Models retain tied embeddings, RoPE, RMSNorm, SwiGLU, depth-scaled initialization,
 reference/SDPA attention, BF16 autocast, optional compilation, and fused CUDA AdamW.

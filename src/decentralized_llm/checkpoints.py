@@ -20,7 +20,9 @@ CHECKPOINT_VERSION = 1
 
 
 def recipe_identity(config: Config, cache: TokenCache) -> str:
-    runtime = config.runtime.model_dump(exclude={"output_dir", "cpu_threads", "compile_cache_dir", "cpu_affinity"})
+    runtime = config.runtime.model_dump(
+        exclude={"output_dir", "cpu_threads", "compile_cache_dir", "cpu_affinity", "decentralized_optimizer"}
+    )
     # Default-valued execution additions do not invalidate version-1 recipes.
     defaults = {
         "execution_backend": "auto",

@@ -1,0 +1,3019 @@
+{
+  "optimizer_revision": "a06b8feb499846df9ebbd39a560ed80ff4871393ed4f7885431889ad04006857",
+  "recorded_date": "2026-10-20",
+  "local_job_id": "4128359",
+  "local": {
+    "20m": {
+      "variants": {
+        "reference": {
+          "baseline": {
+            "enabled": false,
+            "implementation": "reference",
+            "history_bytes": 0,
+            "scratch_bytes": 0,
+            "median_step_ms": 0.29960532032418996,
+            "windows_ms": [
+              0.30890035966876894,
+              0.30453988001681864,
+              0.29960532032418996,
+              0.2964118303498253,
+              0.2995086897863075
+            ],
+            "parameter_count": 20403520,
+            "padded_parameter_bytes": 81614080,
+            "peak_allocated_bytes": 333039104
+          },
+          "error_feedback": {
+            "enabled": true,
+            "implementation": "reference",
+            "history_bytes": 81614080,
+            "scratch_bytes": 81614080,
+            "median_step_ms": 0.44998155965004116,
+            "windows_ms": [
+              0.4552572197280824,
+              0.4498810804216191,
+              0.44998155965004116,
+              0.4497978900326416,
+              0.4501185199478641
+            ],
+            "parameter_count": 20403520,
+            "padded_parameter_bytes": 81614080,
+            "peak_allocated_bytes": 496616960
+          }
+        },
+        "auto": {
+          "baseline": {
+            "enabled": false,
+            "implementation": "triton",
+            "history_bytes": 0,
+            "scratch_bytes": 0,
+            "median_step_ms": 0.1740934996632859,
+            "windows_ms": [
+              0.1776648999657482,
+              0.17401574994437397,
+              0.17435237008612603,
+              0.1740934996632859,
+              0.17405413964297622
+            ],
+            "parameter_count": 20403520,
+            "padded_parameter_bytes": 81614080,
+            "peak_allocated_bytes": 333204480
+          },
+          "error_feedback": {
+            "enabled": true,
+            "implementation": "triton",
+            "history_bytes": 81614080,
+            "scratch_bytes": 0,
+            "median_step_ms": 0.3762596403248608,
+            "windows_ms": [
+              0.3762516297865659,
+              0.3763383498881012,
+              0.37635850021615624,
+              0.3762596403248608,
+              0.37614892004057765
+            ],
+            "parameter_count": 20403520,
+            "padded_parameter_bytes": 81614080,
+            "peak_allocated_bytes": 414993408
+          }
+        }
+      },
+      "speedup": {
+        "baseline": 1.7209448997444268,
+        "error_feedback": 1.1959336357774892
+      },
+      "warmup": 20,
+      "steps": 100,
+      "windows": 5,
+      "environment": {
+        "recorded_at": "2026-10-20T12:16:35.377385+00:00",
+        "hostname": "n75",
+        "cpu_count": 288,
+        "python": "3.14.5 (main, May 10 2026, 19:28:19) [Clang 22.1.3 ]",
+        "platform": "Linux-5.14.0-687.57.1.el9_8.aarch64+64k-aarch64-with-glibc2.34",
+        "torch": "2.14.0+cu130",
+        "numpy": "2.5.3",
+        "cuda": "13.0",
+        "source_sha256": "19c42b6251a07f42aec3c0effed1445201f5989e8639ee27e6b21828321435ec",
+        "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+        "python_version": [
+          3,
+          14
+        ],
+        "upstream": "dd03e5037b46961b1bbcbd014c445b6efebb4841"
+      }
+    },
+    "90m": {
+      "variants": {
+        "reference": {
+          "baseline": {
+            "enabled": false,
+            "implementation": "reference",
+            "history_bytes": 0,
+            "scratch_bytes": 0,
+            "median_step_ms": 0.7517304900102317,
+            "windows_ms": [
+              0.7522834202973172,
+              0.7519324001623318,
+              0.7517276098951697,
+              0.7516165694687515,
+              0.7517304900102317
+            ],
+            "parameter_count": 91605120,
+            "padded_parameter_bytes": 366420480,
+            "peak_allocated_bytes": 1497196032
+          },
+          "error_feedback": {
+            "enabled": true,
+            "implementation": "reference",
+            "history_bytes": 366420480,
+            "scratch_bytes": 366420480,
+            "median_step_ms": 1.8510982301086187,
+            "windows_ms": [
+              1.8510982301086187,
+              1.8515388597734272,
+              1.8510915199294686,
+              1.8512572697363794,
+              1.8510812701424584
+            ],
+            "parameter_count": 91605120,
+            "padded_parameter_bytes": 366420480,
+            "peak_allocated_bytes": 2231199232
+          }
+        },
+        "auto": {
+          "baseline": {
+            "enabled": false,
+            "implementation": "triton",
+            "history_bytes": 0,
+            "scratch_bytes": 0,
+            "median_step_ms": 0.7188548299018294,
+            "windows_ms": [
+              0.7188129000132903,
+              0.7188548299018294,
+              0.7188810699153692,
+              0.71870124025736,
+              0.718860580236651
+            ],
+            "parameter_count": 91605120,
+            "padded_parameter_bytes": 366420480,
+            "peak_allocated_bytes": 1497920512
+          },
+          "error_feedback": {
+            "enabled": true,
+            "implementation": "triton",
+            "history_bytes": 366420480,
+            "scratch_bytes": 0,
+            "median_step_ms": 1.6232159303035587,
+            "windows_ms": [
+              1.6234187904046848,
+              1.6260154999326915,
+              1.622588430182077,
+              1.6224594600498676,
+              1.6232159303035587
+            ],
+            "parameter_count": 91605120,
+            "padded_parameter_bytes": 366420480,
+            "peak_allocated_bytes": 1864922112
+          }
+        }
+      },
+      "speedup": {
+        "baseline": 1.0457333786195637,
+        "error_feedback": 1.140389393395396
+      },
+      "warmup": 20,
+      "steps": 100,
+      "windows": 5,
+      "environment": {
+        "recorded_at": "2026-10-20T12:16:50.127956+00:00",
+        "hostname": "n75",
+        "cpu_count": 288,
+        "python": "3.14.5 (main, May 10 2026, 19:28:19) [Clang 22.1.3 ]",
+        "platform": "Linux-5.14.0-687.57.1.el9_8.aarch64+64k-aarch64-with-glibc2.34",
+        "torch": "2.14.0+cu130",
+        "numpy": "2.5.3",
+        "cuda": "13.0",
+        "source_sha256": "19c42b6251a07f42aec3c0effed1445201f5989e8639ee27e6b21828321435ec",
+        "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1",
+        "python_version": [
+          3,
+          14
+        ],
+        "upstream": "dd03e5037b46961b1bbcbd014c445b6efebb4841"
+      }
+    }
+  },
+  "validation": {
+    "cpu_gloo": {
+      "passed": 468,
+      "deselected_cuda": 27
+    },
+    "cuda": {
+      "job_id": "4128359",
+      "passed": 16,
+      "deselected": 14
+    },
+    "ruff": "passed",
+    "pyright": "passed; 0 errors, 0 warnings",
+    "benchmark_harness_tests": {
+      "passed": 4,
+      "includes_complete_matrix_failure_reporting": true
+    },
+    "qualification_harness_tests": {
+      "passed": 18,
+      "covers_original_window_and_thresholds": true,
+      "covers_all_rank_assessment_and_raw_measurement_preservation": true
+    },
+    "cpu": {
+      "passed": 484,
+      "deselected_cuda": 27,
+      "seconds": 224.17,
+      "gpus_hidden": true
+    }
+  },
+  "distributed": {
+    "status": "passed existing five-update state and 100-update validation gates; stricter all-update diagnostics fail for 20M",
+    "queued_jobs": [],
+    "excluded_pilot_job": "4127880",
+    "excluded_pilot_reason": "Full-recipe resident preload followed compute warmup; final measurements preload only the bounded horizon before warmup and run without profiling.",
+    "matrix_path": "runs/fused-optimizer/matrix-bounded/matrix.json",
+    "numerical_path": "runs/fused-optimizer/numerical-bounded/matrix.json",
+    "configuration_failures": {
+      "job_ids": [
+        "4128458",
+        "4129939"
+      ],
+      "reason": "The 0.1 total token budget was not divisible by the inherited 0.5 epoch token budget.",
+      "fix": "All three worker commands now set both training.tokens_per_parameters and training.epoch_tokens_per_parameters to 0.1.",
+      "validation": "All 192 worker/model/scheme/topology/feedback/selector/seed configurations pass Config validation on CPU; shell syntax checks pass."
+    },
+    "numerical_4gpu_path": "runs/fused-optimizer/numerical-4gpu/matrix.json",
+    "running_jobs": [],
+    "numerical_failure": {
+      "job_id": "4131961",
+      "report": "runs/fused-optimizer/numerical-4gpu/20m/awc/complete/False/42/numerical-rank-00000.json",
+      "case": {
+        "model": "20m",
+        "world_size": 4,
+        "scheme": "awc",
+        "topology": "complete",
+        "feedback": false,
+        "seed": 42,
+        "steps": 100,
+        "forward_backend": "gh200",
+        "compiled": true
+      },
+      "failed_gate": "gradient relative L2 < 0.05 at every update",
+      "maximum_gradient_relative_l2": 0.414338618516922,
+      "failed_updates": [
+        70,
+        71,
+        74,
+        82,
+        84,
+        85,
+        86,
+        90,
+        93
+      ],
+      "maximum_parameter_relative_l2": 0.0014043052215129137,
+      "validation_loss_delta": 0.0003626923771662405,
+      "diagnostic_job": "4133159",
+      "diagnostic_path": "runs/fused-optimizer/trajectory-diagnostics/diagnostics.json",
+      "diagnostic_purpose": "Compare reference/reference GH200 trajectories and matched native eager trajectories without changing acceptance thresholds.",
+      "gate_scope": "accidental all-update state gate, rather than the existing first-five-update probe"
+    },
+    "throughput": {
+      "job_id": "4129125",
+      "job_state": "FAILED after throughput completed, during numerical qualification",
+      "nodes": [
+        "n40",
+        "n110"
+      ],
+      "world_size": 8,
+      "gpu": "NVIDIA GH200 120GB",
+      "context_length": 512,
+      "global_batch_tokens": 32768,
+      "trials": 3,
+      "completed_timing_cases": 96,
+      "verified_rank_reports": 768,
+      "verified_pairs": 48,
+      "forward_backend": "compiled GH200 BF16",
+      "summary": {
+        "comparisons": [
+          {
+            "model": "20m",
+            "topology": "complete",
+            "scheme": "awc",
+            "feedback": false,
+            "reference_tokens_per_second": 2891813.459757903,
+            "fused_tokens_per_second": 2947001.6119972086,
+            "speedup": 1.0657562719244964
+          },
+          {
+            "model": "20m",
+            "topology": "complete",
+            "scheme": "awc",
+            "feedback": true,
+            "reference_tokens_per_second": 2847797.5364923673,
+            "fused_tokens_per_second": 2967159.0153486305,
+            "speedup": 1.0419136112475471
+          },
+          {
+            "model": "20m",
+            "topology": "complete",
+            "scheme": "atc",
+            "feedback": false,
+            "reference_tokens_per_second": 2823575.0203648605,
+            "fused_tokens_per_second": 2840241.2695426694,
+            "speedup": 1.0438234087097886
+          },
+          {
+            "model": "20m",
+            "topology": "complete",
+            "scheme": "atc",
+            "feedback": true,
+            "reference_tokens_per_second": 2723025.9881121097,
+            "fused_tokens_per_second": 2871134.061368264,
+            "speedup": 1.041458937605462
+          },
+          {
+            "model": "20m",
+            "topology": "one_peer_ring",
+            "scheme": "awc",
+            "feedback": false,
+            "reference_tokens_per_second": 2882455.0670717824,
+            "fused_tokens_per_second": 2999916.6000804617,
+            "speedup": 1.0478125545154136
+          },
+          {
+            "model": "20m",
+            "topology": "one_peer_ring",
+            "scheme": "awc",
+            "feedback": true,
+            "reference_tokens_per_second": 2914530.080055456,
+            "fused_tokens_per_second": 2949160.447065037,
+            "speedup": 1.0118819727566244
+          },
+          {
+            "model": "20m",
+            "topology": "one_peer_ring",
+            "scheme": "atc",
+            "feedback": false,
+            "reference_tokens_per_second": 2807018.806202972,
+            "fused_tokens_per_second": 2918101.39340707,
+            "speedup": 1.0395731538950246
+          },
+          {
+            "model": "20m",
+            "topology": "one_peer_ring",
+            "scheme": "atc",
+            "feedback": true,
+            "reference_tokens_per_second": 2764462.707043236,
+            "fused_tokens_per_second": 2941660.700066482,
+            "speedup": 1.0767327256078858
+          },
+          {
+            "model": "90m",
+            "topology": "complete",
+            "scheme": "awc",
+            "feedback": false,
+            "reference_tokens_per_second": 1706246.3879697986,
+            "fused_tokens_per_second": 1807317.6266839493,
+            "speedup": 1.0364707902953747
+          },
+          {
+            "model": "90m",
+            "topology": "complete",
+            "scheme": "awc",
+            "feedback": true,
+            "reference_tokens_per_second": 1723727.5281239336,
+            "fused_tokens_per_second": 1741816.992864859,
+            "speedup": 1.0051693731228846
+          },
+          {
+            "model": "90m",
+            "topology": "complete",
+            "scheme": "atc",
+            "feedback": false,
+            "reference_tokens_per_second": 1661360.4067972163,
+            "fused_tokens_per_second": 1661175.3631288414,
+            "speedup": 0.9998886191896605
+          },
+          {
+            "model": "90m",
+            "topology": "complete",
+            "scheme": "atc",
+            "feedback": true,
+            "reference_tokens_per_second": 1605207.0303948512,
+            "fused_tokens_per_second": 1653786.0366368254,
+            "speedup": 1.0337730799826208
+          },
+          {
+            "model": "90m",
+            "topology": "one_peer_ring",
+            "scheme": "awc",
+            "feedback": false,
+            "reference_tokens_per_second": 1670572.4831631691,
+            "fused_tokens_per_second": 1732607.4000099967,
+            "speedup": 1.0267266568399347
+          },
+          {
+            "model": "90m",
+            "topology": "one_peer_ring",
+            "scheme": "awc",
+            "feedback": true,
+            "reference_tokens_per_second": 1572438.9751122687,
+            "fused_tokens_per_second": 1750117.6628072055,
+            "speedup": 1.1129956014237379
+          },
+          {
+            "model": "90m",
+            "topology": "one_peer_ring",
+            "scheme": "atc",
+            "feedback": false,
+            "reference_tokens_per_second": 1337120.2301934361,
+            "fused_tokens_per_second": 1386678.3269306233,
+            "speedup": 1.037063306364019
+          },
+          {
+            "model": "90m",
+            "topology": "one_peer_ring",
+            "scheme": "atc",
+            "feedback": true,
+            "reference_tokens_per_second": 1327065.077031438,
+            "fused_tokens_per_second": 1378267.2349688855,
+            "speedup": 1.0387605507294406
+          }
+        ],
+        "model_geomean_speedup": {
+          "20m": 1.045964397199115,
+          "90m": 1.0358700345956124
+        },
+        "model_median_speedup": {
+          "20m": 1.0428685099786679,
+          "90m": 1.0351219351389978
+        },
+        "passed": true,
+        "complete": true
+      },
+      "verified_zero_fused_feedback_scratch": true,
+      "verified_zero_fused_atc_communication_snapshot": true,
+      "startup_rank_zero": {
+        "20m": {
+          "first_reference_update_seconds": 36.097354546014685,
+          "first_fused_update_seconds": 1.246508515032474,
+          "max_pytorch_compilation_seconds": 32.597735238
+        },
+        "90m": {
+          "first_reference_update_seconds": 19.96720421500504,
+          "first_fused_update_seconds": 0.5230425099725835,
+          "max_pytorch_compilation_seconds": 19.141535376
+        }
+      },
+      "startup_note": "Compiled forwards are cached across variants; first-update time includes optimizer/Triton initialization. Startup is excluded from throughput windows."
+    },
+    "diagnostics": {
+      "job_id": "4133159",
+      "completed": true,
+      "cases": [
+        {
+          "case": "gh200-reference-control-42",
+          "reference_control": true,
+          "max_errors": {
+            "loss": 0.0007610321044921875,
+            "loss_limit": 0.022885059356689455,
+            "parameters": 0.001050305087119341,
+            "gradients": 0.3988035321235657,
+            "updates": 0.09034448117017746,
+            "loss_tolerance_ratio": 0.042405738102161486,
+            "exp_avg": 0.042433001101017,
+            "exp_avg_sq": 0.014700176194310188,
+            "steps": 0.0
+          },
+          "validation_delta": 0.0006825631044193869,
+          "numerical_passed": false,
+          "report": "runs/fused-optimizer/trajectory-diagnostics/gh200-reference-control-42/numerical-rank-00000.json",
+          "failed_metrics": [
+            "gradients"
+          ]
+        },
+        {
+          "case": "gh200-reference-control-43",
+          "reference_control": true,
+          "max_errors": {
+            "loss": 0.0001544952392578125,
+            "loss_limit": 0.022854188919067382,
+            "parameters": 0.0003353758656885475,
+            "gradients": 0.11088904738426208,
+            "updates": 0.022547347471117973,
+            "loss_tolerance_ratio": 0.00854093967629206,
+            "exp_avg": 0.011840163730084896,
+            "exp_avg_sq": 0.004496308509260416,
+            "steps": 0.0
+          },
+          "validation_delta": 8.314748629345559e-05,
+          "numerical_passed": false,
+          "report": "runs/fused-optimizer/trajectory-diagnostics/gh200-reference-control-43/numerical-rank-00000.json",
+          "failed_metrics": [
+            "gradients"
+          ]
+        },
+        {
+          "case": "native-fused-42",
+          "reference_control": false,
+          "max_errors": {
+            "loss": 0.0008172988891601562,
+            "loss_limit": 0.022885110855102538,
+            "parameters": 0.0020157492253929377,
+            "gradients": 0.5192829966545105,
+            "updates": 0.11181388050317764,
+            "loss_tolerance_ratio": 0.04429415786417189,
+            "exp_avg": 0.05588914826512337,
+            "exp_avg_sq": 0.025548793375492096,
+            "steps": 0.0
+          },
+          "validation_delta": -0.00026744116439658683,
+          "numerical_passed": false,
+          "report": "runs/fused-optimizer/trajectory-diagnostics/native-fused-42/numerical-rank-00000.json",
+          "failed_metrics": [
+            "gradients",
+            "updates",
+            "exp_avg"
+          ]
+        },
+        {
+          "case": "native-fused-43",
+          "reference_control": false,
+          "max_errors": {
+            "loss": 0.0001316070556640625,
+            "loss_limit": 0.022854194641113282,
+            "parameters": 0.0005283511127345264,
+            "gradients": 0.2188403606414795,
+            "updates": 0.11014581471681595,
+            "loss_tolerance_ratio": 0.007374747134349616,
+            "exp_avg": 0.022924160584807396,
+            "exp_avg_sq": 0.0030174870043992996,
+            "steps": 0.0
+          },
+          "validation_delta": -6.481382933998248e-05,
+          "numerical_passed": false,
+          "report": "runs/fused-optimizer/trajectory-diagnostics/native-fused-43/numerical-rank-00000.json",
+          "failed_metrics": [
+            "gradients",
+            "updates"
+          ]
+        },
+        {
+          "case": "gh200-fused-42",
+          "reference_control": false,
+          "max_errors": {
+            "loss": 0.0006275177001953125,
+            "loss_limit": 0.022885059356689455,
+            "parameters": 0.0016392540419474244,
+            "gradients": 0.7092186808586121,
+            "updates": 0.1582038700580597,
+            "loss_tolerance_ratio": 0.034404455220091786,
+            "exp_avg": 0.07419192045927048,
+            "exp_avg_sq": 0.02968287654221058,
+            "steps": 0.0
+          },
+          "validation_delta": 0.00017178264715767,
+          "numerical_passed": false,
+          "report": "runs/fused-optimizer/trajectory-diagnostics/gh200-fused-42/numerical-rank-00000.json",
+          "failed_metrics": [
+            "gradients",
+            "updates",
+            "exp_avg"
+          ]
+        },
+        {
+          "case": "native-reference-control-42",
+          "reference_control": true,
+          "max_errors": {
+            "loss": 0.000537872314453125,
+            "loss_limit": 0.022885110855102538,
+            "parameters": 0.0017387305852025747,
+            "gradients": 0.5477872490882874,
+            "updates": 0.13073478639125824,
+            "loss_tolerance_ratio": 0.02921068381796482,
+            "exp_avg": 0.0582190677523613,
+            "exp_avg_sq": 0.023720290511846542,
+            "steps": 0.0
+          },
+          "validation_delta": 3.4428838262101635e-05,
+          "numerical_passed": false,
+          "report": "runs/fused-optimizer/trajectory-diagnostics/native-reference-control-42/numerical-rank-00000.json",
+          "failed_metrics": [
+            "gradients",
+            "updates",
+            "exp_avg"
+          ]
+        }
+      ]
+    },
+    "followup": {
+      "job_id": "4133550",
+      "native_fp32_matrix": "runs/fused-optimizer/numerical-fp32/matrix.json",
+      "gh200_bf16_matrix": "runs/fused-optimizer/numerical-bounded/matrix.json",
+      "cases_per_precision": 32,
+      "steps": 100,
+      "seeds": [
+        42,
+        43
+      ],
+      "thresholds_changed": false,
+      "collect_all_cases_before_failing": true,
+      "completed": true,
+      "slurm_state": "FAILED",
+      "exit_code": "1:0",
+      "reason": "The archived job incorrectly gated state errors at every update rather than the existing first-five-update probe.",
+      "reassessed_without_rerunning_or_changing_measurements": true
+    },
+    "eight_gpu_numerical_failure": {
+      "passed": false,
+      "validation_delta": 0.0009461008849029895,
+      "max_errors": {
+        "loss": 0.005293846130371094,
+        "loss_limit": 0.022888700485229493,
+        "parameters": 0.004364826716482639,
+        "gradients": 1.363707423210144,
+        "updates": 0.31588849425315857,
+        "loss_tolerance_ratio": 0.27974107263407166,
+        "exp_avg": 0.16194070875644684,
+        "exp_avg_sq": 0.09818289428949356,
+        "steps": 0.0
+      },
+      "gate_scope": "accidental all-update state gate, rather than the existing first-five-update probe",
+      "job_id": "4129125",
+      "historical_snapshot": true,
+      "report_path_reused_by_later_job": "runs/fused-optimizer/numerical-bounded/20m/awc/complete/False/42/numerical-rank-00000.json"
+    },
+    "numerical_qualification": {
+      "job_id": "4133550",
+      "nodes": [
+        "n132",
+        "n189"
+      ],
+      "world_size": 8,
+      "gate_protocol": "five-update-state-probe-plus-final-validation-v1",
+      "gate_revision": "114f464965c961d5d627fd2a30442390a390d62d80c1aa1c9e0bd6b2502727f0",
+      "original_gate_definition_revision": "c8321d873366e90a265576723f018355c6b56796",
+      "original_gate_definition_files": [
+        "scripts/qualify_gh200.py",
+        "docs/gh200-performance.md"
+      ],
+      "probe_updates": 5,
+      "trajectory_updates": 100,
+      "seeds": [
+        42,
+        43
+      ],
+      "history_probe_relative_l2_limit": 0.1,
+      "validation_absolute_limit": 0.02,
+      "step_counters_checked_every_update": true,
+      "finite_values_required_every_update": true,
+      "numerical_tolerances_changed": false,
+      "correction": "Restore the original first-five-update state-probe window; retain all 100 updates as separately scored diagnostics.",
+      "raw_measurements_unchanged": true,
+      "precisions": {
+        "native_eager_fp32": {
+          "assessment": "runs/fused-optimizer/numerical-fp32/assessment.json",
+          "assessment_sha256": "b459a50bec36cf9d0cdb23a31acdebfadcd8f0f89046ad929f140dd16983d928",
+          "cases": 32,
+          "passed_cases": 32,
+          "all_recorded_updates_passed_cases": 17,
+          "verified_rank_reports": 256,
+          "passed": true,
+          "minimum_validation_delta": -0.0037537742937274743,
+          "maximum_validation_delta": 0.0035903677771784714,
+          "maximum_absolute_validation_delta": 0.0037537742937274743,
+          "maximum_probe_errors": {
+            "loss": 1.9073486328125e-06,
+            "loss_limit": 0.023051208496093753,
+            "parameters": 6.041456224181729e-09,
+            "gradients": 5.76337242819136e-07,
+            "updates": 6.593199941562489e-05,
+            "loss_tolerance_ratio": 8.393662784597629e-05,
+            "exp_avg": 4.6624421656815684e-07,
+            "exp_avg_sq": 5.044095701123297e-07,
+            "steps": 0,
+            "history": 4.4314143451629207e-05
+          },
+          "maximum_all_update_errors": {
+            "loss": 0.007366180419921875,
+            "loss_limit": 0.023051208496093753,
+            "parameters": 0.0036343159154057503,
+            "gradients": 1.3305696249008179,
+            "updates": 0.5189458727836609,
+            "loss_tolerance_ratio": 0.3991135222914249,
+            "exp_avg": 0.21409793198108673,
+            "exp_avg_sq": 0.13235434889793396,
+            "steps": 0,
+            "history": 0.3841097950935364
+          },
+          "rows": [
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -2.5004153940244578e-05,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/awc/complete/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 3.3032512281039317e-09,
+                "gradients": 2.1835283803284256e-07,
+                "updates": 1.8677405023481697e-05,
+                "loss_tolerance_ratio": 4.195171458335571e-05,
+                "exp_avg": 1.8480442065538227e-07,
+                "exp_avg_sq": 2.1621282542128029e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.00039005279541015625,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 0.00048210195382125676,
+                "gradients": 0.650650680065155,
+                "updates": 0.10972010344266891,
+                "loss_tolerance_ratio": 0.02169414972432252,
+                "exp_avg": 0.07415182888507843,
+                "exp_avg_sq": 0.04891042783856392,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0002923468236986082,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/awc/complete/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 3.6249547807898352e-09,
+                "gradients": 2.2847832781280886e-07,
+                "updates": 1.8911461665993556e-05,
+                "loss_tolerance_ratio": 4.1981228513482486e-05,
+                "exp_avg": 1.860450282720194e-07,
+                "exp_avg_sq": 2.1683058548660483e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.000484466552734375,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 0.0001490902213845402,
+                "gradients": 0.14883095026016235,
+                "updates": 0.02603989839553833,
+                "loss_tolerance_ratio": 0.02607917473170279,
+                "exp_avg": 0.018107596784830093,
+                "exp_avg_sq": 0.009408021345734596,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0033057248574550613,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/awc/complete/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 5.31551025417798e-09,
+                "gradients": 2.3754152778110438e-07,
+                "updates": 2.6587294996716082e-05,
+                "loss_tolerance_ratio": 4.2009707435155294e-05,
+                "exp_avg": 2.0801891764676839e-07,
+                "exp_avg_sq": 2.651272552611772e-07,
+                "history": 1.46217062138021e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.004364013671875,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 0.0026160015258938074,
+                "gradients": 1.2705488204956055,
+                "updates": 0.47924065589904785,
+                "loss_tolerance_ratio": 0.23895870818588147,
+                "exp_avg": 0.15110456943511963,
+                "exp_avg_sq": 0.10263454169034958,
+                "history": 0.23067162930965424,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0003418296973904944,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/awc/complete/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 6.041456224181729e-09,
+                "gradients": 2.406460168913327e-07,
+                "updates": 2.3606824470334686e-05,
+                "loss_tolerance_ratio": 4.199294484932176e-05,
+                "exp_avg": 1.8879825347539736e-07,
+                "exp_avg_sq": 2.6503155936552503e-07,
+                "history": 1.4030086276761722e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0025424957275390625,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 0.0025531137362122536,
+                "gradients": 1.3099958896636963,
+                "updates": 0.5189458727836609,
+                "loss_tolerance_ratio": 0.14038317339691475,
+                "exp_avg": 0.189429372549057,
+                "exp_avg_sq": 0.11882711946964264,
+                "history": 0.3841097950935364,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.00021241899685264798,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/awc/one_peer_ring/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 2.922640129909837e-09,
+                "gradients": 3.0720019594809855e-07,
+                "updates": 2.213909233717004e-08,
+                "loss_tolerance_ratio": 4.191628513066731e-05,
+                "exp_avg": 2.4331831127710757e-07,
+                "exp_avg_sq": 2.597917614366452e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0016431808471679688,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 0.001289385138079524,
+                "gradients": 0.777247965335846,
+                "updates": 0.1650802195072174,
+                "loss_tolerance_ratio": 0.0910161512201394,
+                "exp_avg": 0.0876704752445221,
+                "exp_avg_sq": 0.04143897816538811,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0001793789579096483,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/awc/one_peer_ring/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 2.94677060530546e-09,
+                "gradients": 3.0717063737029093e-07,
+                "updates": 2.1450523135513322e-08,
+                "loss_tolerance_ratio": 4.196120283969923e-05,
+                "exp_avg": 2.513790207103739e-07,
+                "exp_avg_sq": 2.616762628804281e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0016574859619140625,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 0.0013390189269557595,
+                "gradients": 0.8028428554534912,
+                "updates": 0.1487709879875183,
+                "loss_tolerance_ratio": 0.09012355742675154,
+                "exp_avg": 0.08978700637817383,
+                "exp_avg_sq": 0.05512207746505737,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0002487849369572359,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/awc/one_peer_ring/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 5.116349122147312e-09,
+                "gradients": 3.260759342538222e-07,
+                "updates": 4.238342299345277e-08,
+                "loss_tolerance_ratio": 4.193861763270594e-05,
+                "exp_avg": 2.4854776370375475e-07,
+                "exp_avg_sq": 2.8931967221978994e-07,
+                "history": 1.9279479602118954e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.005621433258056641,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 0.0030712841544300318,
+                "gradients": 1.2822484970092773,
+                "updates": 0.45230361819267273,
+                "loss_tolerance_ratio": 0.3159264615169733,
+                "exp_avg": 0.21409793198108673,
+                "exp_avg_sq": 0.12209820002317429,
+                "history": 0.29181548953056335,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0037537742937274743,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/awc/one_peer_ring/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 4.921396623558394e-09,
+                "gradients": 3.1671356737206224e-07,
+                "updates": 3.962070849183874e-08,
+                "loss_tolerance_ratio": 4.193476259305114e-05,
+                "exp_avg": 2.5081445187424833e-07,
+                "exp_avg_sq": 2.779338501568418e-07,
+                "history": 1.993194018723443e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.007366180419921875,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 0.0036343159154057503,
+                "gradients": 1.2843605279922485,
+                "updates": 0.46278420090675354,
+                "loss_tolerance_ratio": 0.383958450565598,
+                "exp_avg": 0.1888277679681778,
+                "exp_avg_sq": 0.13235434889793396,
+                "history": 0.26420533657073975,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0002525950230847229,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/atc/complete/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 3.595680420076519e-09,
+                "gradients": 2.3459924136659538e-07,
+                "updates": 1.8370476027484983e-05,
+                "loss_tolerance_ratio": 8.393662784597629e-05,
+                "exp_avg": 1.9479884372231027e-07,
+                "exp_avg_sq": 2.537269097047101e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0006465911865234375,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 9.939703886630014e-05,
+                "gradients": 0.10557200759649277,
+                "updates": 0.003737314371392131,
+                "loss_tolerance_ratio": 0.034998172661781374,
+                "exp_avg": 0.012339160777628422,
+                "exp_avg_sq": 0.0033463737927377224,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -5.472915290738456e-06,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/atc/complete/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 3.5983831470076666e-09,
+                "gradients": 2.3370441226688854e-07,
+                "updates": 1.8280088625033386e-05,
+                "loss_tolerance_ratio": 4.193524795137927e-05,
+                "exp_avg": 1.966264022712494e-07,
+                "exp_avg_sq": 2.5681103466013155e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.239776611328125e-05,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 3.1323779694503173e-06,
+                "gradients": 0.0031061568297445774,
+                "updates": 0.00011935562361031771,
+                "loss_tolerance_ratio": 0.0006812471728242327,
+                "exp_avg": 0.0003788529720623046,
+                "exp_avg_sq": 0.0001951400190591812,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0007056229978843476,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/atc/complete/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 5.36269029183245e-09,
+                "gradients": 2.337621509695964e-07,
+                "updates": 1.5501329471589997e-05,
+                "loss_tolerance_ratio": 4.1999227046225444e-05,
+                "exp_avg": 1.8964873049753805e-07,
+                "exp_avg_sq": 2.454256389228249e-07,
+                "history": 2.265531111333985e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.003055572509765625,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 0.0009824958397075534,
+                "gradients": 1.2083631753921509,
+                "updates": 0.05115027353167534,
+                "loss_tolerance_ratio": 0.169390412333483,
+                "exp_avg": 0.1473049521446228,
+                "exp_avg_sq": 0.08475285768508911,
+                "history": 0.206245556473732,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -6.374100939865457e-05,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/atc/complete/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 5.405166980665399e-09,
+                "gradients": 2.4015912458708044e-07,
+                "updates": 1.5487919881707057e-05,
+                "loss_tolerance_ratio": 4.1936471948358425e-05,
+                "exp_avg": 1.8359942544066143e-07,
+                "exp_avg_sq": 2.1350861345581507e-07,
+                "history": 2.312987453478854e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 9.918212890625e-05,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 6.588613177882507e-05,
+                "gradients": 0.14760160446166992,
+                "updates": 0.006061122287064791,
+                "loss_tolerance_ratio": 0.005457012176693016,
+                "exp_avg": 0.018823908641934395,
+                "exp_avg_sq": 0.01253602933138609,
+                "history": 0.023448999971151352,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0005650832445098786,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/atc/one_peer_ring/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 3.3850313663208453e-09,
+                "gradients": 2.9830576409040077e-07,
+                "updates": 2.325055348251226e-08,
+                "loss_tolerance_ratio": 4.192340208743327e-05,
+                "exp_avg": 2.431591212825879e-07,
+                "exp_avg_sq": 2.59292789905885e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.001338958740234375,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 0.0014497075462713838,
+                "gradients": 1.2080014944076538,
+                "updates": 0.17881661653518677,
+                "loss_tolerance_ratio": 0.07411384858435159,
+                "exp_avg": 0.1300298571586609,
+                "exp_avg_sq": 0.07276637852191925,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 6.482313074229751e-05,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/atc/one_peer_ring/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 3.059467346133715e-09,
+                "gradients": 3.0802328865320305e-07,
+                "updates": 2.0424231195192988e-08,
+                "loss_tolerance_ratio": 4.196371733072151e-05,
+                "exp_avg": 2.447749238854158e-07,
+                "exp_avg_sq": 2.590664678336907e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.000118255615234375,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 6.202972144819796e-05,
+                "gradients": 0.1031072735786438,
+                "updates": 0.009618675336241722,
+                "loss_tolerance_ratio": 0.006563284352177369,
+                "exp_avg": 0.011479686014354229,
+                "exp_avg_sq": 0.009078253991901875,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0035903677771784714,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/atc/one_peer_ring/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 4.208721371412594e-09,
+                "gradients": 3.25434655223944e-07,
+                "updates": 3.1309621562058965e-08,
+                "loss_tolerance_ratio": 8.379557767162926e-05,
+                "exp_avg": 2.5306667339464184e-07,
+                "exp_avg_sq": 3.0211569423954643e-07,
+                "history": 2.251253135909792e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0072078704833984375,
+                "loss_limit": 0.022888532638549806,
+                "parameters": 0.002465404337272048,
+                "gradients": 1.290186882019043,
+                "updates": 0.38628506660461426,
+                "loss_tolerance_ratio": 0.3991135222914249,
+                "exp_avg": 0.1401744931936264,
+                "exp_avg_sq": 0.08167523890733719,
+                "history": 0.2783797085285187,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.00011733575047401246,
+              "source": "runs/fused-optimizer/numerical-fp32/20m/atc/one_peer_ring/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 4.023390065555077e-09,
+                "gradients": 3.0476664392153907e-07,
+                "updates": 3.02150517939026e-08,
+                "loss_tolerance_ratio": 4.193220937121142e-05,
+                "exp_avg": 2.477665930200601e-07,
+                "exp_avg_sq": 2.561869223427493e-07,
+                "history": 2.238501656393055e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0014262199401855469,
+                "loss_limit": 0.022887865066528318,
+                "parameters": 0.0012325006537139416,
+                "gradients": 1.3305696249008179,
+                "updates": 0.2495635449886322,
+                "loss_tolerance_ratio": 0.08026230935621845,
+                "exp_avg": 0.14447428286075592,
+                "exp_avg_sq": 0.08282627165317535,
+                "history": 0.2468036413192749,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -9.819814295042306e-09,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/awc/complete/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 2.070978055712658e-09,
+                "gradients": 4.1350384094585024e-07,
+                "updates": 4.53391985502094e-05,
+                "loss_tolerance_ratio": 4.192139503670805e-05,
+                "exp_avg": 3.6316515661383164e-07,
+                "exp_avg_sq": 4.6459271629828436e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 3.8065319785118845e-08,
+                "gradients": 2.8209099127707304e-06,
+                "updates": 4.53391985502094e-05,
+                "loss_tolerance_ratio": 8.460421555732772e-05,
+                "exp_avg": 4.5263988113219966e-07,
+                "exp_avg_sq": 4.6459271629828436e-07,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.0996700439136475e-08,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/awc/complete/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 1.910864133591872e-09,
+                "gradients": 4.0498775888409e-07,
+                "updates": 4.9647904234007e-05,
+                "loss_tolerance_ratio": 4.201311027508756e-05,
+                "exp_avg": 3.690859671223734e-07,
+                "exp_avg_sq": 4.739000871722965e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 3.811450000057448e-08,
+                "gradients": 2.175217105104821e-06,
+                "updates": 4.9647904234007e-05,
+                "loss_tolerance_ratio": 9.670057633543495e-05,
+                "exp_avg": 3.690859671223734e-07,
+                "exp_avg_sq": 4.739000871722965e-07,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -7.031303539406508e-09,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/awc/complete/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 3.186012120792725e-09,
+                "gradients": 4.3257128368168196e-07,
+                "updates": 6.593199941562489e-05,
+                "loss_tolerance_ratio": 4.1890213792570724e-05,
+                "exp_avg": 3.801550292337197e-07,
+                "exp_avg_sq": 4.6071076553744206e-07,
+                "history": 3.491010284051299e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 6.068020041993805e-08,
+                "gradients": 2.9408902264549397e-06,
+                "updates": 6.593199941562489e-05,
+                "loss_tolerance_ratio": 8.776954245913053e-05,
+                "exp_avg": 4.833905791201687e-07,
+                "exp_avg_sq": 4.6071076553744206e-07,
+                "history": 3.491010284051299e-05,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.6630110621917993e-08,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/awc/complete/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 3.0810549667137366e-09,
+                "gradients": 4.103110029518575e-07,
+                "updates": 5.591315130004659e-05,
+                "loss_tolerance_ratio": 4.2046285055144125e-05,
+                "exp_avg": 3.557782974894508e-07,
+                "exp_avg_sq": 4.6013633436814416e-07,
+                "history": 2.9116728910594247e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 6.012393782839354e-08,
+                "gradients": 1.8283693634657538e-06,
+                "updates": 5.591315130004659e-05,
+                "loss_tolerance_ratio": 4.8735175977846946e-05,
+                "exp_avg": 3.968125383835286e-07,
+                "exp_avg_sq": 4.6013633436814416e-07,
+                "history": 2.9116728910594247e-05,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -6.873051461298019e-09,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/awc/one_peer_ring/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 1.8016044212032511e-09,
+                "gradients": 5.13429370130325e-07,
+                "updates": 1.2518357905833e-08,
+                "loss_tolerance_ratio": 4.186942634196536e-05,
+                "exp_avg": 4.278341236840788e-07,
+                "exp_avg_sq": 4.565351332530554e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 2.4430109490936047e-08,
+                "gradients": 3.1633594517188612e-06,
+                "updates": 1.435391550330678e-05,
+                "loss_tolerance_ratio": 8.561001760484402e-05,
+                "exp_avg": 4.278341236840788e-07,
+                "exp_avg_sq": 4.565351332530554e-07,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.2437340046744794e-08,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/awc/one_peer_ring/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 1.973074148509113e-09,
+                "gradients": 5.724762104364345e-07,
+                "updates": 1.3422887690239804e-08,
+                "loss_tolerance_ratio": 4.190431300979739e-05,
+                "exp_avg": 4.645053479634953e-07,
+                "exp_avg_sq": 5.044095701123297e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 2.4434376300064287e-08,
+                "gradients": 3.5850471249432303e-06,
+                "updates": 1.3606091670226306e-05,
+                "loss_tolerance_ratio": 8.816595936995195e-05,
+                "exp_avg": 5.757991061727807e-07,
+                "exp_avg_sq": 5.044095701123297e-07,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.2549207895062864e-08,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/awc/one_peer_ring/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 0,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 2.7136990432552466e-09,
+                "gradients": 5.19427260314842e-07,
+                "updates": 2.21947793477284e-08,
+                "loss_tolerance_ratio": 0,
+                "exp_avg": 4.395410826418811e-07,
+                "exp_avg_sq": 4.595011660057935e-07,
+                "history": 3.842869773507118e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 2.9468566253854078e-08,
+                "gradients": 2.927346486103488e-06,
+                "updates": 1.9698967662407085e-05,
+                "loss_tolerance_ratio": 8.502435437606749e-05,
+                "exp_avg": 4.86626049678307e-07,
+                "exp_avg_sq": 4.619502647074114e-07,
+                "history": 3.842869773507118e-05,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -8.893039193935692e-09,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/awc/one_peer_ring/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 2.721887382151067e-09,
+                "gradients": 5.76337242819136e-07,
+                "updates": 2.1675042205515638e-08,
+                "loss_tolerance_ratio": 4.190894928732155e-05,
+                "exp_avg": 4.6009461129870033e-07,
+                "exp_avg_sq": 4.706169818291528e-07,
+                "history": 3.821397331194021e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 2.9132932510833598e-08,
+                "gradients": 2.8793313049391145e-06,
+                "updates": 2.071491144306492e-05,
+                "loss_tolerance_ratio": 8.402797862798781e-05,
+                "exp_avg": 4.6009461129870033e-07,
+                "exp_avg_sq": 4.706169818291528e-07,
+                "history": 3.821397331194021e-05,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -9.085852070711553e-09,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/atc/complete/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 2.0693970981255916e-09,
+                "gradients": 4.34023064599387e-07,
+                "updates": 5.2840699936496094e-05,
+                "loss_tolerance_ratio": 4.194746650306037e-05,
+                "exp_avg": 3.599548108468298e-07,
+                "exp_avg_sq": 4.2764560248542693e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 3.9944424656823685e-08,
+                "gradients": 1.8761536466627149e-06,
+                "updates": 5.2840699936496094e-05,
+                "loss_tolerance_ratio": 8.76262913924694e-05,
+                "exp_avg": 3.599548108468298e-07,
+                "exp_avg_sq": 4.2764560248542693e-07,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -6.935806595720351e-09,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/atc/complete/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 2.120040587527683e-09,
+                "gradients": 3.9781676264283305e-07,
+                "updates": 5.380047150538303e-05,
+                "loss_tolerance_ratio": 4.190131753664836e-05,
+                "exp_avg": 3.5429494005256856e-07,
+                "exp_avg_sq": 4.731716103378858e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 3.9925552641761897e-08,
+                "gradients": 1.8858617067962768e-06,
+                "updates": 5.380047150538303e-05,
+                "loss_tolerance_ratio": 9.382008947059012e-05,
+                "exp_avg": 3.5429494005256856e-07,
+                "exp_avg_sq": 4.731716103378858e-07,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -9.296854841522872e-09,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/atc/complete/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 3.1250744214617043e-09,
+                "gradients": 4.294800248771935e-07,
+                "updates": 4.650190021493472e-05,
+                "loss_tolerance_ratio": 4.194418336520532e-05,
+                "exp_avg": 3.658103366888099e-07,
+                "exp_avg_sq": 4.252977134910907e-07,
+                "history": 4.4314143451629207e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 6.355807613545039e-08,
+                "gradients": 5.072871772426879e-06,
+                "updates": 4.650190021493472e-05,
+                "loss_tolerance_ratio": 9.563808101807885e-05,
+                "exp_avg": 6.333149258352933e-07,
+                "exp_avg_sq": 4.363137122709304e-07,
+                "history": 4.4314143451629207e-05,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.6171725292224437e-08,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/atc/complete/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 0,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 3.0999214306604017e-09,
+                "gradients": 4.1108543769041717e-07,
+                "updates": 4.646308661904186e-05,
+                "loss_tolerance_ratio": 0,
+                "exp_avg": 3.672732873383211e-07,
+                "exp_avg_sq": 4.6717670443285897e-07,
+                "history": 4.373708725324832e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 1.1047190184854117e-07,
+                "gradients": 2.289381200171192e-06,
+                "updates": 4.646308661904186e-05,
+                "loss_tolerance_ratio": 4.8692205273872235e-05,
+                "exp_avg": 7.310903811230673e-07,
+                "exp_avg_sq": 4.6717670443285897e-07,
+                "history": 4.373708725324832e-05,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -6.9012457970529795e-09,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/atc/one_peer_ring/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 1.8283585756506682e-09,
+                "gradients": 5.067341817266424e-07,
+                "updates": 1.1695164836567074e-08,
+                "loss_tolerance_ratio": 4.1892200309063896e-05,
+                "exp_avg": 4.2953664092237887e-07,
+                "exp_avg_sq": 4.552515804334689e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 2.3883568900373575e-08,
+                "gradients": 2.5020474367920542e-06,
+                "updates": 1.3894827134208754e-05,
+                "loss_tolerance_ratio": 9.157901639007972e-05,
+                "exp_avg": 4.7578106432411005e-07,
+                "exp_avg_sq": 4.552515804334689e-07,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.2261807569302619e-08,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/atc/one_peer_ring/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 1.8360848397236396e-09,
+                "gradients": 5.667453706337255e-07,
+                "updates": 1.1731995819275198e-08,
+                "loss_tolerance_ratio": 4.1924256284655634e-05,
+                "exp_avg": 4.6237173023655487e-07,
+                "exp_avg_sq": 4.761577656609006e-07,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 2.4102709161866187e-08,
+                "gradients": 1.8361243974140962e-06,
+                "updates": 1.3165495147404727e-05,
+                "loss_tolerance_ratio": 4.847490672216073e-05,
+                "exp_avg": 4.6237173023655487e-07,
+                "exp_avg_sq": 4.761577656609006e-07,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.2000782589893788e-08,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/atc/one_peer_ring/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 2.454762615400341e-09,
+                "gradients": 5.091608841212292e-07,
+                "updates": 1.746538380587026e-08,
+                "loss_tolerance_ratio": 4.1935772010304463e-05,
+                "exp_avg": 4.315498642881721e-07,
+                "exp_avg_sq": 4.617176045940141e-07,
+                "history": 4.403448838274926e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023028167724609375,
+                "parameters": 2.9928717282246e-08,
+                "gradients": 1.8381092559138779e-06,
+                "updates": 1.8061260561808012e-05,
+                "loss_tolerance_ratio": 8.818530342534645e-05,
+                "exp_avg": 4.315498642881721e-07,
+                "exp_avg_sq": 4.617176045940141e-07,
+                "history": 4.403448838274926e-05,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.3353201211430132e-08,
+              "source": "runs/fused-optimizer/numerical-fp32/90m/atc/one_peer_ring/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-07,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 2.5549486970533053e-09,
+                "gradients": 5.751170988332888e-07,
+                "updates": 1.825572049085622e-08,
+                "loss_tolerance_ratio": 4.1877288489122706e-05,
+                "exp_avg": 4.6624421656815684e-07,
+                "exp_avg_sq": 4.755763143293734e-07,
+                "history": 4.360290040494874e-05,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 1.9073486328125e-06,
+                "loss_limit": 0.023051208496093753,
+                "parameters": 2.9222302799780664e-08,
+                "gradients": 3.233389634260675e-06,
+                "updates": 1.7242135072592646e-05,
+                "loss_tolerance_ratio": 9.132903843308594e-05,
+                "exp_avg": 5.572291001954e-07,
+                "exp_avg_sq": 4.755763143293734e-07,
+                "history": 4.360290040494874e-05,
+                "steps": 0
+              }
+            }
+          ]
+        },
+        "compiled_gh200_bf16": {
+          "assessment": "runs/fused-optimizer/numerical-bounded/assessment.json",
+          "assessment_sha256": "f6113d927b582832af7e783b315b98838c29b4ce464ed11a71d89c60f4687811",
+          "cases": 32,
+          "passed_cases": 32,
+          "all_recorded_updates_passed_cases": 16,
+          "verified_rank_reports": 256,
+          "passed": true,
+          "minimum_validation_delta": -0.005691466305506765,
+          "maximum_validation_delta": 0.0039366100336337695,
+          "maximum_absolute_validation_delta": 0.005691466305506765,
+          "maximum_probe_errors": {
+            "loss": 7.152557373046875e-05,
+            "loss_limit": 0.02305058479309082,
+            "parameters": 1.6996524436763139e-06,
+            "gradients": 0.0038978022057563066,
+            "updates": 0.014236118644475937,
+            "loss_tolerance_ratio": 0.003129094420048634,
+            "exp_avg": 0.0031319712288677692,
+            "exp_avg_sq": 0.00380071927793324,
+            "steps": 0,
+            "history": 0.011596846394240856
+          },
+          "maximum_all_update_errors": {
+            "loss": 0.012030601501464844,
+            "loss_limit": 0.02305058479309082,
+            "parameters": 0.0059426515363156796,
+            "gradients": 1.6631999015808105,
+            "updates": 0.5946393609046936,
+            "loss_tolerance_ratio": 0.5918947717604024,
+            "exp_avg": 0.23464210331439972,
+            "exp_avg_sq": 0.169070765376091,
+            "steps": 0,
+            "history": 0.3646783232688904
+          },
+          "rows": [
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.002447138123898185,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/awc/complete/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.430511474609375e-05,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 7.778886583764688e-07,
+                "gradients": 0.0023502230178564787,
+                "updates": 0.00397083954885602,
+                "loss_tolerance_ratio": 0.000629287915414978,
+                "exp_avg": 0.0014730453258380294,
+                "exp_avg_sq": 0.0016847159713506699,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.00553131103515625,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 0.003999914042651653,
+                "gradients": 1.3007770776748657,
+                "updates": 0.24838683009147644,
+                "loss_tolerance_ratio": 0.29919244863020406,
+                "exp_avg": 0.17410843074321747,
+                "exp_avg_sq": 0.1230497732758522,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0039366100336337695,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/awc/complete/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.621246337890625e-05,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 7.974441587066394e-07,
+                "gradients": 0.002385940635576844,
+                "updates": 0.003948783967643976,
+                "loss_tolerance_ratio": 0.0007130216886098392,
+                "exp_avg": 0.001545252394862473,
+                "exp_avg_sq": 0.0017056899378076196,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.00615692138671875,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 0.004061569459736347,
+                "gradients": 1.1971665620803833,
+                "updates": 0.2345217615365982,
+                "loss_tolerance_ratio": 0.31693791630011314,
+                "exp_avg": 0.20514272153377533,
+                "exp_avg_sq": 0.169070765376091,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.002964742596304859,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/awc/complete/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.621246337890625e-05,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 1.1223042974961572e-06,
+                "gradients": 0.0023976988159120083,
+                "updates": 0.005116130691021681,
+                "loss_tolerance_ratio": 0.0007139885990300506,
+                "exp_avg": 0.001547848922200501,
+                "exp_avg_sq": 0.0019378457218408585,
+                "history": 0.0036285598762333393,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0077648162841796875,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 0.004945303779095411,
+                "gradients": 1.2701514959335327,
+                "updates": 0.45508986711502075,
+                "loss_tolerance_ratio": 0.39288620226314425,
+                "exp_avg": 0.18678312003612518,
+                "exp_avg_sq": 0.10439807921648026,
+                "history": 0.24296428263187408,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0021520791233342607,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/awc/complete/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.1444091796875e-05,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 1.0948645012831548e-06,
+                "gradients": 0.0023797042667865753,
+                "updates": 0.005068824160844088,
+                "loss_tolerance_ratio": 0.0005032970570795065,
+                "exp_avg": 0.0015331222675740719,
+                "exp_avg_sq": 0.00178548414260149,
+                "history": 0.0034529014956206083,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.006098747253417969,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 0.004569652955979109,
+                "gradients": 1.3877227306365967,
+                "updates": 0.5946393609046936,
+                "loss_tolerance_ratio": 0.32094690730139913,
+                "exp_avg": 0.19021709263324738,
+                "exp_avg_sq": 0.10557432472705841,
+                "history": 0.3646783232688904,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0012119577477278654,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/awc/one_peer_ring/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.9073486328125e-05,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 1.2367190720397048e-06,
+                "gradients": 0.0027289497666060925,
+                "updates": 5.325455276761204e-06,
+                "loss_tolerance_ratio": 0.0008361506034331675,
+                "exp_avg": 0.002109937136992812,
+                "exp_avg_sq": 0.002533471444621682,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.007115364074707031,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 0.005586361512541771,
+                "gradients": 1.3273563385009766,
+                "updates": 0.3168152868747711,
+                "loss_tolerance_ratio": 0.3563801407274052,
+                "exp_avg": 0.22913479804992676,
+                "exp_avg_sq": 0.15818460285663605,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0020882374865323072,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/awc/one_peer_ring/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.71661376953125e-05,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 1.1676712574626436e-06,
+                "gradients": 0.0026919865049421787,
+                "updates": 5.111798600410111e-06,
+                "loss_tolerance_ratio": 0.0007543991529271022,
+                "exp_avg": 0.0020304755307734013,
+                "exp_avg_sq": 0.002516785403713584,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.005631446838378906,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 0.004015214275568724,
+                "gradients": 1.3304435014724731,
+                "updates": 0.26965996623039246,
+                "loss_tolerance_ratio": 0.30183236010926273,
+                "exp_avg": 0.1530459076166153,
+                "exp_avg_sq": 0.09653176367282867,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0001926872464537155,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/awc/one_peer_ring/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 3.4332275390625e-05,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 1.6980452528514434e-06,
+                "gradients": 0.0028285973239690065,
+                "updates": 9.557623343425803e-06,
+                "loss_tolerance_ratio": 0.0015079651978387506,
+                "exp_avg": 0.002157835057005286,
+                "exp_avg_sq": 0.0026493403129279613,
+                "history": 0.004886501003056765,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.010657310485839844,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 0.0059426515363156796,
+                "gradients": 1.6631999015808105,
+                "updates": 0.5283838510513306,
+                "loss_tolerance_ratio": 0.5175232878440311,
+                "exp_avg": 0.22661201655864716,
+                "exp_avg_sq": 0.15663965046405792,
+                "history": 0.2826990485191345,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0005721626639569877,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/awc/one_peer_ring/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 3.528594970703125e-05,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 1.6996524436763139e-06,
+                "gradients": 0.0027469664346426725,
+                "updates": 9.572547241987195e-06,
+                "loss_tolerance_ratio": 0.001551587387120969,
+                "exp_avg": 0.002163385972380638,
+                "exp_avg_sq": 0.002534538507461548,
+                "history": 0.0044931224547326565,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.012030601501464844,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 0.005534595809876919,
+                "gradients": 1.3544014692306519,
+                "updates": 0.4758267402648926,
+                "loss_tolerance_ratio": 0.5918947717604024,
+                "exp_avg": 0.19968241453170776,
+                "exp_avg_sq": 0.15192840993404388,
+                "history": 0.2560746669769287,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.00504782957250427,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/atc/complete/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.239776611328125e-05,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 4.828372652809776e-07,
+                "gradients": 0.0022915080189704895,
+                "updates": 0.0012963421177119017,
+                "loss_tolerance_ratio": 0.0005457086396088093,
+                "exp_avg": 0.0013849397655576468,
+                "exp_avg_sq": 0.0016238760435953736,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.006508827209472656,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 0.00343950348906219,
+                "gradients": 1.3432903289794922,
+                "updates": 0.048666324466466904,
+                "loss_tolerance_ratio": 0.3605645410528484,
+                "exp_avg": 0.23464210331439972,
+                "exp_avg_sq": 0.15740516781806946,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0024184499234252144,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/atc/complete/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 9.5367431640625e-06,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 5.127226359036285e-07,
+                "gradients": 0.0023417859338223934,
+                "updates": 0.0015389944892376661,
+                "loss_tolerance_ratio": 0.000419396659321074,
+                "exp_avg": 0.0015126538928598166,
+                "exp_avg_sq": 0.0017046320717781782,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.005475044250488281,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 0.0033236693125218153,
+                "gradients": 1.3204669952392578,
+                "updates": 0.05179890990257263,
+                "loss_tolerance_ratio": 0.2868065012804129,
+                "exp_avg": 0.14857111871242523,
+                "exp_avg_sq": 0.09055972099304199,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.005691466305506765,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/atc/complete/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 2.193450927734375e-05,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 6.922909392415022e-07,
+                "gradients": 0.002341874409466982,
+                "updates": 0.0016371839446946979,
+                "loss_tolerance_ratio": 0.0009657573515339124,
+                "exp_avg": 0.001454843208193779,
+                "exp_avg_sq": 0.0016350944060832262,
+                "history": 0.0029795607551932335,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.010293006896972656,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 0.0047491155564785,
+                "gradients": 1.347861647605896,
+                "updates": 0.19529810547828674,
+                "loss_tolerance_ratio": 0.5562487978779569,
+                "exp_avg": 0.17210760712623596,
+                "exp_avg_sq": 0.1350625604391098,
+                "history": 0.29501068592071533,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0016504338218510384,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/atc/complete/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 1.1444091796875e-05,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 7.290149142136215e-07,
+                "gradients": 0.002374692354351282,
+                "updates": 0.0019527592230588198,
+                "loss_tolerance_ratio": 0.0005034631552237322,
+                "exp_avg": 0.0016003897180780768,
+                "exp_avg_sq": 0.0017904293490573764,
+                "history": 0.0034051300026476383,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.004608154296875,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 0.003837540978565812,
+                "gradients": 1.2326958179473877,
+                "updates": 0.11350215971469879,
+                "loss_tolerance_ratio": 0.23240051843784523,
+                "exp_avg": 0.17848443984985352,
+                "exp_avg_sq": 0.127451092004776,
+                "history": 0.25032103061676025,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.003108174954832066,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/atc/one_peer_ring/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 2.765655517578125e-05,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 8.690136610312038e-07,
+                "gradients": 0.002691923640668392,
+                "updates": 4.648027697840007e-06,
+                "loss_tolerance_ratio": 0.0012159892013450014,
+                "exp_avg": 0.002000804990530014,
+                "exp_avg_sq": 0.0023841371294111013,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.005421638488769531,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 0.004035089630633593,
+                "gradients": 1.2741682529449463,
+                "updates": 0.21153657138347626,
+                "loss_tolerance_ratio": 0.29745220803718486,
+                "exp_avg": 0.18418936431407928,
+                "exp_avg_sq": 0.13224871456623077,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.0031039633322507143,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/atc/one_peer_ring/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 2.288818359375e-05,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 9.90513626675238e-07,
+                "gradients": 0.0027205811347812414,
+                "updates": 5.1005504246859346e-06,
+                "loss_tolerance_ratio": 0.0010049272420115192,
+                "exp_avg": 0.002128977794200182,
+                "exp_avg_sq": 0.002493276260793209,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0056552886962890625,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 0.0041361055336892605,
+                "gradients": 1.368256688117981,
+                "updates": 0.21127554774284363,
+                "loss_tolerance_ratio": 0.3109193838993464,
+                "exp_avg": 0.2272811383008957,
+                "exp_avg_sq": 0.16281618177890778,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": -0.00048107700240507256,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/atc/one_peer_ring/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 2.09808349609375e-05,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 1.275414774681849e-06,
+                "gradients": 0.0027401878032833338,
+                "updates": 7.233275482576573e-06,
+                "loss_tolerance_ratio": 0.0009226190975443234,
+                "exp_avg": 0.0021474522072821856,
+                "exp_avg_sq": 0.002597152953967452,
+                "history": 0.0043219877406954765,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.006230354309082031,
+                "loss_limit": 0.022888700485229493,
+                "parameters": 0.004521419759839773,
+                "gradients": 1.1848032474517822,
+                "updates": 0.41698017716407776,
+                "loss_tolerance_ratio": 0.2997192649432052,
+                "exp_avg": 0.16907861828804016,
+                "exp_avg_sq": 0.15213988721370697,
+                "history": 0.2223314344882965,
+                "steps": 0
+              }
+            },
+            {
+              "model": "20m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": false,
+              "validation_delta": 0.0031720853767183144,
+              "source": "runs/fused-optimizer/numerical-bounded/20m/atc/one_peer_ring/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 2.6702880859375e-05,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 1.2853433872805908e-06,
+                "gradients": 0.002787152538076043,
+                "updates": 7.332458608289016e-06,
+                "loss_tolerance_ratio": 0.0011715898826184096,
+                "exp_avg": 0.0021614874713122845,
+                "exp_avg_sq": 0.0025494445580989122,
+                "history": 0.0046699815429747105,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0067691802978515625,
+                "loss_limit": 0.022887727737426755,
+                "parameters": 0.0046645584516227245,
+                "gradients": 1.28460693359375,
+                "updates": 0.27987542748451233,
+                "loss_tolerance_ratio": 0.3693633011207122,
+                "exp_avg": 0.18774569034576416,
+                "exp_avg_sq": 0.1262284368276596,
+                "history": 0.2769824266433716,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -4.773954060510732e-06,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/awc/complete/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 3.62396240234375e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.8713674282698776e-07,
+                "gradients": 0.0034060257021337748,
+                "updates": 0.010237328708171844,
+                "loss_tolerance_ratio": 0.0015914910512133441,
+                "exp_avg": 0.002514932304620743,
+                "exp_avg_sq": 0.0031794721726328135,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 6.29425048828125e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.392312126175966e-05,
+                "gradients": 0.015682637691497803,
+                "updates": 0.010237328708171844,
+                "loss_tolerance_ratio": 0.003036726166254684,
+                "exp_avg": 0.002514932304620743,
+                "exp_avg_sq": 0.0031794721726328135,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -4.244406227371655e-06,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/awc/complete/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 2.86102294921875e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 2.7676014724420384e-07,
+                "gradients": 0.003263383638113737,
+                "updates": 0.01068918127566576,
+                "loss_tolerance_ratio": 0.0012595325622754884,
+                "exp_avg": 0.002295091049745679,
+                "exp_avg_sq": 0.003037682268768549,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.000141143798828125,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 2.7783980840467848e-05,
+                "gradients": 0.017494091764092445,
+                "updates": 0.01068918127566576,
+                "loss_tolerance_ratio": 0.006541377483270427,
+                "exp_avg": 0.0023350855335593224,
+                "exp_avg_sq": 0.003037682268768549,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": 1.6081408830359578e-05,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/awc/complete/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 3.24249267578125e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 4.4263038034841884e-07,
+                "gradients": 0.00341947958804667,
+                "updates": 0.013109658844769001,
+                "loss_tolerance_ratio": 0.0014242679849020888,
+                "exp_avg": 0.002531999722123146,
+                "exp_avg_sq": 0.003079902147874236,
+                "history": 0.009768652729690075,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.00021839141845703125,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.7792912078439258e-05,
+                "gradients": 0.01733294501900673,
+                "updates": 0.013109658844769001,
+                "loss_tolerance_ratio": 0.0102547779428593,
+                "exp_avg": 0.002581625245511532,
+                "exp_avg_sq": 0.003079902147874236,
+                "history": 0.009768652729690075,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.6928343029576354e-05,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/awc/complete/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 2.6702880859375e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 4.7186688334477367e-07,
+                "gradients": 0.003271423513069749,
+                "updates": 0.014236118644475937,
+                "loss_tolerance_ratio": 0.0011747729919017863,
+                "exp_avg": 0.002572113648056984,
+                "exp_avg_sq": 0.0033858735114336014,
+                "history": 0.010398311540484428,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0001010894775390625,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 2.448465420457069e-05,
+                "gradients": 0.012736878357827663,
+                "updates": 0.014236118644475937,
+                "loss_tolerance_ratio": 0.0049362469732889425,
+                "exp_avg": 0.002572113648056984,
+                "exp_avg_sq": 0.0033858735114336014,
+                "history": 0.010398311540484428,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": 1.3072969522909261e-05,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/awc/one_peer_ring/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 6.198883056640625e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 4.4998841985943727e-07,
+                "gradients": 0.0034663500264286995,
+                "updates": 1.6612807485216763e-06,
+                "loss_tolerance_ratio": 0.0027199878010639423,
+                "exp_avg": 0.0028981915675103664,
+                "exp_avg_sq": 0.003450047457590699,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.000141143798828125,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.4642056814627722e-05,
+                "gradients": 0.020769409835338593,
+                "updates": 0.004600965417921543,
+                "loss_tolerance_ratio": 0.006956254932830779,
+                "exp_avg": 0.0028981915675103664,
+                "exp_avg_sq": 0.003450047457590699,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": 1.7737462258082815e-05,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/awc/one_peer_ring/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 5.626678466796875e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 4.837500000576256e-07,
+                "gradients": 0.0038715102709829807,
+                "updates": 1.7593213215150172e-06,
+                "loss_tolerance_ratio": 0.0024705413073250375,
+                "exp_avg": 0.0031319712288677692,
+                "exp_avg_sq": 0.00380071927793324,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 9.822845458984375e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 2.8808157367166132e-05,
+                "gradients": 0.019245268777012825,
+                "updates": 0.004539463669061661,
+                "loss_tolerance_ratio": 0.00495313707176884,
+                "exp_avg": 0.0031319712288677692,
+                "exp_avg_sq": 0.00380071927793324,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -6.568805474671535e-06,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/awc/one_peer_ring/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 5.14984130859375e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 5.763404828940111e-07,
+                "gradients": 0.003544422797858715,
+                "updates": 2.714635002121213e-06,
+                "loss_tolerance_ratio": 0.002250973170734147,
+                "exp_avg": 0.0029732303228229284,
+                "exp_avg_sq": 0.003429885720834136,
+                "history": 0.009767198003828526,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.000102996826171875,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.6014045943156816e-05,
+                "gradients": 0.013505140319466591,
+                "updates": 0.00612091738730669,
+                "loss_tolerance_ratio": 0.004874438965615166,
+                "exp_avg": 0.0029732303228229284,
+                "exp_avg_sq": 0.003429885720834136,
+                "history": 0.009767198003828526,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "awc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": 6.08831578574609e-06,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/awc/one_peer_ring/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 4.38690185546875e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 6.10754796070978e-07,
+                "gradients": 0.003635948756709695,
+                "updates": 2.776334895315813e-06,
+                "loss_tolerance_ratio": 0.0019274736904031419,
+                "exp_avg": 0.003010515123605728,
+                "exp_avg_sq": 0.003572849091142416,
+                "history": 0.011596846394240856,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0001201629638671875,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 2.3831222279113717e-05,
+                "gradients": 0.019389022141695023,
+                "updates": 0.008984379470348358,
+                "loss_tolerance_ratio": 0.005617753098502931,
+                "exp_avg": 0.003010515123605728,
+                "exp_avg_sq": 0.003572849091142416,
+                "history": 0.011596846394240856,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.4765741070732474e-05,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/atc/complete/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 4.291534423828125e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.1532470384499902e-07,
+                "gradients": 0.0033561347518116236,
+                "updates": 0.003985674120485783,
+                "loss_tolerance_ratio": 0.001884441996624085,
+                "exp_avg": 0.002528500510379672,
+                "exp_avg_sq": 0.003178614191710949,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 7.43865966796875e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 8.074731886154041e-05,
+                "gradients": 0.014371090568602085,
+                "updates": 0.004986208397895098,
+                "loss_tolerance_ratio": 0.00374614147428149,
+                "exp_avg": 0.003115541534498334,
+                "exp_avg_sq": 0.003178614191710949,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": 1.4976389138610102e-05,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/atc/complete/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 3.528594970703125e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 1.926525783346733e-07,
+                "gradients": 0.003197537502273917,
+                "updates": 0.003529082518070936,
+                "loss_tolerance_ratio": 0.0015514360595335493,
+                "exp_avg": 0.0022497752215713263,
+                "exp_avg_sq": 0.002803438575938344,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 7.534027099609375e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 3.7348640034906566e-05,
+                "gradients": 0.008509121835231781,
+                "updates": 0.003529082518070936,
+                "loss_tolerance_ratio": 0.003748928115015216,
+                "exp_avg": 0.0022497752215713263,
+                "exp_avg_sq": 0.002803438575938344,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": 6.038228093530051e-06,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/atc/complete/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 3.528594970703125e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.761637176718068e-07,
+                "gradients": 0.0034419354051351547,
+                "updates": 0.0045447018928825855,
+                "loss_tolerance_ratio": 0.0015502979505061095,
+                "exp_avg": 0.0025382202584296465,
+                "exp_avg_sq": 0.0031385011970996857,
+                "history": 0.010698842816054821,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.0001201629638671875,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.271165794809349e-05,
+                "gradients": 0.01800631918013096,
+                "updates": 0.0045447018928825855,
+                "loss_tolerance_ratio": 0.005957173032047888,
+                "exp_avg": 0.0025382202584296465,
+                "exp_avg_sq": 0.0031385011970996857,
+                "history": 0.010698842816054821,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "complete",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -1.0398362064734101e-06,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/atc/complete/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 4.38690185546875e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 2.711425111101562e-07,
+                "gradients": 0.0032549200113862753,
+                "updates": 0.004404257517307997,
+                "loss_tolerance_ratio": 0.0019291898417586226,
+                "exp_avg": 0.002355539472773671,
+                "exp_avg_sq": 0.0030633725691586733,
+                "history": 0.010052911005914211,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 6.103515625e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 2.2224257918423973e-05,
+                "gradients": 0.008649518713355064,
+                "updates": 0.004404257517307997,
+                "loss_tolerance_ratio": 0.003015024337370671,
+                "exp_avg": 0.002355539472773671,
+                "exp_avg_sq": 0.0030633725691586733,
+                "history": 0.010052911005914211,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": 1.4617604392697103e-05,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/atc/one_peer_ring/False/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 7.152557373046875e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 3.6718978435601457e-07,
+                "gradients": 0.0035501301754266024,
+                "updates": 1.6971904415186145e-06,
+                "loss_tolerance_ratio": 0.003129094420048634,
+                "exp_avg": 0.0029304414056241512,
+                "exp_avg_sq": 0.0034768362529575825,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 7.152557373046875e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 2.3319817046285607e-05,
+                "gradients": 0.013841569423675537,
+                "updates": 0.0032407999970018864,
+                "loss_tolerance_ratio": 0.003129094420048634,
+                "exp_avg": 0.0029304414056241512,
+                "exp_avg_sq": 0.0034768362529575825,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": false,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -5.359306669561192e-07,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/atc/one_peer_ring/False/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 4.1961669921875e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 3.717507865985681e-07,
+                "gradients": 0.003647727658972144,
+                "updates": 1.6987880826491164e-06,
+                "loss_tolerance_ratio": 0.0018437673665076808,
+                "exp_avg": 0.002986748469993472,
+                "exp_avg_sq": 0.003435620805248618,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 8.0108642578125e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 3.9613423723494634e-05,
+                "gradients": 0.012335442937910557,
+                "updates": 0.00397895323112607,
+                "loss_tolerance_ratio": 0.0038681555750068523,
+                "exp_avg": 0.002986748469993472,
+                "exp_avg_sq": 0.003435620805248618,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 42,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -7.193204510258511e-06,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/atc/one_peer_ring/True/42/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 4.673004150390625e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 4.7463217356380483e-07,
+                "gradients": 0.003546056104823947,
+                "updates": 2.313680852239486e-06,
+                "loss_tolerance_ratio": 0.0020528327080432834,
+                "exp_avg": 0.0029709036462008953,
+                "exp_avg_sq": 0.0035500021185725927,
+                "history": 0.011265324428677559,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 7.62939453125e-05,
+                "loss_limit": 0.023028194427490233,
+                "parameters": 4.842142516281456e-05,
+                "gradients": 0.012033368460834026,
+                "updates": 0.004648192320019007,
+                "loss_tolerance_ratio": 0.0036335459866122,
+                "exp_avg": 0.0029709036462008953,
+                "exp_avg_sq": 0.0035500021185725927,
+                "history": 0.011265324428677559,
+                "steps": 0
+              }
+            },
+            {
+              "model": "90m",
+              "scheme": "atc",
+              "topology": "one_peer_ring",
+              "feedback": true,
+              "seed": 43,
+              "passed": true,
+              "all_recorded_updates_passed": true,
+              "validation_delta": -7.264430678333156e-06,
+              "source": "runs/fused-optimizer/numerical-bounded/90m/atc/one_peer_ring/True/43/numerical-rank-00000.json",
+              "maximum_probe_errors": {
+                "loss": 4.57763671875e-05,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 4.906679009764048e-07,
+                "gradients": 0.0038978022057563066,
+                "updates": 2.37541098613292e-06,
+                "loss_tolerance_ratio": 0.002012095038626356,
+                "exp_avg": 0.0030631450936198235,
+                "exp_avg_sq": 0.0035007575061172247,
+                "history": 0.010398759506642818,
+                "steps": 0
+              },
+              "maximum_all_update_errors": {
+                "loss": 0.00017642974853515625,
+                "loss_limit": 0.02305058479309082,
+                "parameters": 2.2159156287671067e-05,
+                "gradients": 0.01598496548831463,
+                "updates": 0.00399339385330677,
+                "loss_tolerance_ratio": 0.008005889565114886,
+                "exp_avg": 0.0030631450936198235,
+                "exp_avg_sq": 0.0035007575061172247,
+                "history": 0.010398759506642818,
+                "steps": 0
+              }
+            }
+          ]
+        }
+      },
+      "passed": true,
+      "all_recorded_updates_passed": false
+    }
+  },
+  "local_profiler_full_flat_operations_per_three_steps": {
+    "20m": {
+      "reference": {
+        "aten::copy_": 3,
+        "aten::sub": 3,
+        "aten::add_": 3,
+        "aten::sub_": 3
+      },
+      "auto": {}
+    },
+    "90m": {
+      "reference": {
+        "aten::copy_": 3,
+        "aten::sub": 3,
+        "aten::add_": 3,
+        "aten::sub_": 3
+      },
+      "auto": {}
+    }
+  },
+  "distributed_profiler_full_flat_operations_per_update": {
+    "source_job_id": "4127880",
+    "model": "20m",
+    "topology": "complete",
+    "counts": {
+      "awc/False/reference": {
+        "full_flat_cpu_ops": {
+          "aten::copy_": 2,
+          "aten::div_": 1
+        },
+        "trace": "runs/fused-optimizer/matrix/20m/complete/awc/False/0/reference/trace-rank-00000.json"
+      },
+      "awc/False/auto": {
+        "full_flat_cpu_ops": {
+          "aten::copy_": 1
+        },
+        "trace": "runs/fused-optimizer/matrix/20m/complete/awc/False/0/auto/trace-rank-00000.json"
+      },
+      "awc/True/reference": {
+        "full_flat_cpu_ops": {
+          "aten::copy_": 3,
+          "aten::div_": 1,
+          "aten::sub": 1,
+          "aten::add_": 1,
+          "aten::sub_": 1
+        },
+        "trace": "runs/fused-optimizer/matrix/20m/complete/awc/True/0/reference/trace-rank-00000.json"
+      },
+      "awc/True/auto": {
+        "full_flat_cpu_ops": {
+          "aten::copy_": 1
+        },
+        "trace": "runs/fused-optimizer/matrix/20m/complete/awc/True/0/auto/trace-rank-00000.json"
+      },
+      "atc/False/reference": {
+        "full_flat_cpu_ops": {
+          "aten::copy_": 2,
+          "aten::div_": 1
+        },
+        "trace": "runs/fused-optimizer/matrix/20m/complete/atc/False/0/reference/trace-rank-00000.json"
+      },
+      "atc/False/auto": {
+        "full_flat_cpu_ops": {},
+        "trace": "runs/fused-optimizer/matrix/20m/complete/atc/False/0/auto/trace-rank-00000.json"
+      },
+      "atc/True/reference": {
+        "full_flat_cpu_ops": {
+          "aten::copy_": 3,
+          "aten::sub": 1,
+          "aten::add_": 1,
+          "aten::sub_": 1,
+          "aten::div_": 1
+        },
+        "trace": "runs/fused-optimizer/matrix/20m/complete/atc/True/0/reference/trace-rank-00000.json"
+      },
+      "atc/True/auto": {
+        "full_flat_cpu_ops": {},
+        "trace": "runs/fused-optimizer/matrix/20m/complete/atc/True/0/auto/trace-rank-00000.json"
+      }
+    }
+  }
+}
