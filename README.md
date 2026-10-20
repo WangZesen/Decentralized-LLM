@@ -340,6 +340,14 @@ resolved configurations are frozen in the study state. The same specification ca
 use GH200 or A100 by editing only `configs/local/defaults.yaml` when it does not
 explicitly select a backend. `--no-local-config` is available on `tune run` and `extend`.
 
+The shared SLURM presets use the example partition `gpu`. Find your site's partition
+with `sinfo --noheader --format=%P`, then set `launcher.partition` under the tuning
+specification's `base.overrides`, or append a site launcher config to `base.configs`.
+The automatically loaded `configs/local/defaults.yaml` accepts runtime settings only;
+it does not select a scheduler partition. Tuning dry runs query the configured
+partition's walltime limit, so they also require a valid partition and access to the
+scheduler.
+
 For a four-GPU study using the local backend, copy the example and replace its `base`
 block with:
 

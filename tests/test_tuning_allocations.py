@@ -6,6 +6,7 @@ import shlex
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,32 @@ def test_walltime_limits_and_partition_query(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(backends, "query", lambda _: "PartitionName=wrong MaxTime=UNLIMITED")
     with pytest.raises(RuntimeError, match="cannot determine"):
         Backend().partition_limit("gpu")
+
+
+@pytest.mark.parametrize("failure", ["exit", "missing", "timeout"])
+def test_partition_query_failure_explains_configuration_without_scheduler_stderr(
+    failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    private = "private-scheduler-account"
+
+    def run(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert arguments == ["scontrol", "show", "partition", "gpu", "--oneliner"]
+        if failure == "missing":
+            raise FileNotFoundError(private)
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(arguments, 30, stderr=private)
+        return subprocess.CompletedProcess(arguments, 1, stdout="", stderr=private)
+
+    monkeypatch.setattr(backends.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="cannot query MaxTime for SLURM partition 'gpu'") as raised:
+        Backend().partition_limit("gpu")
+    message = str(raised.value)
+    assert "launcher.partition" in message and "base.overrides" in message
+    assert "sinfo --noheader --format=%P" in message
+    assert "scontrol show partition gpu --oneliner" in message
+    diagnostic = "".join(traceback.format_exception(raised.value))
+    assert private not in diagnostic
+    assert "retaining active jobs" not in diagnostic
 
 
 @pytest.mark.parametrize("value", ["0", "0:00", "00:00:00", "0-00"])

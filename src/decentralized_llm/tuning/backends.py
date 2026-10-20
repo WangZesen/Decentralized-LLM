@@ -142,7 +142,16 @@ class Backend:
         self.children: dict[str, subprocess.Popen] = {}
 
     def partition_limit(self, partition: str) -> int | None:
-        output = query(["scontrol", "show", "partition", partition, "--oneliner"])
+        try:
+            output = query(["scontrol", "show", "partition", partition, "--oneliner"])
+        except RuntimeError, OSError, subprocess.TimeoutExpired:
+            # Keep scheduler stderr private, but identify the configuration to fix.
+            raise RuntimeError(
+                f"cannot query MaxTime for SLURM partition {partition!r}; "
+                "check launcher.partition in the tuning spec's base.configs or base.overrides. "
+                "List available partitions with `sinfo --noheader --format=%P`; "
+                f"diagnose scheduler access with `scontrol show partition {partition} --oneliner`."
+            ) from None
         fields = dict(item.split("=", 1) for item in output.split() if "=" in item)
         if fields.get("PartitionName") != partition or "MaxTime" not in fields:
             raise RuntimeError(f"cannot determine MaxTime for partition {partition}")
