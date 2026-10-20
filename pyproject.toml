@@ -43,5 +43,6 @@ reportMissingParameterType = "warning"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "--disable-plugin-autoload"
 markers = ["cuda: requires a CUDA GPU", "distributed: multiprocess CPU/Gloo integration"]
