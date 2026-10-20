@@ -163,11 +163,11 @@ Run local timings inside a GH200 allocation:
 ```bash
 source scripts/environment.sh
 "$DECENTRALIZED_PYTHON" scripts/benchmark_error_feedback.py \
-  -c configs/base.yaml -c configs/20m.yaml --profile \
+  -c configs/base.yaml -c configs/models/20m.yaml --profile \
   --output runs/fused-optimizer/local-20m.json
 ```
 
-Repeat with `configs/90m.yaml`. For the distributed matrix, use a two-node allocation
+Repeat with `configs/models/90m.yaml`. For the distributed matrix, use a two-node allocation
 with four GH200s per node and the site's CXI environment. Launch one torchrun agent
 per node with `srun`; set `MASTER_ADDR` to the first allocated host and use
 `--nnodes=2 --nproc-per-node=4 --node-rank="$SLURM_PROCID"`, the same rendezvous
@@ -182,7 +182,7 @@ export OMP_NUM_THREADS=8 TORCHINDUCTOR_COMPILE_THREADS=1
   --nnodes=2 --nproc-per-node=4 --node-rank="$SLURM_PROCID" \
   --master-addr="$MASTER_ADDR" --master-port=29533 --rdzv-backend=static \
   --numa-binding=exclusive scripts/benchmark_decentralized_optimizer.py \
-  -c configs/base.yaml -c configs/gh200-8gpu.yaml \
+  -c configs/base.yaml -c configs/setups/gh200-8gpu.yaml \
   --set model.context_length=512 --set distributed.mode=decentralized \
   --set training.tokens_per_parameters=0.1 --set training.epoch_tokens_per_parameters=0.1 \
   --set benchmark.warmup=20 --set benchmark.steps=40 \
@@ -193,7 +193,7 @@ export OMP_NUM_THREADS=8 TORCHINDUCTOR_COMPILE_THREADS=1
   --nnodes=2 --nproc-per-node=4 --node-rank="$SLURM_PROCID" \
   --master-addr="$MASTER_ADDR" --master-port=29535 --rdzv-backend=static \
   --numa-binding=exclusive scripts/qualify_decentralized_optimizer.py \
-  -c configs/base.yaml -c configs/gh200-8gpu.yaml \
+  -c configs/base.yaml -c configs/setups/gh200-8gpu.yaml \
   --set model.context_length=512 --set distributed.mode=decentralized \
   --set training.tokens_per_parameters=0.1 --set training.epoch_tokens_per_parameters=0.1 \
   --steps=100 --resume --output runs/fused-optimizer/numerical-bounded

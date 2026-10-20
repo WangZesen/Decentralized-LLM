@@ -104,7 +104,7 @@ def main() -> None:
         prepare_parameter_groups("one_peer_ring")
         for trial in range(args.trials):
             for model in args.models:
-                current = load_config([*args.config, Path(f"configs/{model}.yaml")], args.overrides)
+                current = load_config([*args.config, Path(f"configs/models/{model}.yaml")], args.overrides)
                 current.distributed.mode = "decentralized"
                 for topology in ("complete", "one_peer_ring"):
                     current.distributed.topology = topology

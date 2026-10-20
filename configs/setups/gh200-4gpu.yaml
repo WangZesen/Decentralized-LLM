@@ -1,8 +1,5 @@
-# Layer after base.yaml and a model preset. Set walltime for the training budget.
+# Layer after base.yaml and a model preset; batching comes from training configs. Set walltime for the training budget.
 # Explicit throughput recipe; numerical limitations: docs/gh200-performance.md.
-training:
-  batch_tokens: 32768
-  num_accumulation: 1
 runtime:
   execution_backend: gh200
   compile: true
@@ -18,3 +15,5 @@ launcher:
   kind: slurm
   partition: gpu
   time: '00:15:00'
+  network: null
+  environment_overlays: []

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -548,10 +548,14 @@ def execute(
     directory: Path,
     spec_path: Path | None = None,
     *,
+    configs: Sequence[str | Path] = (),
+    overrides: Sequence[str] = (),
     dry_run: bool = False,
     retry_unresolved: list[str] | None = None,
     use_local_defaults: bool = True,
 ) -> Record:
+    if (configs or overrides) and (action not in ("run", "extend") or spec_path is None):
+        raise ValueError("base config overrides require run or extend with a tuning specification")
     directory = directory.resolve()
     if action == "run" and (directory / "state.json").exists():
         raise ValueError("tuning directory already contains state; use resume or extend")
@@ -576,7 +580,9 @@ def execute(
     if spec_path is not None and action in ("run", "extend"):
         if use_local_defaults:
             initialize_local_defaults(dry_run=dry_run)
-        spec, base = read_spec(spec_path.resolve(), use_local_defaults=use_local_defaults)
+        spec, base = read_spec(
+            spec_path.resolve(), configs=configs, overrides=overrides, use_local_defaults=use_local_defaults
+        )
     else:
         if existing is None:
             raise ValueError("a tuning specification is required")

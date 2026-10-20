@@ -21,7 +21,7 @@ def test_slurm_cpu_allocation_defaults_to_site_policy(
     nodes: int, cpu_override: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = Path(__file__).resolve().parents[1]
-    paths = [root / "configs" / name for name in ("base.yaml", "90m.yaml", f"gh200-{nodes * 4}gpu.yaml")]
+    paths = [root / "configs" / name for name in ("base.yaml", "models/90m.yaml", f"setups/gh200-{nodes * 4}gpu.yaml")]
     overrides = [] if cpu_override is None else [f"launcher.cpus_per_task={cpu_override}"]
     config = load_config(paths, overrides)
     arguments = scheduler_arguments(config)

@@ -108,7 +108,7 @@ in the README, then run:
 
 ```bash
 "$DECENTRALIZED_PYTHON" -m decentralized_llm benchmark-training \
-  -c configs/base.yaml -c configs/90m.yaml \
+  -c configs/base.yaml -c configs/models/90m.yaml \
   --set data.cache_dir=/shared/tokens/c4 \
   --set distributed.gpus_per_node=1 --set runtime.execution_backend=native \
   --set runtime.compile=true --set training.num_accumulation=4 \

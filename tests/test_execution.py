@@ -159,7 +159,7 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     root = Path(__file__).resolve().parents[1]
     # Reconstruct the historical profile independently of current training presets.
     config = load_config(
-        root / "configs/20m.yaml",
+        root / "configs/models/20m.yaml",
         [
             "distributed.gpus_per_node=4",
             "distributed.mode=decentralized",

@@ -19,11 +19,14 @@ For ordinary training and tuning, set `runtime.execution_backend: gh200` in the 
 The presets below are optional reproduction recipes that override local defaults.
 The generic training and tuning configurations do not depend on them or activate CXI.
 
-Layer either `configs/gh200-4gpu.yaml` or `configs/gh200-8gpu.yaml` after the base and
-model configurations. Each preset is self-contained. Both use a 32,768-token global
-batch, BF16, model compilation, automatic SDPA selection, fused AdamW, eight PyTorch
+Layer either `configs/setups/gh200-4gpu.yaml` or `configs/setups/gh200-8gpu.yaml` after the base and
+model configurations. Both use BF16, model compilation, automatic SDPA selection, fused AdamW, eight PyTorch
 threads per worker, and exclusive CPU affinity. Microbatches are eight per rank on
-four GPUs and four on eight GPUs. DDP is the default; complete-topology AWC is selected
+four GPUs and four on eight GPUs with `base.yaml`'s 32,768-token batch and 1,024-token
+context. Hardware setups preserve batch and context settings from training configs.
+The `gh200-1gpu.yaml` and `gh200-2gpu.yaml` presets in the same directory use the same
+runtime defaults on one node without CXI. The eight-GPU preset uses two four-GPU nodes.
+DDP is the default; complete-topology AWC is selected
 with `distributed.mode=decentralized`. The presets leave CPU allocation to Slurm.
 
 The kernel implementation is adapted from
@@ -359,11 +362,11 @@ Prepare the token cache and native ARM environment as described in the README.
 Select one hardware preset, an output directory, and a persistent cache directory:
 
 ```bash
-uv run decentralized-llm benchmark-training -c configs/base.yaml -c configs/90m.yaml \
-  -c configs/gh200-4gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
+uv run decentralized-llm benchmark-training -c configs/base.yaml -c configs/models/90m.yaml \
+  -c configs/setups/gh200-4gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
   --set runtime.output_dir=runs/benchmark-4gpu --dry-run
-uv run decentralized-llm benchmark-training -c configs/base.yaml -c configs/90m.yaml \
-  -c configs/gh200-8gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
+uv run decentralized-llm benchmark-training -c configs/base.yaml -c configs/models/90m.yaml \
+  -c configs/setups/gh200-8gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
   --set runtime.output_dir=runs/benchmark-8gpu --dry-run
 ```
 
@@ -397,7 +400,7 @@ srun --ntasks=2 --ntasks-per-node=1 --gpus-per-task=4 --gpu-bind=none \
       --nnodes=2 --nproc-per-node=4 --node-rank="$SLURM_PROCID" \
       --master-addr="$MASTER_ADDR" --master-port=29500 --rdzv-backend=static \
       --numa-binding=exclusive --max-restarts=0 scripts/qualify_gh200.py \
-      -c configs/base.yaml -c configs/90m.yaml -c configs/gh200-8gpu.yaml \
+      -c configs/base.yaml -c configs/models/90m.yaml -c configs/setups/gh200-8gpu.yaml \
       --set data.cache_dir=/shared/tokens/c4 --set lr_schedule.warmup_tokens_per_parameters=0.007 \
       --set runtime.seed=42 --steps 100 --output runs/qualification-90m-s42'
 ```

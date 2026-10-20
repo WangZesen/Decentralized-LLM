@@ -185,15 +185,15 @@ def test_cli_and_tuning_use_local_backend_without_overlay(
     "filename",
     [
         "base.yaml",
-        "local-ddp.yaml",
-        "local-decentralized.yaml",
-        "slurm-ddp.yaml",
-        "slurm-decentralized.yaml",
-        "tuning-example.yaml",
-        "tuning-sync-512c-32bs-20tpp.yaml",
-        "tuning-sync-512c-64bs-20tpp.yaml",
-        "tuning-awc-8w-ring-512c-64bs-20tpp.yaml",
-        "tuning-awc-ef-8w-ring-512c-64bs-20tpp.yaml",
+        "setups/local-ddp.yaml",
+        "setups/local-decentralized.yaml",
+        "setups/slurm-ddp.yaml",
+        "setups/slurm-decentralized.yaml",
+        "tunings/tuning-example.yaml",
+        "tunings/tuning-sync-512c-32bs-20tpp.yaml",
+        "tunings/tuning-sync-512c-64bs-20tpp.yaml",
+        "tunings/tuning-awc-8w-ring-512c-64bs-20tpp.yaml",
+        "tunings/tuning-awc-ef-8w-ring-512c-64bs-20tpp.yaml",
     ],
 )
 def test_shared_recipes_use_local_backend_without_site_dependencies(
@@ -204,17 +204,21 @@ def test_shared_recipes_use_local_backend_without_site_dependencies(
     monkeypatch.chdir(tmp_path)
     if backend is not None:
         write_local(f"runtime: {{execution_backend: {backend}}}")
-    if filename.startswith("tuning-"):
+    if filename.startswith("tunings/"):
         spec, config = read_spec(configs / filename, use_local_defaults=True)
-        assert all(path.parent == configs for path in spec.base.configs)
-        assert {path.name for path in spec.base.configs} <= {
+        assert all(path.is_file() for path in spec.base.configs)
+        assert {str(path.relative_to(configs)) for path in spec.base.configs} <= {
             "base.yaml",
-            "20m.yaml",
-            "slurm-ddp.yaml",
-            "slurm-decentralized.yaml",
+            "models/20m.yaml",
+            "setups/slurm-ddp.yaml",
+            "setups/slurm-decentralized.yaml",
+            "setups/1gpu.yaml",
+            "setups/8gpu-2nodes.yaml",
+            "training-512c-32bs-20tpp.yaml",
+            "training-512c-64bs-20tpp.yaml",
         }
     else:
-        paths = [configs / "base.yaml", configs / "20m.yaml"]
+        paths = [configs / "base.yaml", configs / "models/20m.yaml"]
         if filename != "base.yaml":
             paths.append(configs / filename)
         config = load_config(paths, use_local_defaults=True)
@@ -228,7 +232,7 @@ def test_shared_recipes_use_local_backend_without_site_dependencies(
 
 
 @pytest.mark.parametrize("backend", ["gh200", "a100"])
-@pytest.mark.parametrize("filename", ["smoke.yaml", "benchmark-cpu.yaml"])
+@pytest.mark.parametrize("filename", ["smoke.yaml", "setups/benchmark-cpu.yaml"])
 def test_portable_smoke_recipes_override_fused_local_defaults(filename: str, backend: str) -> None:
     write_local(f"runtime: {{execution_backend: {backend}, compile: true, cpu_affinity: exclusive}}")
     config = load_config(["configs/base.yaml", f"configs/{filename}"], use_local_defaults=True)

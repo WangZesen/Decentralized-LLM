@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
+from decentralized_llm import cli
 from decentralized_llm import config as config_module
 from decentralized_llm.cache import TokenCache, training_boundaries
 from decentralized_llm.config import Config, load_config, save_config
@@ -37,7 +38,7 @@ from decentralized_llm.tuning.spec import (
 @pytest.fixture
 def tuning_file(tiny_config: Config, tmp_path: Path) -> Path:
     save_config(tiny_config, tmp_path / "base.yaml")
-    raw = yaml.safe_load(Path("configs/tuning-example.yaml").read_text())
+    raw = yaml.safe_load(Path("configs/tunings/tuning-example.yaml").read_text())
     raw["base"] = {"configs": ["base.yaml"]}
     raw["controller"].update(poll_seconds=0.001, result_grace_seconds=0)
     path = tmp_path / "tuning.yaml"
@@ -148,6 +149,190 @@ def fake_backend(monkeypatch: pytest.MonkeyPatch) -> FakeBackend:
 
     monkeypatch.setattr(report, "write_heatmaps", plot_artifacts)
     return backend
+
+
+def test_base_layers_precedence_and_relative_paths(
+    tuning_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw = yaml.safe_load(tuning_file.read_text())
+    raw["base"]["overrides"] = {"training.batch_tokens": 48, "runtime.cpu_threads": 4}
+    tuning_file.write_text(yaml.safe_dump(raw))
+    working = tmp_path / "working"
+    working.mkdir()
+    # This file must not replace the spec-relative base.yaml.
+    (working / "base.yaml").write_text("model: {width: 32}\n")
+    (working / "first.yaml").write_text(
+        "model: {context_length: 8}\ntraining: {batch_tokens: 1}\nruntime: {cpu_threads: 2, output_dir: relative-run}\n"
+    )
+    (working / "second.yaml").write_text("model: {width: 16}\ntraining: {batch_tokens: 96}\n")
+    monkeypatch.chdir(working)
+    configs = [Path("first.yaml"), Path("second.yaml")]
+    spec, base = read_spec(tuning_file, configs=configs)
+    assert base.training.batch_tokens == 48 and base.runtime.cpu_threads == 4
+    assert base.model.width == 16 and base.model.context_length == 8
+    assert base.runtime.output_dir == working / "relative-run"
+    assert spec.base.configs == [tmp_path / "base.yaml", *[working / path for path in configs]]
+    _, base = read_spec(
+        tuning_file,
+        configs=configs,
+        overrides=["training.batch_tokens=72", "training.batch_tokens=96", "runtime.cpu_threads=3"],
+    )
+    assert base.training.batch_tokens == 96 and base.runtime.cpu_threads == 3
+    # Phase search values continue to override the composed base.
+    spec, base = read_spec(tuning_file, overrides=["optimizer.lr=0.5"])
+    assert base.optimizer.lr == 0.5
+    assert all(candidate["config"]["optimizer"]["lr"] != 0.5 for candidate in expand(base, spec.phases[0]))
+
+
+def test_base_layers_switch_variants(tuning_file: Path, tmp_path: Path) -> None:
+    overlay = tmp_path / "variants.yaml"
+    overlay.write_text(
+        "lr_schedule: {name: wsd, decay_fraction: 0.3}\nlauncher: {kind: slurm, partition: test, network: job_vni}\n"
+    )
+    _, base = read_spec(tuning_file, configs=[overlay])
+    assert base.lr_schedule.name == "wsd" and base.lr_schedule.decay_fraction == 0.3
+    assert base.launcher.kind == "slurm" and base.launcher.network == "job_vni"
+    _, base = read_spec(
+        tuning_file,
+        configs=[overlay],
+        overrides=["lr_schedule.name=cosine", "lr_schedule.min_lr_ratio=0.2", "launcher.kind=local"],
+    )
+    assert base.lr_schedule.name == "cosine" and base.lr_schedule.min_lr_ratio == 0.2
+    assert base.launcher.kind == "local"
+
+
+@pytest.mark.parametrize(
+    "override",
+    ["missing-equals", "runtime..compile=true", "runtime.unknown=true", "training.batch_tokens=1", "optimizer.lr=.nan"],
+)
+def test_invalid_base_overrides(tuning_file: Path, override: str) -> None:
+    with pytest.raises(ValueError):
+        read_spec(tuning_file, overrides=[override])
+
+
+def test_invalid_extra_config(tuning_file: Path, tmp_path: Path) -> None:
+    path = tmp_path / "invalid.yaml"
+    with pytest.raises(FileNotFoundError):
+        read_spec(tuning_file, configs=[path])
+    path.write_text("[not, a, mapping]")
+    with pytest.raises(ValueError, match="YAML mapping"):
+        read_spec(tuning_file, configs=[path])
+
+
+@pytest.mark.parametrize("action", ["run", "extend"])
+def test_cli_forwards_base_overrides(
+    action: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[tuple[tuple, Record]] = []
+
+    def invoked(*args: Any, **kwargs: Any) -> Record:
+        calls.append((args, kwargs))
+        return {"status": "complete"}
+
+    monkeypatch.setattr(controller, "execute", invoked)
+    destination = tmp_path / "study"
+    arguments = ["--output", str(destination)] if action == "run" else [str(destination)]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "decentralized-llm",
+            "tune",
+            action,
+            *arguments,
+            "--spec",
+            "study.yaml",
+            "-c",
+            "model.yaml",
+            "--config",
+            "setup.yaml",
+            "--set",
+            "training.batch_tokens=8192",
+            "--set",
+            "training.batch_tokens=16384",
+            "--dry-run",
+            "--no-local-config",
+        ],
+    )
+    cli.main()
+    args, kwargs = calls[0]
+    assert args == (action, destination, Path("study.yaml"))
+    assert kwargs["configs"] == [Path("model.yaml"), Path("setup.yaml")]
+    assert kwargs["overrides"] == ["training.batch_tokens=8192", "training.batch_tokens=16384"]
+    assert kwargs["dry_run"] and not kwargs["use_local_defaults"]
+    assert json.loads(capsys.readouterr().out)["status"] == "complete"
+
+
+@pytest.mark.parametrize("action", ["resume", "status", "report"])
+@pytest.mark.parametrize("option,value", [("--config", "model.yaml"), ("--set", "training.batch_tokens=8192")])
+def test_saved_study_actions_reject_overrides(
+    action: str, option: str, value: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["decentralized-llm", "tune", action, str(tmp_path), option, value])
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 2
+    with pytest.raises(ValueError, match="require run or extend"):
+        if option == "--config":
+            execute(action, tmp_path, configs=[Path(value)])
+        else:
+            execute(action, tmp_path, overrides=[value])
+
+
+def test_override_dry_run_is_read_only(
+    cache: TokenCache, tuning_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    overlay = tmp_path / "batch.yaml"
+    overlay.write_text("training: {batch_tokens: 48}\n")
+    original = overlay.read_bytes()
+    checked: list[Config] = []
+    monkeypatch.setattr(controller, "validate", lambda config, **kwargs: checked.append(config))
+    destination = tmp_path / "dry-study"
+    result = execute(
+        "run", destination, tuning_file, configs=[overlay], overrides=["training.batch_tokens=72"], dry_run=True
+    )
+    assert result["new_jobs"] == 44
+    assert checked and all(config.training.batch_tokens == 72 for config in checked)
+    assert not destination.exists() and not config_module.LOCAL_DEFAULTS_PATH.exists()
+    assert overlay.read_bytes() == original
+
+
+def test_base_overrides_are_frozen_and_refreshed_on_extend(
+    cache: TokenCache, tuning_file: Path, tmp_path: Path, fake_backend: FakeBackend
+) -> None:
+    raw = yaml.safe_load(tuning_file.read_text())
+    raw.update(
+        screening_seeds=1,
+        phases=[{"name": "lr", "search": {"optimizer.lr": [0.001]}, "top_k": 1}],
+        confirmation={"seeds": 1},
+    )
+    spec_text = yaml.safe_dump(raw)
+    tuning_file.write_text(spec_text)
+    overlay = tmp_path / "batch.yaml"
+    overlay.write_text("training: {batch_tokens: 72}\n")
+    directory = tmp_path / "study"
+    assert (
+        execute("run", directory, tuning_file, configs=[overlay], overrides=["training.batch_tokens=48"])["status"]
+        == "complete"
+    )
+    frozen = load_state(directory)["base"]
+    assert frozen["training"]["batch_tokens"] == 48
+    assert str(overlay) in load_state(directory)["spec"]["base"]["configs"]
+    overlay.write_text("training: {batch_tokens: 96}\n")
+    assert execute("resume", directory, dry_run=True)["new_jobs"] == 0
+    overlay.unlink()
+    tuning_file.unlink()
+    assert execute("resume", directory)["status"] == "complete"
+    assert load_state(directory)["base"] == frozen and len(fake_backend.submissions) == 1
+    tuning_file.write_text(spec_text)
+    overlay.write_text("training: {batch_tokens: 96}\n")
+    assert execute("extend", directory, tuning_file, configs=[overlay], dry_run=True)["new_jobs"] == 1
+    assert execute("extend", directory, tuning_file, configs=[overlay])["revision"] == 2
+    assert load_state(directory)["base"]["training"]["batch_tokens"] == 96
+    assert json.loads((directory / "revisions/0001/state.json").read_text())["base"] == frozen
+    # Omitted CLI inputs are not inherited from the preceding revision.
+    assert execute("extend", directory, tuning_file)["revision"] == 3
+    assert load_state(directory)["base"]["training"]["batch_tokens"] == 24
 
 
 def test_search_ranges_and_numeric_dedup(tiny_config: Config) -> None:
@@ -1196,9 +1381,25 @@ def test_real_local_tuning_cli(cache: TokenCache, tiny_config: Config, tmp_path:
     }
     path = tmp_path / "tuning.yaml"
     path.write_text(yaml.safe_dump(spec))
+    overlay = tmp_path / "batch.yaml"
+    overlay.write_text("training: {batch_tokens: 48}\n")
     directory = tmp_path / "study"
     result = subprocess.run(
-        [sys.executable, "-m", "decentralized_llm", "tune", "run", "--spec", str(path), "--output", str(directory)],
+        [
+            sys.executable,
+            "-m",
+            "decentralized_llm",
+            "tune",
+            "run",
+            "--spec",
+            str(path),
+            "-c",
+            overlay.name,
+            "--set",
+            "training.batch_tokens=36",
+            "--output",
+            str(directory),
+        ],
         env=dict(os.environ, CUDA_VISIBLE_DEVICES="", OMP_NUM_THREADS="1"),
         cwd=tmp_path,
         capture_output=True,
@@ -1210,4 +1411,5 @@ def test_real_local_tuning_cli(cache: TokenCache, tiny_config: Config, tmp_path:
     assert result.returncode == 0, result.stderr[-5000:]
     state = load_state(directory)
     assert state["status"] == "complete" and len(state["trials"]) == 5
+    assert state["base"]["training"]["batch_tokens"] == 36
     assert all(trial["status"] == "succeeded" for trial in state["trials"].values())

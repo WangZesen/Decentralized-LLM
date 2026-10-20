@@ -59,7 +59,19 @@ Configuration starts with built-in defaults, then local execution defaults, then
 configuration files from left to right; dotted `--set key=value` overrides apply last.
 Values use YAML syntax. Unknown fields and nonfinite numbers are rejected.
 Changing `lr_schedule.name` or `launcher.kind` clears the previous variant's fields.
-Five dimension presets are in `configs/{20m,50m,90m,250m,500m}.yaml`.
+Five dimension presets are in `configs/models/{20m,50m,90m,250m,500m}.yaml`.
+
+| Directory | Contents |
+| --- | --- |
+| `configs/models/` | Model dimensions |
+| `configs/setups/` | Local/SLURM launchers, GPU allocations, hardware execution presets, CPU benchmark |
+| `configs/tunings/` | Phased tuning specifications |
+| `configs/` | Shared base, training defaults, WSD, smoke, and example configs |
+| `configs/local/` | Git-ignored execution defaults and local experiments |
+
+The shared `training-512c-{32,64}bs-20tpp.yaml` overlays set context length 512,
+global batch tokens 16,384 or 32,768, and 20 training tokens per model parameter.
+Batch tokens are fixed: changing context length changes the global sequence count.
 
 Run commands from the repository root. User-facing configuration commands, including
 training, submission, benchmarking, and `tune run`/`extend`, automatically read the
@@ -99,12 +111,13 @@ The Python `load_config` and `read_spec` APIs remain explicit by default; opt in
 `use_local_defaults=True`. These loaders never write files. The tuning controller
 initializes defaults for new runs/revisions unless `use_local_defaults=False` is passed.
 
-Other local experiments can remain in `configs/local/`. When copying a tuning spec
-there, change its `base.configs` references to `../base.yaml`, `../20m.yaml`, and the
-appropriate `../` launcher filename. No reference to `defaults.yaml` is needed.
+Other local experiments can remain in `configs/local/`. Specs copied there from
+`configs/tunings/` keep the same relative references, such as `../base.yaml`,
+`../models/20m.yaml`, and `../setups/slurm-ddp.yaml`. No reference to `defaults.yaml`
+is needed. Specs in deeper directories must adjust their relative references.
 
-Tracked `tuning-*.yaml` specifications reference only the shared base, model, and
-launcher configurations. They do not require an ignored config or a GH200/A100 preset,
+Tracked `tuning-*.yaml` specifications reference shared base, model, training, and
+setup configurations. They do not require an ignored config or a GH200/A100 preset,
 and leave the execution backend to local defaults. The generic multi-node specifications
 also leave scheduler network selection and transport activation unset. Put site-specific
 `launcher.network` and `launcher.environment_overlays` in a local experiment or tuning
@@ -114,9 +127,9 @@ local toolchain files. Smoke and CPU benchmark configs explicitly choose eager n
 execution and no CPU binding, so they also work with fused local defaults.
 
 ```bash
-uv run decentralized-llm prepare -c configs/base.yaml -c configs/20m.yaml \
+uv run decentralized-llm prepare -c configs/base.yaml -c configs/models/20m.yaml \
   --set data.cache_dir=/shared/tokens/c4
-uv run decentralized-llm validate -c configs/base.yaml -c configs/20m.yaml \
+uv run decentralized-llm validate -c configs/base.yaml -c configs/models/20m.yaml \
   --set data.cache_dir=/shared/tokens/c4
 ```
 
@@ -146,8 +159,8 @@ Select the backend once in `configs/local/defaults.yaml`, then use shared experi
 and launcher files. For example, this four-GPU submission uses the local backend:
 
 ```bash
-uv run decentralized-llm submit -c configs/base.yaml -c configs/90m.yaml \
-  -c configs/slurm-ddp.yaml --set distributed.nodes=1 --set distributed.gpus_per_node=4 \
+uv run decentralized-llm submit -c configs/base.yaml -c configs/models/90m.yaml \
+  -c configs/setups/slurm-ddp.yaml --set distributed.nodes=1 --set distributed.gpus_per_node=4 \
   --set data.cache_dir=/shared/tokens/c4 --set launcher.time=02:00:00 \
   --set runtime.output_dir=runs/90m-4gpu --dry-run
 ```
@@ -156,31 +169,48 @@ Set the lowercase `account` environment variable and the site's GPU partition be
 submission. Changing the local backend does not change GPU counts, batching, search
 grids, or scheduler settings. Hardware and workload compatibility checks still apply.
 
-## Optional four- and eight-GPU GH200 presets
+## Optional A100 and GH200 setup presets
 
 After preparing the shared token cache, choose one hardware preset. Each is layered
 **directly after the base configuration and model preset**. These explicit recipes
-override local execution defaults and are intended for reproducing the measured
-hardware setup. Generic training and tuning do not depend on them:
+override local execution defaults. Generic training and tuning do not depend on them.
+Use `configs/setups/a100-{1,2,4,8}gpu.yaml` or
+`configs/setups/gh200-{1,2,4,8}gpu.yaml`:
+
+| Total GPUs | A100 nodes × GPUs per node | GH200 nodes × GPUs per node |
+| --- | --- | --- |
+| 1 | 1 × 1 | 1 × 1 |
+| 2 | 1 × 2 | 1 × 2 |
+| 4 | 1 × 4 | 1 × 4 |
+| 8 | 1 × 8 | 2 × 4 |
+
+Hardware setups set execution and allocation settings; batching comes from the base
+or training configs. The resource-only `configs/setups/1gpu.yaml` and
+`configs/setups/8gpu-2nodes.yaml` select 1 × 1 and 2 × 4 without choosing an execution
+backend or launcher. Single-node hardware presets clear cross-node network settings
+and environment overlays when layered after another setup.
+
+For the existing four- and eight-GPU GH200 recipes:
 
 ```bash
-uv run decentralized-llm submit -c configs/base.yaml -c configs/90m.yaml \
-  -c configs/gh200-4gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
+uv run decentralized-llm submit -c configs/base.yaml -c configs/models/90m.yaml \
+  -c configs/setups/gh200-4gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
   --set launcher.time=02:00:00 --set runtime.output_dir=runs/90m-4gpu --dry-run
-uv run decentralized-llm submit -c configs/base.yaml -c configs/90m.yaml \
-  -c configs/gh200-8gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
+uv run decentralized-llm submit -c configs/base.yaml -c configs/models/90m.yaml \
+  -c configs/setups/gh200-8gpu.yaml --set data.cache_dir=/shared/tokens/c4 \
   --set launcher.time=02:00:00 --set runtime.output_dir=runs/90m-8gpu --dry-run
 ```
 
 Set the lowercase `account` environment variable to your scheduler account, inspect
 the dry run, then remove `--dry-run` to submit. Choose walltime for your model and token
-budget; the presets retain a short **15-minute** limit unless overridden. Both allocate
-four GPUs per node, use a global batch of 32,768 tokens, and launch one process per GPU.
-Per-rank microbatches are eight on one node and four on two nodes.
+budget; the presets retain a short **15-minute** limit unless overridden. These two
+examples allocate four GPUs per node and launch one process per GPU. With `base.yaml`'s
+32,768-token batch and 1,024-token context, per-rank microbatches are eight on one node
+and four on two nodes.
 DDP is the default; add `--set distributed.mode=decentralized` for complete-topology
 AWC, or select another supported topology with `distributed.topology`.
 
-The presets explicitly enable **compiled GH200 kernels and exclusive GPU-local CPU
+The GH200 presets explicitly enable **compiled GH200 kernels and exclusive GPU-local CPU
 binding**. They use BF16, fused AdamW, fused projections, automatic SDPA selection,
 eight PyTorch threads per worker, and persistent compilation caches. Slurm determines
 the CPU allocation: the measured site supplies 72 CPUs per GPU, or 288 per full node.
@@ -240,7 +270,7 @@ commands are in the [performance report](docs/gh200-performance.md#reproducing-t
 The explicit A100 backend reuses the fused residual/RMSNorm, SwiGLU, projection,
 RoPE, and cross-entropy implementations. Set `execution_backend: a100` in local defaults
 for shared training and tuning configurations. To reproduce the measured hardware
-recipe, optionally layer `configs/a100-1gpu.yaml` after the base configuration and
+recipe, optionally layer `configs/setups/a100-1gpu.yaml` after the base configuration and
 model preset, then set your site's partition and walltime. This preset overrides
 local execution defaults.
 The [A100 performance report](docs/a100-performance.md) records measured throughput,
@@ -254,8 +284,8 @@ Prepare the small C4 cache once:
 
 ```bash
 uv run decentralized-llm prepare -c configs/base.yaml -c configs/smoke.yaml
-uv run decentralized-llm train -c configs/base.yaml -c configs/smoke.yaml -c configs/local-ddp.yaml
-uv run decentralized-llm train -c configs/base.yaml -c configs/smoke.yaml -c configs/local-decentralized.yaml
+uv run decentralized-llm train -c configs/base.yaml -c configs/smoke.yaml -c configs/setups/local-ddp.yaml
+uv run decentralized-llm train -c configs/base.yaml -c configs/smoke.yaml -c configs/setups/local-decentralized.yaml
 ```
 
 On an allocated GPU, run the hardware tests with `uv run pytest -q -m cuda` to exercise
@@ -279,11 +309,11 @@ There is deliberately no account configuration field. Its value is passed only a
 `sbatch` argument and is excluded from generated scripts, configuration, and receipts.
 
 ```bash
-uv run decentralized-llm submit -c configs/base.yaml -c configs/smoke.yaml -c configs/slurm-ddp.yaml \
+uv run decentralized-llm submit -c configs/base.yaml -c configs/smoke.yaml -c configs/setups/slurm-ddp.yaml \
   --set launcher.partition=YOUR_GPU_PARTITION --dry-run
-uv run decentralized-llm submit -c configs/base.yaml -c configs/smoke.yaml -c configs/slurm-ddp.yaml \
+uv run decentralized-llm submit -c configs/base.yaml -c configs/smoke.yaml -c configs/setups/slurm-ddp.yaml \
   --set launcher.partition=YOUR_GPU_PARTITION
-uv run decentralized-llm submit -c configs/base.yaml -c configs/smoke.yaml -c configs/slurm-decentralized.yaml \
+uv run decentralized-llm submit -c configs/base.yaml -c configs/smoke.yaml -c configs/setups/slurm-decentralized.yaml \
   --set launcher.partition=YOUR_GPU_PARTITION
 ```
 
@@ -317,43 +347,77 @@ an enduring shell such as tmux, or in your own CPU allocation. SLURM uses the sa
 lowercase `account` environment variable as ordinary submissions; it stays out of
 configuration, receipts, and reports.
 
-Start with [`configs/tuning-example.yaml`](configs/tuning-example.yaml), updating the
+Start with [`configs/tunings/tuning-example.yaml`](configs/tunings/tuning-example.yaml), updating the
 referenced training configuration and SLURM partition for your environment:
 
 ```bash
-uv run decentralized-llm tune run --spec configs/tuning-example.yaml \
+uv run decentralized-llm tune run --spec configs/tunings/tuning-example.yaml \
   --output runs/tuning/example --dry-run
-uv run decentralized-llm tune run --spec configs/tuning-example.yaml \
+uv run decentralized-llm tune run --spec configs/tunings/tuning-example.yaml \
   --output runs/tuning/example
 uv run decentralized-llm tune status runs/tuning/example
 uv run decentralized-llm tune resume runs/tuning/example
-uv run decentralized-llm tune extend runs/tuning/example --spec configs/tuning-example.yaml --dry-run
-uv run decentralized-llm tune extend runs/tuning/example --spec configs/tuning-example.yaml
+uv run decentralized-llm tune extend runs/tuning/example --spec configs/tunings/tuning-example.yaml --dry-run
+uv run decentralized-llm tune extend runs/tuning/example --spec configs/tunings/tuning-example.yaml
 uv run decentralized-llm tune report runs/tuning/example
 ```
 
 The tuning specification has a `base.configs` list and optional dotted `base.overrides`
-mapping. Referenced YAML filenames resolve relative to the tuning specification;
-paths inside training configurations retain the normal repository-working-directory
-semantics. Local execution defaults apply before these files and `base.overrides`;
-resolved configurations are frozen in the study state. The same specification can
-use GH200 or A100 by editing only `configs/local/defaults.yaml` when it does not
-explicitly select a backend. `--no-local-config` is available on `tune run` and `extend`.
+mapping. Both `tune run` and `tune extend` also accept repeatable `--config/-c FILE`
+and `--set dotted.key=value`. Precedence, from lowest to highest, is:
+
+1. Built-in defaults and optional local execution defaults.
+2. The spec's `base.configs`, in order.
+3. CLI config files, in order.
+4. The spec's `base.overrides`.
+5. CLI `--set` values, in order.
+
+Spec filenames resolve relative to the tuning specification; CLI filenames resolve
+relative to the working directory. Paths inside training configs retain normal
+working-directory semantics. Phase search and initial values apply after this base
+configuration. The Python `read_spec` and controller `execute` APIs accept equivalent
+`configs=` and `overrides=` keyword arguments.
+
+Reuse a spec for a different model, hardware setup, batch, and context:
+
+```bash
+uv run decentralized-llm tune run \
+  --spec configs/tunings/tuning-sync-512c-64bs-20tpp.yaml \
+  -c configs/models/90m.yaml \
+  -c configs/setups/a100-8gpu.yaml \
+  -c configs/training-512c-32bs-20tpp.yaml \
+  --set model.context_length=1024 \
+  --output runs/tuning/90m-a100-8gpu --dry-run
+```
+
+Each command configures one study; use separate output directories for different
+combinations. Shared recipes keep allocation, batch, context, and training-budget
+defaults in referenced config files, so CLI config files can replace them. Explicit
+`base.overrides` still win over those files; use `--set` to replace a pinned value.
+The example above uses 16,384 batch tokens: 16 sequences at context length 1,024.
+
+Resolved configurations, including CLI overrides, are frozen in study state.
+`resume`, `status`, and `report` use saved settings and accept no base overrides.
+`extend` resolves its supplied spec and CLI arguments afresh; repeat any CLI inputs
+that should carry into the new revision. The same generic specification can also use
+GH200 or A100 by editing only `configs/local/defaults.yaml` when it does not explicitly
+select a backend. `--no-local-config` is available on `tune run` and `extend`.
 
 The shared SLURM presets use the example partition `gpu`. Find your site's partition
 with `sinfo --noheader --format=%P`, then set `launcher.partition` under the tuning
-specification's `base.overrides`, or append a site launcher config to `base.configs`.
+specification's `base.overrides`, pass `--set launcher.partition=NAME`, or add a site
+launcher config through `base.configs` or `-c`.
 The automatically loaded `configs/local/defaults.yaml` accepts runtime settings only;
 it does not select a scheduler partition. Tuning dry runs query the configured
 partition's walltime limit, so they also require a valid partition and access to the
 scheduler.
 
-For a four-GPU study using the local backend, copy the example and replace its `base`
+For a four-GPU SLURM study using local execution defaults, copy the example and replace its `base`
 block with:
 
 ```yaml
 base:
-  configs: [base.yaml, 90m.yaml, slurm-ddp.yaml]
+  configs: [../base.yaml, ../models/90m.yaml, ../setups/slurm-ddp.yaml]
   overrides:
     data.cache_dir: /shared/tokens/c4
     training.checkpoint_policy: none
@@ -362,9 +426,10 @@ base:
     launcher.time: '02:00:00'
 ```
 
-This example assumes the copied specification remains in `configs/`; use `../` prefixes
-for the references in a copy under `configs/local/`. Set `distributed.nodes: 2` for
-eight GPUs and configure any site-specific transport in that local copy.
+This example assumes the copied specification is in `configs/tunings/` or
+`configs/local/`. Set `distributed.nodes: 2` for eight GH200 GPUs; for eight A100 GPUs,
+keep one node and set `distributed.gpus_per_node: 8`. Configure any site-specific
+transport in that local copy.
 Keep the example's phases and seed settings, set the cache path and intended walltime,
 and run `tune run --dry-run` before starting the study. The local execution defaults
 are resolved once for the study and apply to every trial, with compatible compilation
@@ -453,7 +518,7 @@ To amortize queue waits over several short trials, for example:
 
 ```yaml
 base:
-  configs: [base.yaml, 20m.yaml, gh200-8gpu.yaml]
+  configs: [../base.yaml, ../models/20m.yaml, ../setups/gh200-8gpu.yaml]
   overrides:
     launcher.time: '00:15:00'  # Individual trial limit.
 controller:
@@ -677,7 +742,7 @@ report the resolved optimizer, source revision, history/scratch bytes, and commu
 snapshot bytes alongside overall CUDA peak memory.
 
 To isolate the local optimizer overhead, run
-`uv run python scripts/benchmark_error_feedback.py -c configs/base.yaml -c configs/20m.yaml --output runs/feedback-benchmark.json`.
+`uv run python scripts/benchmark_error_feedback.py -c configs/base.yaml -c configs/models/20m.yaml --output runs/feedback-benchmark.json`.
 It compares reference and fused execution, each with ordinary AdamW and error feedback,
 using identical fixed synthetic gradients. It reports per-step time, speedups, and buffer
 bytes; `--profile` also exports traces. This excludes forward/backward and communication.
@@ -723,7 +788,7 @@ Set `training.data_reuse_factor=K` to reuse a smaller fixed pool while retaining
 same global token budget, optimizer steps, learning-rate schedule, and virtual epochs:
 
 ```bash
-uv run decentralized-llm train -c configs/base.yaml -c configs/20m.yaml \
+uv run decentralized-llm train -c configs/base.yaml -c configs/models/20m.yaml \
   --set training.data_reuse_factor=4 --set runtime.output_dir=runs/reuse-4
 ```
 
@@ -887,10 +952,10 @@ divisible by world size so the resident baseline has identical rank shapes. Dist
 elapsed time is the maximum over ranks; each rank writes separate loader diagnostics.
 
 ```bash
-uv run decentralized-llm benchmark-data -c configs/base.yaml -c configs/20m.yaml \
+uv run decentralized-llm benchmark-data -c configs/base.yaml -c configs/models/20m.yaml \
   --set data.cache_dir=/shared/tokens/c4 --warmup 20 --steps 100 \
   --cache-state cold --output runs/benchmark/cold.json
-uv run decentralized-llm benchmark-data -c configs/base.yaml -c configs/20m.yaml \
+uv run decentralized-llm benchmark-data -c configs/base.yaml -c configs/models/20m.yaml \
   --set data.cache_dir=/shared/tokens/c4 --warmup 20 --steps 100 \
   --cache-state warm --output runs/benchmark/warm.json
 ```
@@ -905,7 +970,7 @@ For multiple local GPUs, launch the benchmark explicitly with torchrun:
 
 ```bash
 uv run python -m torch.distributed.run --standalone --nproc-per-node=2 --max-restarts=0 \
-  --module decentralized_llm benchmark-data -c configs/base.yaml -c configs/20m.yaml \
+  --module decentralized_llm benchmark-data -c configs/base.yaml -c configs/models/20m.yaml \
   --set distributed.gpus_per_node=2 --steps 100 --warmup 20 --output runs/benchmark/multi.json
 ```
 
@@ -919,17 +984,17 @@ srun --ntasks=2 --ntasks-per-node=1 --gpus-per-task=1 --gpu-bind=none --kill-on-
     exec "$DECENTRALIZED_PYTHON" -m torch.distributed.run --nnodes=2 --nproc-per-node=1 \
       --node-rank="$SLURM_PROCID" --master-addr="$MASTER_ADDR" --master-port=29500 \
       --rdzv-backend=static --rdzv-conf=timeout=300 --max-restarts=0 \
-      --module decentralized_llm benchmark-data -c configs/base.yaml -c configs/20m.yaml \
-      -c configs/slurm-ddp.yaml --steps 100 --warmup 20 --output runs/benchmark/slurm.json'
+      --module decentralized_llm benchmark-data -c configs/base.yaml -c configs/models/20m.yaml \
+      -c configs/setups/slurm-ddp.yaml --steps 100 --warmup 20 --output runs/benchmark/slurm.json'
 ```
 
 A reproducible synthetic CPU fixture is available without downloading C4:
 
 ```bash
-uv run python scripts/make_synthetic_cache.py -c configs/benchmark-cpu.yaml
-CUDA_VISIBLE_DEVICES='' uv run decentralized-llm benchmark-data -c configs/benchmark-cpu.yaml \
+uv run python scripts/make_synthetic_cache.py -c configs/setups/benchmark-cpu.yaml
+CUDA_VISIBLE_DEVICES='' uv run decentralized-llm benchmark-data -c configs/setups/benchmark-cpu.yaml \
   --steps 100 --warmup 20 --cache-state cold --output runs/benchmark-cpu/cold.json
-CUDA_VISIBLE_DEVICES='' uv run decentralized-llm benchmark-data -c configs/benchmark-cpu.yaml \
+CUDA_VISIBLE_DEVICES='' uv run decentralized-llm benchmark-data -c configs/setups/benchmark-cpu.yaml \
   --steps 100 --warmup 20 --cache-state warm --output runs/benchmark-cpu/warm.json
 ```
 

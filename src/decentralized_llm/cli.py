@@ -21,6 +21,21 @@ def main() -> None:
         if name in ("run", "extend"):
             action.add_argument("--spec", type=Path, required=True)
             action.add_argument(
+                "--config",
+                "-c",
+                type=Path,
+                action="append",
+                default=[],
+                help="append a base config before spec overrides (repeatable; relative to the working directory)",
+            )
+            action.add_argument(
+                "--set",
+                dest="overrides",
+                action="append",
+                default=[],
+                help="override a base setting with dotted.key=value after spec overrides (repeatable)",
+            )
+            action.add_argument(
                 "--no-local-config",
                 action="store_true",
                 help="skip initialization and loading of local execution defaults",
@@ -85,6 +100,8 @@ def main() -> None:
             args.tune_action,
             args.directory,
             getattr(args, "spec", None),
+            configs=getattr(args, "config", ()),
+            overrides=getattr(args, "overrides", ()),
             dry_run=getattr(args, "dry_run", False),
             retry_unresolved=getattr(args, "retry_unresolved", None),
             use_local_defaults=not getattr(args, "no_local_config", False),

@@ -1,17 +1,13 @@
 # Run from the repository root. Prepare the shared cache first and set your SLURM partition.
-# Execution defaults load automatically; configure site-specific transport in a local copy.
 base:
-  configs: [base.yaml, 20m.yaml, slurm-decentralized.yaml]
+  configs:
+    - ../base.yaml
+    - ../models/20m.yaml
+    - ../setups/slurm-ddp.yaml
+    - ../setups/1gpu.yaml
+    - ../training-512c-32bs-20tpp.yaml
   overrides:
     training.checkpoint_policy: none
-    distributed.nodes: 2
-    distributed.gpus_per_node: 4
-    distributed.topology: one_peer_ring
-    distributed.scheme: awc
-    distributed.error_feedback: true
-    training.batch_tokens: 32768
-    model.context_length: 512
-    training.tokens_per_parameters: 20.0
 
 seed_start: 42
 screening_seeds: 1
@@ -41,14 +37,14 @@ phases:
       optimizer.lr:
         scale: power
         base: 2
-        exponent_min: -10
-        exponent_max: -5
+        exponent_min: -11
+        exponent_max: -6
         points: 6
     top_k: 6
 confirmation:
   seeds: 3
 controller:
   max_jobs: 50
-  jobs_per_allocation: 1
-  max_retries: 2
+  jobs_per_allocation: 4
+  max_retries: 1
   poll_seconds: 30

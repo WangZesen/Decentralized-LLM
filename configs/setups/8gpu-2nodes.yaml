@@ -1,0 +1,2 @@
+# Resource-only overlay; layer after a launcher config.
+distributed: {nodes: 2, gpus_per_node: 4}

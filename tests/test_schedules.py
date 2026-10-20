@@ -108,7 +108,7 @@ def test_warmup_examples() -> None:
     assert load_config(["configs/base.yaml", "configs/wsd.yaml"]).lr_schedule.warmup_tokens_per_parameters == 1.0
     assert warmup_updates(load_config(["configs/base.yaml", "configs/smoke.yaml"])) == 1
     qualification = load_config(
-        ["configs/base.yaml", "configs/90m.yaml", "configs/gh200-8gpu.yaml"],
+        ["configs/base.yaml", "configs/models/90m.yaml", "configs/setups/gh200-8gpu.yaml"],
         ["lr_schedule.warmup_tokens_per_parameters=0.007"],
     )
     assert warmup_updates(qualification) == 20

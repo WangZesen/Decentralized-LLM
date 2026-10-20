@@ -3,6 +3,7 @@
 import copy
 import itertools
 import math
+from collections.abc import Sequence
 from decimal import Decimal
 from functools import cache
 from pathlib import Path
@@ -242,16 +243,24 @@ def apply_values(config: Config, values: Record) -> Config:
     return Config.model_validate(raw)
 
 
-def read_spec(path: Path, *, use_local_defaults: bool = False) -> tuple[TuningSpec, Config]:
+def read_spec(
+    path: Path,
+    *,
+    configs: Sequence[str | Path] = (),
+    overrides: Sequence[str] = (),
+    use_local_defaults: bool = False,
+) -> tuple[TuningSpec, Config]:
+    """Resolve spec files, extra files, spec overrides, then explicit overrides; never write files."""
     spec = TuningSpec.model_validate(yaml.safe_load(path.read_text()))
     paths = [(path.parent / filename).resolve() for filename in spec.base.configs]
-    overrides = [
+    paths.extend(Path(filename).resolve() for filename in configs)
+    spec_overrides = [
         f"{key}={yaml.safe_dump(value, default_flow_style=True).strip()}"
         for key, value in sorted(
             spec.base.overrides.items(), key=lambda item: item[0] not in {"lr_schedule.name", "launcher.kind"}
         )
     ]
-    base = absolute_config(load_config(paths, overrides, use_local_defaults=use_local_defaults))
+    base = absolute_config(load_config(paths, [*spec_overrides, *overrides], use_local_defaults=use_local_defaults))
     spec.base.configs = paths
     validate_fields(spec, base)
     return spec, base

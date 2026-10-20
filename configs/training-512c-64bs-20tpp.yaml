@@ -1,0 +1,6 @@
+# Global batch tokens; sequence count depends on context length.
+model:
+  context_length: 512
+training:
+  batch_tokens: 32768
+  tokens_per_parameters: 20.0

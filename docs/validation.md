@@ -95,7 +95,7 @@ An isolated CPU profile of a warmed-up exchange records zero concatenate, split,
 or foreach-copy operations, versus one of each in the parent implementation.
 
 The comparison used x86-64 Python 3.14.5 / PyTorch 2.14.0+cu130 on the shared CPU host
-with GPUs hidden. The training workload was `configs/benchmark-cpu.yaml`: two Gloo
+with GPUs hidden. The training workload was `configs/setups/benchmark-cpu.yaml`: two Gloo
 ranks, one PyTorch thread per rank, 166,208 parameters, global batch 4,096 tokens,
 microbatch eight, and fully resident synthetic data. Each process warmed up for 20
 updates and measured three windows of at least 20 updates and one second. Four fresh
@@ -153,13 +153,13 @@ over repeated installation timings while executing normalization on both paths.
 source scripts/environment.sh
 for layout in legacy contiguous; do
   CUDA_VISIBLE_DEVICES='' "$DECENTRALIZED_PYTHON" scripts/benchmark_parameter_storage.py \
-    -c configs/20m.yaml --set runtime.device=cpu --set runtime.amp=false \
+    -c configs/models/20m.yaml --set runtime.device=cpu --set runtime.amp=false \
     --set runtime.cpu_threads=1 --set distributed.backend=gloo --layout "$layout" \
     --output "runs/storage-copy-20m-$layout.json"
 done
 ```
 
-Repeat with `configs/90m.yaml`. For GPU measurements, run inside an allocated GPU
+Repeat with `configs/models/90m.yaml`. For GPU measurements, run inside an allocated GPU
 node, omit `CUDA_VISIBLE_DEVICES=''`, and set `runtime.device=cuda` and
 `distributed.backend=nccl`. Repeat in alternating
 layout order; windows within one process are not independent repetitions.
@@ -179,7 +179,7 @@ for recipe in ddp awc atc; do
   scheme="$recipe"
   if [ "$recipe" = ddp ]; then mode=ddp; scheme=awc; fi
   "$DECENTRALIZED_PYTHON" -m decentralized_llm benchmark-training \
-    -c configs/base.yaml -c configs/20m.yaml -c configs/gh200-4gpu.yaml \
+    -c configs/base.yaml -c configs/models/20m.yaml -c configs/setups/gh200-4gpu.yaml \
     --set data.cache_dir=/shared/tokens/c4 \
     --set distributed.mode="$mode" --set distributed.scheme="$scheme" \
     --set runtime.output_dir="runs/storage-training-$recipe" \

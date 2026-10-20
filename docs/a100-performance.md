@@ -9,11 +9,15 @@ qualification policy and does not automatically select this experimental backend
 
 For ordinary training and tuning, set `runtime.execution_backend: a100` in the ignored
 `configs/local/defaults.yaml`; see [local configuration](../README.md#configuration-and-preparation).
-The shared specifications need no hardware preset. To reproduce this report, use
-`configs/a100-1gpu.yaml` after the base and model files. It overrides local defaults and selects one GPU,
-32,768 tokens per update, GPU-local exclusive CPU binding, eight PyTorch threads,
+The shared specifications need no hardware preset. For an explicit setup, use
+`configs/setups/a100-1gpu.yaml` after the base and model files. It overrides local defaults and selects one GPU,
+`cpu_affinity: none`, eight PyTorch threads,
 and persistent compilation caches. Set the scheduler partition and walltime for your
 site. The compiler setup is described in [toolchain setup](toolchain-setup.md).
+The 32,768 tokens per update come from `configs/base.yaml`; hardware setups preserve
+batch and context settings from training configs. The `a100-2gpu.yaml`, `a100-4gpu.yaml`,
+and `a100-8gpu.yaml` presets in the same directory select two, four, and eight GPUs on
+one node with the same runtime defaults. Measurements below cover the one-GPU setup.
 The shared kernels remain in the historical `gh200` package; the GH200 backend and
 its presets keep their existing behavior.
 
@@ -121,17 +125,17 @@ autotuning is tested separately because it can add minutes to startup.
 
 Inside a one-GPU allocation, activate the environment and compare these commands.
 Use distinct output directories for each trial. The local launcher starts one
-worker and applies GPU-local CPU binding; `numactl` must be installed.
+worker with `cpu_affinity: none`.
 
 ```bash
 source scripts/environment.sh
 "$DECENTRALIZED_PYTHON" -m decentralized_llm benchmark-training \
-  -c configs/base.yaml -c configs/90m.yaml -c configs/a100-1gpu.yaml \
+  -c configs/base.yaml -c configs/models/90m.yaml -c configs/setups/a100-1gpu.yaml \
   --set launcher.kind=local --set data.cache_dir=/shared/tokens/c4 \
   --set runtime.execution_backend=native --set runtime.output_dir=runs/a100-native \
   --warmup 10 --steps 30 --windows 3 --min-seconds 3
 "$DECENTRALIZED_PYTHON" -m decentralized_llm benchmark-training \
-  -c configs/base.yaml -c configs/90m.yaml -c configs/a100-1gpu.yaml \
+  -c configs/base.yaml -c configs/models/90m.yaml -c configs/setups/a100-1gpu.yaml \
   --set launcher.kind=local --set data.cache_dir=/shared/tokens/c4 \
   --set runtime.output_dir=runs/a100-fused \
   --warmup 10 --steps 30 --windows 3 --min-seconds 3
@@ -146,8 +150,8 @@ The numerical script's historical name is retained; it also accepts A100 configs
 
 ```bash
 "$DECENTRALIZED_PYTHON" -m torch.distributed.run --standalone --nproc-per-node=1 \
-  --numa-binding=exclusive scripts/qualify_gh200.py \
-  -c configs/base.yaml -c configs/90m.yaml -c configs/a100-1gpu.yaml \
+  scripts/qualify_gh200.py \
+  -c configs/base.yaml -c configs/models/90m.yaml -c configs/setups/a100-1gpu.yaml \
   --set launcher.kind=local --set data.cache_dir=/shared/tokens/c4 \
   --set runtime.seed=42 --steps 100 --output runs/a100-numerical-42
 ```

@@ -34,7 +34,7 @@ def main() -> None:
     try:
         prepare_parameter_groups("one_peer_ring")
         for model in args.models:
-            current = load_config([*args.config, Path(f"configs/{model}.yaml")], args.overrides)
+            current = load_config([*args.config, Path(f"configs/models/{model}.yaml")], args.overrides)
             current.distributed.mode = "decentralized"
             current.runtime.decentralized_optimizer = "auto"
             for scheme in args.schemes:

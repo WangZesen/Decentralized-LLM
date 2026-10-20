@@ -3,5 +3,5 @@ launcher:
   partition: gpu
   time: '00:15:00'
   environment_script: scripts/environment.sh
-distributed: {mode: decentralized, nodes: 2, gpus_per_node: 1, topology: one_peer_ring, scheme: atc}
+distributed: {mode: decentralized, nodes: 2, gpus_per_node: 1, topology: one_peer_ring, scheme: awc}
 runtime: {output_dir: runs/slurm-decentralized}
