@@ -11,7 +11,7 @@ base:
     training.checkpoint_policy: none
     distributed.topology: one_peer_ring
     distributed.scheme: awc
-    distributed.error_feedback: true
+    distributed.error_feedback_gamma: 1.0
 
 seed_start: 42
 screening_seeds: 1

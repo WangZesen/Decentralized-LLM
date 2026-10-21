@@ -37,10 +37,10 @@ def test_selector_and_checkpoint_identity(tiny_config: Config, cache: TokenCache
     assert load_config(path).runtime.decentralized_optimizer == "reference"
 
 
-def cuda_config(config: Config, feedback: bool) -> Config:
+def cuda_config(config: Config, gamma: float) -> Config:
     config = config.model_copy(deep=True)
     config.distributed.mode = "decentralized"
-    config.distributed.error_feedback = feedback
+    config.distributed.error_feedback_gamma = gamma
     config.runtime.device = "cuda"
     config.runtime.deterministic = False
     config.runtime.fused_optimizer = True
@@ -61,12 +61,12 @@ def assert_states(actual: torch.optim.Optimizer, expected: torch.optim.Optimizer
 
 
 @pytest.mark.cuda
-@pytest.mark.parametrize("feedback", [False, True])
+@pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0, -1.0, 2.0])
 @pytest.mark.parametrize("scheme", ["local", "awc", "atc"])
-def test_grouped_updates(tiny_config: Config, feedback: bool, scheme: str) -> None:
+def test_grouped_updates(tiny_config: Config, gamma: float, scheme: str) -> None:
     if not torch.cuda.is_available():
         pytest.skip("requires CUDA")
-    config = cuda_config(tiny_config, feedback)
+    config = cuda_config(tiny_config, gamma)
     torch.manual_seed(3)
     model = nn.Sequential(nn.Linear(37, 65), nn.LayerNorm(65), nn.Linear(65, 17)).cuda()
     model.register_parameter("tied", model.get_parameter("0.weight"))
@@ -76,6 +76,8 @@ def test_grouped_updates(tiny_config: Config, feedback: bool, scheme: str) -> No
     config.runtime.decentralized_optimizer = "reference"
     control = make_optimizer(reference, config, torch.device("cuda"))
     assert isinstance(optimizer, FusedDecentralizedAdamW)
+    if gamma == 0:
+        assert optimizer.previous_update is None
     storage, ref_storage = parameter_storage(model), parameter_storage(reference)
     pointers = [p.data_ptr() for p in model.parameters()]
     for step in range(12):
@@ -105,17 +107,17 @@ def test_grouped_updates(tiny_config: Config, feedback: bool, scheme: str) -> No
         for p, offset in zip(storage.parameters, storage.offsets, strict=True):
             padding[offset : offset + p.numel()] = False
         assert torch.count_nonzero(storage.flat[padding]) == 0
-        if feedback:
+        if gamma != 0:
             assert optimizer.previous_update is not None
             assert torch.count_nonzero(optimizer.previous_update[padding]) == 0
 
 
 @pytest.mark.cuda
-@pytest.mark.parametrize("feedback", [False, True])
-def test_fused_resume_closure_and_fallback(tiny_config: Config, feedback: bool) -> None:
+@pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0, -1.0, 2.0])
+def test_fused_resume_closure_and_fallback(tiny_config: Config, gamma: float) -> None:
     if not torch.cuda.is_available():
         pytest.skip("requires CUDA")
-    config = cuda_config(tiny_config, feedback)
+    config = cuda_config(tiny_config, gamma)
     model = nn.Linear(3, 2).cuda()
     opt = make_optimizer(model, config, torch.device("cuda"))
     assert isinstance(opt, FusedDecentralizedAdamW)
@@ -177,7 +179,7 @@ def test_fused_resume_closure_and_fallback(tiny_config: Config, feedback: bool) 
 def test_reference_selection(tiny_config: Config) -> None:
     if not torch.cuda.is_available():
         pytest.skip("requires CUDA")
-    config = cuda_config(tiny_config, True)
+    config = cuda_config(tiny_config, 1.0)
     for reason in ("dtype", "deterministic", "disabled", "reference"):
         cfg = config.model_copy(deep=True)
         model = nn.Linear(3, 2).cuda()
@@ -202,9 +204,9 @@ def cuda_distributed_worker(worker: int, size: int, port: int, raw: dict[str, An
         topologies = ("complete",) if size == 3 else ("complete", "one_peer_ring", "one_peer_exponential")
         for topology in topologies:
             for scheme in ("awc", "atc"):
-                for feedback in (False, True):
+                for gamma in (0.0, 0.5, 1.0):
                     for reuse in (False, True):
-                        config = cuda_config(Config.model_validate(raw), feedback)
+                        config = cuda_config(Config.model_validate(raw), gamma)
                         config.distributed.gpus_per_node = size
                         config.distributed.backend = "nccl"
                         config.distributed.scheme = scheme
@@ -270,8 +272,8 @@ def test_cuda_fused_mixing(cache: TokenCache, tiny_config: Config, size: int) ->
 
 
 @pytest.mark.cuda
-@pytest.mark.parametrize("feedback", [False, True])
-def test_fused_failed_awc_drains(tiny_config: Config, monkeypatch: pytest.MonkeyPatch, feedback: bool) -> None:
+@pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0, -1.0, 2.0])
+def test_fused_failed_awc_drains(tiny_config: Config, monkeypatch: pytest.MonkeyPatch, gamma: float) -> None:
     from unittest.mock import Mock
 
     from decentralized_llm.backends.distributed import update as updates
@@ -279,7 +281,7 @@ def test_fused_failed_awc_drains(tiny_config: Config, monkeypatch: pytest.Monkey
 
     if not torch.cuda.is_available():
         pytest.skip("requires CUDA")
-    config = cuda_config(tiny_config, feedback)
+    config = cuda_config(tiny_config, gamma)
     model = Llama(config.model).cuda()
     opt = make_optimizer(model, config, torch.device("cuda"))
     storage = parameter_storage(model)

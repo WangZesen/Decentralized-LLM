@@ -438,7 +438,7 @@ Reuse a spec for a different model, hardware setup, batch, and context:
 
 ```bash
 uv run decentralized-llm tune run \
-  --spec configs/tunings/tuning-sync-512c-64bs-20tpp.yaml \
+  --spec configs/tunings/20m-sync-512c-64bs-20tpp.yaml \
   -c configs/models/90m.yaml \
   -c configs/setups/a100-8gpu.yaml \
   -c configs/training-512c-32bs-20tpp.yaml \
@@ -785,19 +785,26 @@ the existing world group is reused. Every exchange is joined before switching gr
 All support a single-worker no-op. Evaluation
 and checkpoint coordination add their own collectives outside optimizer mixing.
 
-Set `--set distributed.error_feedback=true` in decentralized mode to apply
-`2 * current_update - previous_update` at each local optimizer step. An update is
-the full signed AdamW parameter displacement, including weight decay, after local
-gradient clipping. History starts at zero, so the first update is doubled. AdamW
-moments advance once per step, and the fused CUDA optimizer remains available.
-This adapts the update correction in
+Set `--set distributed.error_feedback_gamma=0.5` to apply
+`(1 + gamma) * current_update - gamma * previous_update` at each optimizer step.
+The coefficient accepts any finite number, including negative values. It defaults
+to `0`, which uses ordinary AdamW without feedback buffers; `1` reproduces the
+original error feedback. An update is the full signed AdamW parameter displacement,
+including weight decay, after gradient clipping. History stores the uncorrected
+displacement and starts at zero, so the first update is scaled by `1 + gamma`.
+AdamW moments advance once per step, and the fused CUDA optimizer remains available.
+The `gamma=1` case adapts the update correction in
 [Algorithm 2 of Zmushko et al.](https://arxiv.org/pdf/2606.30634#page=7), with the
 zero-history, doubled-first-update initialization used here.
 
-AWC computes the correction from mixed base weights; ATC applies it before
-mixing. The saved update excludes mixing and stays local to each rank. The option
-also works with one decentralized worker and is rejected in DDP mode. It defaults
-to `false`.
+Both DDP and decentralized training support feedback, including single-worker and
+packed execution. DDP applies correction after gradient averaging, accumulation,
+and clipping; packed synchronous training corrects its shared model. AWC computes
+the correction from mixed base weights; ATC applies it before mixing. The saved
+update excludes mixing and stays local to each rank. Feedback gamma is independent
+of the packed model's mixing coefficient and remains fixed for the run.
+The former `distributed.error_feedback` flag is rejected, and boolean values are
+also rejected for `distributed.error_feedback_gamma`.
 
 `runtime.decentralized_optimizer: auto` selects grouped Triton updates for FP32 CUDA
 decentralized training when `runtime.fused_optimizer=true` and deterministic mode is off.
@@ -812,17 +819,21 @@ registers, keeping one padded history buffer and no feedback scratch: approximat
 approximately 8 bytes per FP32 parameter, and swaps their roles after each update.
 AWC additionally retains its isolated communication snapshot; fused ATC needs none.
 History excludes mixing and includes weight decay in both paths. Missing gradients
-leave moments and counters unchanged but still subtract and clear previous history.
+leave moments and counters unchanged but still subtract `gamma * previous_update`
+and clear previous history.
 
 Checkpoints retain the existing rank-local `error_feedback.previous_update` tensor and
-AdamW state. The selector can change on resume without migrating checkpoints; a resumed
-trajectory across implementations need not be bitwise identical. Training benchmarks
+AdamW state. Numeric gamma participates in checkpoint, tuning, and qualification
+identities; resuming with a different coefficient is rejected. Configurations and
+checkpoint identities using the former boolean setting are not migrated.
+The optimizer selector can change on resume; a resumed trajectory across implementations
+need not be bitwise identical. Training benchmarks
 report the resolved optimizer, source revision, history/scratch bytes, and communication
 snapshot bytes alongside overall CUDA peak memory.
 
 To isolate the local optimizer overhead, run
 `uv run python scripts/benchmark_error_feedback.py -c configs/base.yaml -c configs/models/20m.yaml --output runs/feedback-benchmark.json`.
-It compares reference and fused execution, each with ordinary AdamW and error feedback,
+It compares reference and fused execution at gamma `0` and `1`,
 using identical fixed synthetic gradients. It reports per-step time, speedups, and buffer
 bytes; `--profile` also exports traces. This excludes forward/backward and communication.
 Use `scripts/benchmark_decentralized_optimizer.py` under torchrun for three paired trials

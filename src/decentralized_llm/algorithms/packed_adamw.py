@@ -15,7 +15,8 @@ class PackedAdamW:
         self.layout = model.layout
         self._parameters = tuple(model.parameters())
         self._arena = model.parameter_storage
-        self.previous_update = torch.zeros_like(self._arena) if config.distributed.error_feedback else None
+        self.feedback_gamma = config.distributed.error_feedback_gamma
+        self.previous_update = torch.zeros_like(self._arena) if self.feedback_gamma != 0 else None
         self.scratch = torch.empty_like(self._arena) if self.previous_update is not None else None
         self.first_moment_storage = torch.zeros_like(self._arena)
         self.second_moment_storage = torch.zeros_like(self._arena)
@@ -88,7 +89,9 @@ class PackedAdamW:
             optimizer.step()
         if self.scratch is not None and self.previous_update is not None:
             self.scratch.neg_().add_(self._arena)
-            self._arena.add_(self.scratch).sub_(self.previous_update)
+            self._arena.add_(self.scratch, alpha=self.feedback_gamma).sub_(
+                self.previous_update, alpha=self.feedback_gamma
+            )
             self.previous_update.copy_(self.scratch)
         torch.autograd.graph.increment_version(self._parameters)
 

@@ -199,7 +199,7 @@ class DistributedConfig(StrictModel):
     rendezvous_port: int = Field(default=29500, ge=1024, le=65535)
     topology: Literal["complete", "one_peer_ring", "one_peer_exponential"] = "complete"
     scheme: Literal["awc", "atc"] = "awc"
-    error_feedback: bool = False
+    error_feedback_gamma: float = Field(default=0.0, strict=True, allow_inf_nan=False)
     ddp_bucket_cap_mb: int = Field(default=25, gt=0)
     ddp_gradient_as_bucket_view: bool = False
     ddp_batched_grad_copy: bool = False
@@ -211,8 +211,6 @@ class DistributedConfig(StrictModel):
 
     @model_validator(mode="after")
     def topology_size(self) -> Self:
-        if self.error_feedback and self.mode != "decentralized":
-            raise ValueError("error_feedback requires decentralized mode")
         size = self.world_size
         if self.topology == "one_peer_ring" and size > 1 and size % 2:
             raise ValueError("one_peer_ring requires an even world size (or 1)")

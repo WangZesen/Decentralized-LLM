@@ -30,11 +30,12 @@ class FusedDecentralizedAdamW(torch.optim.AdamW):
     """
 
     def __init__(
-        self, params: list[dict[str, Any]], storage: ParameterStorage, *, feedback: bool, **kwargs: Any
+        self, params: list[dict[str, Any]], storage: ParameterStorage, *, feedback_gamma: float, **kwargs: Any
     ) -> None:
         super().__init__(params, **kwargs)
         self.storage = storage
-        self.previous_update = torch.zeros_like(storage.flat) if feedback else None
+        self.feedback_gamma = feedback_gamma
+        self.previous_update = torch.zeros_like(storage.flat) if feedback_gamma != 0 else None
         self.scratch: torch.Tensor | None = None
         self._layouts: list[_FusedGroup] | None = None
         self.implementation = "triton"
@@ -131,6 +132,7 @@ class FusedDecentralizedAdamW(torch.optim.AdamW):
                 base_divisor,
                 output_divisor,
                 layout.aligned,
+                self.feedback_gamma,
             )
         torch.autograd.graph.increment_version(self.storage.parameters)
         self.implementation = "triton"
@@ -154,7 +156,9 @@ class FusedDecentralizedAdamW(torch.optim.AdamW):
         if self.previous_update is not None:
             assert self.scratch is not None
             torch.sub(self.storage.flat, self.scratch, out=self.scratch)
-            self.storage.flat.add_(self.scratch).sub_(self.previous_update)
+            self.storage.flat.add_(self.scratch, alpha=self.feedback_gamma).sub_(
+                self.previous_update, alpha=self.feedback_gamma
+            )
             self.previous_update.copy_(self.scratch)
         if output_divisor != 1:
             self.storage.flat.div_(output_divisor)

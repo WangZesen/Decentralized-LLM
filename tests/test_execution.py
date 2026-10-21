@@ -125,6 +125,9 @@ def test_automatic_selection_requires_matching_evidence(monkeypatch: pytest.Monk
     monkeypatch.setattr(Path, "read_text", read)
     device = torch.device("cuda", 0)
     assert resolve_execution(config, device)["backend"] == "gh200"
+    config.distributed.error_feedback_gamma = 0.5
+    assert resolve_execution(config, device)["backend"] == "native"
+    config.distributed.error_feedback_gamma = 0.0
     config.runtime.execution_backend = "native"
     policy = resolve_execution(config, device)
     assert policy["backend"] == "native" and policy["compile"] is False
@@ -149,7 +152,7 @@ def test_automatic_selection_requires_matching_evidence(monkeypatch: pytest.Monk
     assert resolve_execution(config, device)["backend"] == "native"
 
 
-def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_published_boolean_feedback_profile_is_not_reused(monkeypatch: pytest.MonkeyPatch) -> None:
     from decentralized_llm.config import load_config
     from decentralized_llm.execution.qualification import compile_revision, kernel_revision
 
@@ -175,7 +178,10 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     current_key = qualification_key(config)
     assert current_key["execution_options"].pop("decentralized_optimizer") == "reference"
     assert current_key.pop("training_backend") == "distributed"
-    assert entry["key"] == current_key
+    assert entry["key"] != current_key
+    assert entry["key"]["error_feedback"] is False
+    assert current_key.pop("error_feedback_gamma") == 0.0
+    assert {key: value for key, value in entry["key"].items() if key != "error_feedback"} == current_key
     monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
     monkeypatch.setattr(torch, "__version__", entry["torch"])
@@ -184,38 +190,17 @@ def test_published_flash_profile_is_scoped_to_measured_workload(monkeypatch: pyt
     device = torch.device("cuda", 0)
     policy = resolve_execution(config, device)
     assert policy["backend"] == "native" and policy["compile"] is False
-    # Reconstruct the historical revision to verify its original workload bounds.
+    # Even the historical revisions cannot qualify the new numeric feedback schema.
     monkeypatch.setattr("decentralized_llm.execution.policy.compile_revision", lambda: entry["compile_revision"])
     monkeypatch.setattr("decentralized_llm.execution.policy.kernel_revision", lambda: entry["kernel_revision"])
     policy = resolve_execution(config, device)
-    assert policy["backend"] == "gh200" and policy["compile"] is True
-    monkeypatch.setattr(
-        "decentralized_llm.execution.policy.qualification_environment",
-        lambda: {**entry["environment"], "allowed_cpus": 288},
-    )
-    policy = resolve_execution(config, device)
     assert policy["backend"] == "native" and policy["compile"] is False
-    monkeypatch.setattr("decentralized_llm.execution.policy.qualification_environment", lambda: entry["environment"])
-    for section, field, value in [
-        ("distributed", "nodes", 2),
-        ("distributed", "mode", "ddp"),
-        ("distributed", "backend", "gloo"),
-        ("distributed", "error_feedback", True),
-        ("runtime", "sdpa_backend", "auto"),
-        ("runtime", "cpu_affinity", "exclusive"),
-        ("runtime", "deterministic", True),
-        ("training", "num_accumulation", 2),
-    ]:
-        changed = config.model_copy(deep=True)
-        setattr(getattr(changed, section), field, value)
-        policy = resolve_execution(changed, device)
-        assert policy["backend"] == "native" and policy["compile"] is False
 
 
 @pytest.mark.parametrize("feedback", [False, True])
 def test_benchmark_uses_complete_update_windows(tiny_config: Config, cache: TokenCache, feedback: bool) -> None:
     tiny_config.distributed.mode = "decentralized"
-    tiny_config.distributed.error_feedback = feedback
+    tiny_config.distributed.error_feedback_gamma = float(feedback)
     tiny_config.benchmark.warmup = 2
     tiny_config.benchmark.steps = 2
     tiny_config.benchmark.windows = 2

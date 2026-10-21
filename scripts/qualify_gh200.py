@@ -143,7 +143,7 @@ def qualify(
                         )
                     if optimizer_only:
                         histories = [getattr(opt, "previous_update", None) for opt in optimizers]
-                        if config.distributed.error_feedback:
+                        if config.distributed.error_feedback_gamma:
                             original_history, candidate_history = histories
                             assert isinstance(original_history, Tensor) and isinstance(candidate_history, Tensor)
                             entry["history"] = relative_error([candidate_history], [original_history])
@@ -169,7 +169,7 @@ def qualify(
             delta,
             steps=steps,
             optimizer_only=optimizer_only,
-            feedback=config.distributed.error_feedback,
+            feedback=config.distributed.error_feedback_gamma != 0,
             fused_candidate=optimizer_report(optimizers[1])["implementation"] == "triton",
         )
         passed = gates["passed"]

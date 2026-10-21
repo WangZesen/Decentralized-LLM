@@ -74,7 +74,6 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
         ]:
             current = copy.deepcopy(raw)
             current["distributed"].update(gpus_per_node=size, mode=mode, topology=topology, scheme=scheme)
-            current["distributed"]["error_feedback"] = raw["distributed"]["error_feedback"] and mode == "decentralized"
             current["training"]["batch_tokens"] = 64
             cfg = Config.model_validate(current)
             batch_blocks = cfg.training.batch_tokens // cfg.model.context_length
@@ -89,7 +88,7 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
             model = Llama(cfg.model, "reference")
             optimizer = make_optimizer(model, cfg, torch.device("cpu"))
             reference_config = cfg.model_copy(deep=True)
-            reference_config.distributed.error_feedback = False
+            reference_config.distributed.error_feedback_gamma = 0.0
             ref_opts = [make_optimizer(m, reference_config, torch.device("cpu")) for m in references]
             histories = [[torch.zeros_like(p) for p in m.parameters()] for m in references]
             forward = build_distributed_execution(model, cfg, torch.device("cpu"))
@@ -113,11 +112,12 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                     for reference, opt, history in zip(references, ref_opts, histories, strict=True):
                         before_step = [p.detach().clone() for p in reference.parameters()]
                         opt.step()
-                        if cfg.distributed.error_feedback:
+                        if cfg.distributed.error_feedback_gamma:
                             with torch.no_grad():
                                 for p, base, previous in zip(reference.parameters(), before_step, history, strict=True):
                                     delta = p - base
-                                    p.add_(delta).sub_(previous)
+                                    gamma = cfg.distributed.error_feedback_gamma
+                                    p.add_(delta, alpha=gamma).sub_(previous, alpha=gamma)
                                     previous.copy_(delta)
                     if mode == "decentralized" and scheme == "atc":
                         reference_mix(references, topology, step)
@@ -147,7 +147,10 @@ def distributed_comparisons(worker: int, size: int, port: int, raw: dict[str, An
                     if isinstance(optimizer, ErrorFeedbackAdamW):
                         storage = parameter_storage(model)
                         for p, offset, previous in zip(
-                            storage.parameters, storage.offsets, histories[worker], strict=True
+                            storage.parameters,
+                            storage.offsets,
+                            histories[worker if mode == "decentralized" else 0],
+                            strict=True,
                         ):
                             actual = optimizer.previous_update[offset : offset + p.numel()].view_as(p)
                             torch.testing.assert_close(actual, previous, atol=3e-7, rtol=3e-5)
@@ -364,16 +367,19 @@ def test_cuda_parameter_mix_snapshot(size: int) -> None:
 
 @pytest.mark.distributed
 @pytest.mark.parametrize(
-    "size,factor,compiled,reuse,feedback,accumulation",
+    "size,factor,compiled,reuse,gamma,accumulation",
     [
-        (2, 1, False, True, False, 1),
-        (2, 1, False, True, False, 2),
-        (4, 1, False, True, False, 1),
-        (4, 3, False, True, False, 2),
-        (4, 1, True, True, False, 2),
-        (2, 1, True, False, False, 1),
-        (2, 1, False, True, True, 2),
-        (4, 1, True, False, True, 1),
+        (2, 1, False, True, 0.0, 1),
+        (2, 1, False, True, 0.0, 2),
+        (4, 1, False, True, 0.0, 1),
+        (4, 3, False, True, 0.0, 2),
+        (4, 1, True, True, 0.0, 2),
+        (2, 1, True, False, 0.0, 1),
+        (2, 1, False, True, 1.0, 2),
+        (4, 1, True, False, 1.0, 1),
+        (2, 1, False, True, 0.5, 2),
+        (2, 1, False, True, -1.0, 2),
+        (2, 1, False, True, 2.0, 1),
     ],
 )
 def test_distributed_serial_references(
@@ -383,14 +389,14 @@ def test_distributed_serial_references(
     factor: int,
     compiled: bool,
     reuse: bool,
-    feedback: bool,
+    gamma: float,
     accumulation: int,
 ) -> None:
     tiny_config.training.data_reuse_factor = factor
     tiny_config.training.num_accumulation = accumulation
     tiny_config.distributed.reuse_mix_buffers = reuse
     tiny_config.distributed.mode = "decentralized"
-    tiny_config.distributed.error_feedback = feedback
+    tiny_config.distributed.error_feedback_gamma = gamma
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage] # Public torch API missing from its export stubs.
         distributed_comparisons,
         args=(size, free_port(), tiny_config.model_dump(mode="json"), compiled),
@@ -412,7 +418,6 @@ def resume_worker(worker: int, size: int, ports: list[int], raw: dict[str, Any])
         current = copy.deepcopy(raw)
         current["distributed"].update(gpus_per_node=size, mode=mode)
         current["training"].update(batch_tokens=32, num_accumulation=2)
-        current["distributed"]["error_feedback"] = raw["distributed"]["error_feedback"] and mode == "decentralized"
         root = Path(current["runtime"]["output_dir"])
         current["runtime"]["output_dir"] = str(root / f"{mode}-full")
         cfg = Config.model_validate(current)
@@ -438,39 +443,45 @@ def resume_worker(worker: int, size: int, ports: list[int], raw: dict[str, Any])
             for key, value in original["model"].items():
                 # Recreated DDP buckets may change FP32 collective summation order.
                 torch.testing.assert_close(actual["model"][key], value, rtol=1e-6, atol=1e-7)
-        if cfg.distributed.error_feedback:
+        if cfg.distributed.error_feedback_gamma and "optimizer" in original:
             torch.testing.assert_close(
                 actual["optimizer"]["error_feedback"]["previous_update"],
                 original["optimizer"]["error_feedback"]["previous_update"],
-                rtol=0,
-                atol=0,
+                rtol=1e-6 if mode == "ddp" else 0,
+                atol=1e-7 if mode == "ddp" else 0,
             )
             for key, state in original["optimizer"]["state"].items():
                 for name, value in state.items():
-                    torch.testing.assert_close(actual["optimizer"]["state"][key][name], value, rtol=0, atol=0)
+                    torch.testing.assert_close(
+                        actual["optimizer"]["state"][key][name],
+                        value,
+                        rtol=1e-6 if mode == "ddp" else 0,
+                        atol=1e-7 if mode == "ddp" else 0,
+                    )
         assert original["loader"] == actual["loader"]
         assert torch.equal(original["rng"]["torch"], actual["rng"]["torch"])
 
 
 @pytest.mark.distributed
 @pytest.mark.parametrize(
-    "size,factor,feedback,scheme",
+    "size,factor,gamma,scheme",
     [
-        (2, 1, False, "awc"),
-        (4, 1, False, "awc"),
-        (2, 4, False, "awc"),
-        (4, 7, False, "awc"),
-        (2, 1, True, "awc"),
-        (2, 1, True, "atc"),
+        (2, 1, 0.0, "awc"),
+        (4, 1, 0.0, "awc"),
+        (2, 4, 0.0, "awc"),
+        (4, 7, 0.0, "awc"),
+        (2, 1, 1.0, "awc"),
+        (2, 1, 1.0, "atc"),
+        (2, 1, 0.5, "awc"),
     ],
 )
 def test_multiprocess_training_resume(
-    cache: TokenCache, tiny_config: Config, size: int, factor: int, feedback: bool, scheme: str
+    cache: TokenCache, tiny_config: Config, size: int, factor: int, gamma: float, scheme: str
 ) -> None:
     tiny_config.training.log_every = 4
     tiny_config.training.data_reuse_factor = factor
     tiny_config.distributed.mode = "decentralized"
-    tiny_config.distributed.error_feedback = feedback
+    tiny_config.distributed.error_feedback_gamma = gamma
     tiny_config.distributed.scheme = scheme  # type: ignore[assignment]
     mp.spawn(  # pyright: ignore[reportPrivateImportUsage] # Public torch API missing from its export stubs.
         resume_worker,

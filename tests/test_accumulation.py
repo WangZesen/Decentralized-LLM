@@ -154,8 +154,10 @@ def test_inferred_buffers_shapes_and_preflight(
         (4, 2, "a209d274419b54337641bbbc931181f93733050881687e7c6250f1c63e554049"),
     ],
 )
-def test_historical_batching_recipe_identity(cache: TokenCache, workers: int, accumulation: int, identity: str) -> None:
-    # Captured before migration with per-rank micro_batch_size 32, 8, and 4 respectively.
+def test_numeric_feedback_invalidates_historical_recipe(
+    cache: TokenCache, workers: int, accumulation: int, identity: str
+) -> None:
+    # Boolean-feedback recipes used per-rank micro_batch_size 32, 8, and 4 respectively.
     config = load_config(
         overrides=[
             f"distributed.gpus_per_node={workers}",
@@ -163,5 +165,6 @@ def test_historical_batching_recipe_identity(cache: TokenCache, workers: int, ac
             "runtime.fused_rope=false",
         ]
     )
-    assert recipe_identity(config, cache, initialization=None) == identity
+    assert recipe_identity(config, cache, initialization=None) != identity
     assert recipe_identity(config, cache) != identity
+    assert recipe_identity(config, cache) != recipe_identity(config, cache, initialization=None)

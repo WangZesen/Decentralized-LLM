@@ -21,11 +21,11 @@ def synchronize(device: torch.device) -> None:
 
 
 def measure(
-    config: Config, feedback: bool, warmup: int, steps: int, windows: int, profile_path: Path | None = None
+    config: Config, gamma: float, warmup: int, steps: int, windows: int, profile_path: Path | None = None
 ) -> dict:
     config = config.model_copy(deep=True)
     config.distributed.mode = "decentralized"
-    config.distributed.error_feedback = feedback
+    config.distributed.error_feedback_gamma = gamma
     device = torch.device(config.runtime.device)
     torch.manual_seed(config.runtime.seed)
     model = Llama(config.model, config.runtime.attention_backend).to(device)
@@ -54,7 +54,7 @@ def measure(
                 optimizer.step()
         profile.export_chrome_trace(str(profile_path))
     return {
-        "enabled": feedback,
+        "error_feedback_gamma": gamma,
         **optimizer_report(optimizer),
         "median_step_ms": statistics.median(timings),
         "windows_ms": timings,
@@ -87,10 +87,10 @@ def main() -> None:
         current = config.model_copy(deep=True)
         current.runtime.decentralized_optimizer = selector
         variants[selector] = {}
-        for feedback in (False, True):
-            name = "error_feedback" if feedback else "baseline"
+        for gamma in (0.0, 1.0):
+            name = "error_feedback" if gamma else "baseline"
             trace = args.output.with_name(f"{args.output.stem}-{selector}-{name}-trace.json") if args.profile else None
-            variants[selector][name] = measure(current, feedback, args.warmup, args.steps, args.windows, trace)
+            variants[selector][name] = measure(current, gamma, args.warmup, args.steps, args.windows, trace)
     baseline, corrected = variants["auto"]["baseline"], variants["auto"]["error_feedback"]
     result = {
         "config": config.model_dump(mode="json"),

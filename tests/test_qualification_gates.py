@@ -91,7 +91,7 @@ def test_assessment_preserves_raw_results_and_checks_every_rank(
                 model=model,
                 scheme=scheme,
                 topology=topology,
-                feedback=feedback,
+                error_feedback_gamma=float(feedback),
                 seed=seed,
                 report=str(directory / "numerical-rank-00000.json"),
             )
@@ -104,7 +104,7 @@ def test_assessment_preserves_raw_results_and_checks_every_rank(
                 "world_size": 2,
                 "config": {
                     "model": {"width": 320 if model == "20m" else 640},
-                    "distributed": {"scheme": scheme, "topology": topology, "error_feedback": feedback},
+                    "distributed": {"scheme": scheme, "topology": topology, "error_feedback_gamma": float(feedback)},
                     "runtime": {"seed": seed},
                 },
                 "optimizer_revision": "revision",

@@ -47,7 +47,7 @@ def test_summary_uses_paired_ratios_and_ignores_incomplete_trials() -> None:
                     "model": "20m",
                     "topology": "complete",
                     "scheme": "awc",
-                    "feedback": True,
+                    "error_feedback_gamma": 1.0,
                     "selector": selector,
                     "trial": trial,
                     "tokens_per_second": speed,
@@ -77,7 +77,7 @@ def test_trajectory_matrix_collects_all_cases_before_failing(
     def qualify(config: Config, path: Path, **kwargs: object) -> dict:
         assert kwargs["raise_on_failure"] is False
         path.mkdir(parents=True)
-        cases.append((config.distributed.topology, config.distributed.error_feedback, config.runtime.seed))
+        cases.append((config.distributed.topology, config.distributed.error_feedback_gamma, config.runtime.seed))
         return {
             "passed": not (fail_first and len(cases) == 1),
             "validation_delta": 0.0,

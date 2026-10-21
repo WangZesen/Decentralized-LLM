@@ -12,7 +12,7 @@ from decentralized_llm.models.storage import ParameterStorage, prepare_parameter
 
 
 class ErrorFeedbackAdamW(torch.optim.AdamW):
-    """Apply twice the full local AdamW displacement minus its previous displacement.
+    """Apply (1 + gamma) times the AdamW displacement minus gamma times its history.
 
     The caller supplies the optimizer's base weights (after mixing for AWC, before
     mixing for ATC). History is rank-local and includes decoupled weight decay.
@@ -21,9 +21,12 @@ class ErrorFeedbackAdamW(torch.optim.AdamW):
     optimizer construction, as for the ordinary optimizer and execution wrappers.
     """
 
-    def __init__(self, params: list[dict[str, Any]], storage: ParameterStorage, **kwargs: Any) -> None:
+    def __init__(
+        self, params: list[dict[str, Any]], storage: ParameterStorage, *, feedback_gamma: float, **kwargs: Any
+    ) -> None:
         super().__init__(params, **kwargs)
         self.storage = storage
+        self.feedback_gamma = feedback_gamma
         self.previous_update = torch.zeros_like(storage.flat)
         self.scratch = torch.empty_like(storage.flat)
 
@@ -37,7 +40,9 @@ class ErrorFeedbackAdamW(torch.optim.AdamW):
         self.scratch.copy_(self.storage.flat)
         super().step()
         torch.sub(self.storage.flat, self.scratch, out=self.scratch)
-        self.storage.flat.add_(self.scratch).sub_(self.previous_update)
+        self.storage.flat.add_(self.scratch, alpha=self.feedback_gamma).sub_(
+            self.previous_update, alpha=self.feedback_gamma
+        )
         # Writes through the flat alias do not update Parameter version counters.
         torch.autograd.graph.increment_version(self.storage.parameters)
         self.previous_update, self.scratch = self.scratch, self.previous_update
@@ -101,7 +106,9 @@ def make_optimizer(model: nn.Module, config: Config, device: torch.device) -> to
     ):
         from decentralized_llm.execution.cuda.adamw import FusedDecentralizedAdamW
 
-        return FusedDecentralizedAdamW(groups, storage, feedback=config.distributed.error_feedback, **options)
-    if config.distributed.error_feedback:
-        return ErrorFeedbackAdamW(groups, storage, **options)
+        return FusedDecentralizedAdamW(
+            groups, storage, feedback_gamma=config.distributed.error_feedback_gamma, **options
+        )
+    if config.distributed.error_feedback_gamma != 0:
+        return ErrorFeedbackAdamW(groups, storage, feedback_gamma=config.distributed.error_feedback_gamma, **options)
     return torch.optim.AdamW(groups, **options)

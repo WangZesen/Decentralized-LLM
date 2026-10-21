@@ -16,10 +16,15 @@ step-dependent corrections are runtime inputs. The selected schedule uses 2,048
 FP32 elements per tile and four warps, with vectorized accesses when aligned.
 
 For each parameter, AdamW computes ordinary updated weights `q` from `base`, then
-computes `d = q - base`, stores `q + d - previous_update`, and overwrites history
+computes `d = q - base`, stores `q + gamma * d - gamma * previous_update`, and overwrites history
 with `d`. History includes weight decay, starts at zero, and stays rank-local.
-The first displacement is therefore doubled. Missing gradients leave moments and
-step counters unchanged while subtracting and clearing previous history.
+The coefficient is `distributed.error_feedback_gamma`, a finite number defaulting
+to zero. Zero uses ordinary AdamW without feedback buffers; one retains the original
+correction. The first displacement is scaled by `1 + gamma`. Missing gradients leave
+moments and step counters unchanged while subtracting `gamma * previous_update` and
+clearing previous history. Synchronous training supports the same correction through
+the reference wrapper or packed CUDA optimizer. The feedback coefficient is separate
+from packed parameter mixing's gamma.
 
 AWC still exchanges a snapshot before forward/backward. After clipping and waiting,
 the optimizer reads the reduced snapshot and divides by group size inside the
@@ -30,7 +35,9 @@ evaluation, or checkpoint. Failure paths drain outstanding exchanges.
 
 Parameter identities, tied weights, zero padding, and autograd version notifications
 are preserved. The `error_feedback.previous_update` checkpoint layout and ordinary
-AdamW state remain compatible with reference checkpoints. Loading rebuilds runtime
+AdamW state are shared with the reference implementation. Gamma participates in the
+training recipe identity and must match on resume; old boolean configurations and
+identities are not migrated. Loading rebuilds runtime
 pointer metadata. The execution selector is excluded from recipe identity and
 included in qualification metadata; optimizer, kernel, mixing, and training source
 hashes identify measurements. The public snapshot mixing helpers remain available.

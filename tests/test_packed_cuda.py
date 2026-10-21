@@ -19,12 +19,13 @@ pytestmark = [pytest.mark.cuda, pytest.mark.skipif(not torch.cuda.is_available()
 
 
 @pytest.mark.parametrize("scheme", ["awc", "atc"])
-@pytest.mark.parametrize("mode,feedback", [("ddp", False), ("decentralized", False), ("decentralized", True)])
+@pytest.mark.parametrize("mode", ["ddp", "decentralized"])
+@pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0, -1.0, 2.0])
 def test_captured_update_parity(
     tiny_config: Config,
     scheme: Literal["awc", "atc"],
     mode: Literal["ddp", "decentralized"],
-    feedback: bool,
+    gamma: float,
 ) -> None:
     from decentralized_llm.execution.cuda.capture import CapturedUpdate
     from decentralized_llm.execution.cuda.packed_optimizer import ArenaAdamW
@@ -34,7 +35,7 @@ def test_captured_update_parity(
         training_backend="packed", device="cuda", amp=True, deterministic=False, fused_optimizer=False
     )
     raw["distributed"].update(
-        mode=mode, scheme=scheme, gpus_per_node=4, topology="one_peer_exponential", error_feedback=feedback
+        mode=mode, scheme=scheme, gpus_per_node=4, topology="one_peer_exponential", error_feedback_gamma=gamma
     )
     raw["training"].update(batch_tokens=64, num_accumulation=2)
     cfg = Config.model_validate(raw)
@@ -54,9 +55,12 @@ def test_captured_update_parity(
     assert torch.equal(torch.cuda.get_rng_state(), rng)
     assert optimizer.inspect(0) == 0
     assert not torch.count_nonzero(optimizer.first_moment_storage)
-    if feedback:
+    if gamma != 0:
         assert optimizer.previous_update is not None
         assert not torch.count_nonzero(optimizer.previous_update)
+    else:
+        assert optimizer.previous_update is None and ordinary.previous_update is None
+        assert ordinary.scratch is None
     blocks, micro = 16, cfg.process_micro_batch_size
     for step in range(4):
         if step == 2:
@@ -75,7 +79,7 @@ def test_captured_update_parity(
             engine.prepare()
             assert torch.equal(model.parameter_storage.cpu(), saved["model"]["parameter_storage"])
             assert torch.equal(optimizer.first_moment_storage.cpu(), saved["optimizer"]["first_moment_storage"])
-            if feedback:
+            if gamma != 0:
                 assert optimizer.previous_update is not None
                 assert torch.equal(optimizer.previous_update.cpu(), saved["optimizer"]["previous_update"])
             assert torch.equal(torch.cuda.get_rng_state(), rng)
@@ -118,7 +122,7 @@ def test_captured_update_parity(
             (optimizer.second_moment_storage, ordinary.second_moment_storage),
         ]:
             torch.testing.assert_close(actual, expected, rtol=1e-2, atol=5e-5)
-        if feedback:
+        if gamma != 0:
             torch.testing.assert_close(optimizer.previous_update, ordinary.previous_update, rtol=3e-4, atol=3e-6)
     # A nonfinite worker must prevent every worker's parameters/moments/counter from advancing.
     snapshot = model.parameter_storage.clone()
@@ -186,7 +190,7 @@ def test_production_compiled_packed_update(tiny_config: Config) -> None:
         fused_optimizer=True,
         compile_cache_dir=str(tiny_config.runtime.output_dir.parent / "compile"),
     )
-    raw["distributed"].update(mode="decentralized", scheme="atc", gpus_per_node=2, error_feedback=True)
+    raw["distributed"].update(mode="decentralized", scheme="atc", gpus_per_node=2, error_feedback_gamma=1.0)
     raw["training"].update(batch_tokens=64, num_accumulation=2)
     cfg = Config.model_validate(raw)
     runtime = runtime_for(cfg)

@@ -70,9 +70,9 @@ def test_identical_initialization(tiny_config: Config, workers: int, seed: int) 
 
 @pytest.mark.parametrize("topology", ["complete", "one_peer_ring", "one_peer_exponential"])
 @pytest.mark.parametrize("scheme", ["awc", "atc"])
-@pytest.mark.parametrize("feedback", [False, True])
-def test_reference_updates(cache: TokenCache, tiny_config: Config, topology: str, scheme: str, feedback: bool) -> None:
-    cfg = packed_config(tiny_config, topology=topology, scheme=scheme, error_feedback=feedback)
+@pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0, -1.0, 2.0])
+def test_reference_updates(cache: TokenCache, tiny_config: Config, topology: str, scheme: str, gamma: float) -> None:
+    cfg = packed_config(tiny_config, topology=topology, scheme=scheme, error_feedback_gamma=gamma)
     backend = PackedBackend(cfg, torch.device("cpu"), runtime_for(cfg))
     backend.prepare()
     references = [initialize_model(cfg) for _ in range(4)]
@@ -120,10 +120,16 @@ def test_reference_updates(cache: TokenCache, tiny_config: Config, topology: str
 
 @pytest.mark.parametrize("mode", ["ddp", "decentralized"])
 @pytest.mark.parametrize("scheme", ["awc", "atc"])
+@pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0])
 def test_packed_training_resume(
-    cache: TokenCache, tiny_config: Config, tmp_path: Path, mode: Literal["ddp", "decentralized"], scheme: str
+    cache: TokenCache,
+    tiny_config: Config,
+    tmp_path: Path,
+    mode: Literal["ddp", "decentralized"],
+    scheme: str,
+    gamma: float,
 ) -> None:
-    cfg = packed_config(tiny_config, scheme=scheme, error_feedback=mode == "decentralized")
+    cfg = packed_config(tiny_config, scheme=scheme, error_feedback_gamma=gamma)
     cfg.distributed.mode = mode
     # Enough updates to exercise both an interruption and rotating peers.
     cfg.training.tokens_per_parameters = 0.8
@@ -153,6 +159,9 @@ def test_packed_training_resume(
     raw["runtime"]["training_backend"] = "distributed"
     with pytest.raises(ValueError, match="training backend"):
         validate_checkpoint(cfg.runtime.output_dir / "final", Config.model_validate(raw), cache)
+    cfg.distributed.error_feedback_gamma = gamma + 0.25
+    with pytest.raises(ValueError, match="recipe"):
+        validate_checkpoint(cfg.runtime.output_dir / "final", cfg, cache)
 
 
 @pytest.mark.parametrize("workers", [1, 4, 8])
@@ -279,14 +288,19 @@ def test_legacy_initialization_is_preserved(
 
 
 @pytest.mark.parametrize("accumulation", [1, 2, 4])
-def test_packed_synchronous_global_batch(cache: TokenCache, tiny_config: Config, accumulation: int) -> None:
+@pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0, -1.0, 2.0])
+def test_packed_synchronous_global_batch(
+    cache: TokenCache, tiny_config: Config, accumulation: int, gamma: float
+) -> None:
     from test_distributed import reference_batch
 
-    cfg = packed_config(tiny_config)
+    cfg = packed_config(tiny_config, error_feedback_gamma=gamma)
     cfg.distributed.mode = "ddp"
     cfg.training.num_accumulation = accumulation
     backend = PackedBackend(cfg, torch.device("cpu"), runtime_for(cfg))
     backend.prepare()
+    if gamma == 0:
+        assert backend.optimizer.previous_update is None and backend.optimizer.scratch is None
     reference = initialize_model(cfg)
     optimizer = make_optimizer(reference, cfg, torch.device("cpu"))
     with TokenLoader(cache, cfg, 0, 0, 64) as loader:

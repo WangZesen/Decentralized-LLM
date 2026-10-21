@@ -11,9 +11,9 @@ from qualification_gates import GATE_PROTOCOL, GATE_REVISION, assess_numerical
 
 def assess_matrix(path: Path) -> dict:
     matrix = json.loads(path.read_text())
-    axes = ("model", "scheme", "topology", "feedback", "seed")
+    axes = ("model", "scheme", "topology", "error_feedback_gamma", "seed")
     expected = set(
-        itertools.product(("20m", "90m"), ("awc", "atc"), ("complete", "one_peer_ring"), (False, True), (42, 43))
+        itertools.product(("20m", "90m"), ("awc", "atc"), ("complete", "one_peer_ring"), (0.0, 1.0), (42, 43))
     )
     if (
         not matrix.get("complete")
@@ -34,7 +34,7 @@ def assess_matrix(path: Path) -> dict:
         if (
             config["model"]["width"] != {"20m": 320, "90m": 640}[row["model"]]
             or any(config["distributed"][key] != row[key] for key in ("scheme", "topology"))
-            or config["distributed"]["error_feedback"] != row["feedback"]
+            or config["distributed"]["error_feedback_gamma"] != row["error_feedback_gamma"]
             or config["runtime"]["seed"] != row["seed"]
         ):
             raise ValueError(f"measurement does not match its matrix case: {first}")
@@ -59,7 +59,7 @@ def assess_matrix(path: Path) -> dict:
                 report["validation_delta"],
                 steps=report["steps"],
                 optimizer_only=True,
-                feedback=report["config"]["distributed"]["error_feedback"],
+                feedback=report["config"]["distributed"]["error_feedback_gamma"] != 0,
                 fused_candidate=report["optimizers"][1]["implementation"] == "triton",
             )
             reports.append(

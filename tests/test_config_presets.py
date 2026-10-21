@@ -74,7 +74,7 @@ def test_single_node_setup_clears_cross_node_transport(family: str, gpus: int, n
 @pytest.mark.parametrize("recipe", ["sync", "awc-ef-8w-ring"])
 def test_tuning_setup_and_training_layers(family: str, gpus: int, nodes: int, per_node: int, recipe: str) -> None:
     _, config = read_spec(
-        Path(f"configs/tunings/tuning-{recipe}-512c-64bs-20tpp.yaml"),
+        Path(f"configs/tunings/20m-{recipe}-512c-64bs-20tpp.yaml"),
         configs=[
             Path("configs/models/90m.yaml"),
             Path("configs/training-512c-32bs-20tpp.yaml"),
@@ -87,6 +87,6 @@ def test_tuning_setup_and_training_layers(family: str, gpus: int, nodes: int, pe
     assert config.distributed.nodes == nodes and config.distributed.gpus_per_node == per_node
     assert config.runtime.execution_backend == family
     assert config.distributed.mode == ("ddp" if recipe == "sync" else "decentralized")
-    assert config.distributed.error_feedback is (recipe != "sync")
+    assert config.distributed.error_feedback_gamma == (1.0 if recipe != "sync" else 0.0)
     if recipe != "sync":
         assert config.distributed.scheme == "awc" and config.distributed.topology == "one_peer_ring"

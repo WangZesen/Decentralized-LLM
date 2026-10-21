@@ -41,11 +41,11 @@ def main() -> None:
                 current.distributed.scheme = scheme
                 for topology in ("complete", "one_peer_ring"):
                     current.distributed.topology = topology
-                    for feedback in (False, True):
-                        current.distributed.error_feedback = feedback
+                    for gamma in (0.0, 1.0):
+                        current.distributed.error_feedback_gamma = gamma
                         for seed in (42, 43):
                             current.runtime.seed = seed
-                            output = args.output / model / scheme / topology / str(feedback) / str(seed)
+                            output = args.output / model / scheme / topology / str(gamma) / str(seed)
                             gc.collect()
                             torch.cuda.empty_cache()
                             torch.manual_seed(seed)
@@ -84,7 +84,7 @@ def main() -> None:
                                     "model": model,
                                     "scheme": scheme,
                                     "topology": topology,
-                                    "feedback": feedback,
+                                    "error_feedback_gamma": gamma,
                                     "seed": seed,
                                     "passed": result["passed"],
                                     "all_recorded_updates_passed": result["gates"]["all_recorded_updates_passed"],

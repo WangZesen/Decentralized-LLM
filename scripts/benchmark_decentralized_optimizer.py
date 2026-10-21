@@ -20,10 +20,10 @@ from decentralized_llm.runtime import atomic_json, environment
 def summarize(rows: list[dict]) -> dict:
     cases = {}
     for row in rows:
-        key = (row["model"], row["topology"], row["scheme"], row["feedback"])
+        key = (row["model"], row["topology"], row["scheme"], row["error_feedback_gamma"])
         cases.setdefault(key, {}).setdefault(row["selector"], {})[row["trial"]] = row["tokens_per_second"]
     comparisons = []
-    for (model, topology, scheme, feedback), variants in cases.items():
+    for (model, topology, scheme, gamma), variants in cases.items():
         if set(variants) != {"auto", "reference"}:
             continue
         trials = sorted(variants["reference"].keys() & variants["auto"].keys())
@@ -37,7 +37,7 @@ def summarize(rows: list[dict]) -> dict:
                 "model": model,
                 "topology": topology,
                 "scheme": scheme,
-                "feedback": feedback,
+                "error_feedback_gamma": gamma,
                 "reference_tokens_per_second": reference,
                 "fused_tokens_per_second": candidate,
                 "speedup": statistics.median(
@@ -110,10 +110,10 @@ def main() -> None:
                     current.distributed.topology = topology
                     for scheme in args.schemes:
                         current.distributed.scheme = scheme
-                        for feedback in (False, True):
-                            current.distributed.error_feedback = feedback
+                        for gamma in (0.0, 1.0):
+                            current.distributed.error_feedback_gamma = gamma
                             current.benchmark.profile = config.benchmark.profile and trial == 0
-                            parent = args.output / model / topology / scheme / str(feedback) / str(trial)
+                            parent = args.output / model / topology / scheme / str(gamma) / str(trial)
                             cached = cached_pair(current, parent, source_revision, rank()) if args.resume else None
                             ready = torch.tensor(int(cached is not None), device=device)
                             if dist.is_initialized():
@@ -125,9 +125,7 @@ def main() -> None:
                             for selector in selectors:
                                 current.runtime.decentralized_optimizer = selector
                                 current.benchmark.profile = config.benchmark.profile and trial == 0
-                                directory = (
-                                    args.output / model / topology / scheme / str(feedback) / str(trial) / selector
-                                )
+                                directory = args.output / model / topology / scheme / str(gamma) / str(trial) / selector
                                 current.runtime.output_dir = directory
                                 gc.collect()
                                 torch.cuda.empty_cache()
@@ -151,7 +149,7 @@ def main() -> None:
                                     "model": model,
                                     "topology": topology,
                                     "scheme": scheme,
-                                    "feedback": feedback,
+                                    "error_feedback_gamma": gamma,
                                     "selector": selector,
                                     "trial": trial,
                                     "tokens_per_second": result["global_tokens_per_second"],

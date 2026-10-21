@@ -96,7 +96,7 @@ def _adam(
     FINITE,
     COEF,
     STRIDE: tl.constexpr,
-    FEEDBACK: tl.constexpr,
+    FEEDBACK_GAMMA: tl.constexpr,
     B1: tl.constexpr,
     B2: tl.constexpr,
     EPS: tl.constexpr,
@@ -122,10 +122,10 @@ def _adam(
         base = p
         p = p * tl.where(decay != 0, tl.load(COEF), 1.0)
         p = p - tl.load(COEF + 1) * m / denominator
-        if FEEDBACK:
+        if FEEDBACK_GAMMA != 0:
             delta = p - base
             previous = tl.load(HISTORY + address, i < size, other=0.0)
-            p = p + delta - previous
+            p = (p + FEEDBACK_GAMMA * delta) - FEEDBACK_GAMMA * previous
             tl.store(HISTORY + address, delta, i < size)
         tl.store(P + address, p, i < size)
         tl.store(M + address, m, i < size)
@@ -206,7 +206,8 @@ class ArenaAdamW:
         self.arena = model.parameter_storage
         if not self.arena.is_cuda or self.arena.dtype != torch.float32:
             raise ValueError("GH200 AdamW requires FP32 CUDA arenas")
-        self.previous_update = torch.zeros_like(self.arena) if config.distributed.error_feedback else None
+        self.feedback_gamma = config.distributed.error_feedback_gamma
+        self.previous_update = torch.zeros_like(self.arena) if self.feedback_gamma != 0 else None
         self.first_moment_storage = torch.zeros_like(self.arena)
         self.second_moment_storage = torch.zeros_like(self.arena)
         self.gradients = torch.zeros_like(self.arena)
@@ -352,7 +353,7 @@ class ArenaAdamW:
             self.finite,
             self.coefficients,
             self.stride,
-            self.previous_update is not None,
+            self.feedback_gamma,
             cfg.beta1,
             cfg.beta2,
             cfg.eps,

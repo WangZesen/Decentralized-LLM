@@ -45,7 +45,7 @@ def _update(
     eps,
     base_scale,
     output_scale,
-    FEEDBACK: tl.constexpr,
+    FEEDBACK_GAMMA: tl.constexpr,
     ALIGNED: tl.constexpr,
     CACHE: tl.constexpr,
     BLOCK: tl.constexpr,
@@ -90,10 +90,10 @@ def _update(
         q = q - (step_size * m) / denom
         tl.store(m_ptr + index, m, mask)
         tl.store(v_ptr + index, v, mask)
-    if FEEDBACK:
+    if FEEDBACK_GAMMA != 0:
         delta = q - base
         previous = tl.load(HISTORY + offset + index, mask, other=0, cache_modifier=CACHE)
-        q = (q + delta) - previous
+        q = (q + FEEDBACK_GAMMA * delta) - FEEDBACK_GAMMA * previous
         tl.store(HISTORY + offset + index, delta, mask)
     tl.store(WEIGHTS + offset + index, q * output_scale, mask)
 
@@ -109,6 +109,7 @@ def update(
     base_divisor: int,
     output_divisor: int,
     aligned: bool,
+    feedback_gamma: float,
 ) -> None:
     beta1, beta2 = map(float, group["betas"])
     _prepare[(triton.cdiv(metadata.shape[0], 128),)](
@@ -137,7 +138,7 @@ def update(
         float(group["eps"]),
         1.0 / base_divisor,
         1.0 / output_divisor,
-        history is not None,
+        feedback_gamma,
         aligned and base.data_ptr() % 16 == 0,
         CACHE,
         BLOCK,

@@ -24,7 +24,7 @@ def test_awc_failed_update_drains_without_applying(
     tiny_config: Config, monkeypatch: pytest.MonkeyPatch, feedback: bool
 ) -> None:
     tiny_config.distributed.mode = "decentralized"
-    tiny_config.distributed.error_feedback = feedback
+    tiny_config.distributed.error_feedback_gamma = float(feedback)
     model = Llama(tiny_config.model)
     before = {k: v.clone() for k, v in model.state_dict().items()}
     optimizer = make_optimizer(model, tiny_config, torch.device("cpu"))
@@ -54,11 +54,13 @@ def test_awc_failed_update_drains_without_applying(
 
 @pytest.mark.parametrize("scheme", ["awc", "atc"])
 @pytest.mark.parametrize("split_step", [1, 2])
+@pytest.mark.parametrize("mode", ["ddp", "decentralized"])
+@pytest.mark.parametrize("gamma", [0.5, 1.0])
 def test_error_feedback_resume(
-    cache: TokenCache, tiny_config: Config, tmp_path: Path, scheme: str, split_step: int
+    cache: TokenCache, tiny_config: Config, tmp_path: Path, scheme: str, split_step: int, mode: str, gamma: float
 ) -> None:
-    tiny_config.distributed.mode = "decentralized"
-    tiny_config.distributed.error_feedback = True
+    tiny_config.distributed.mode = mode  # type: ignore[assignment]
+    tiny_config.distributed.error_feedback_gamma = gamma
     tiny_config.distributed.scheme = scheme  # type: ignore[assignment]
     train(tiny_config)
     original = torch.load(tiny_config.runtime.output_dir / "final/rank-00000.pt", weights_only=False)
@@ -81,7 +83,7 @@ def test_error_feedback_resume(
     )
     assert actual["loader"] == original["loader"]
     assert torch.equal(actual["rng"]["torch"], original["rng"]["torch"])
-    tiny_config.distributed.error_feedback = False
+    tiny_config.distributed.error_feedback_gamma = gamma + 0.25
     with pytest.raises(ValueError, match="recipe"):
         validate_checkpoint(checkpoint, tiny_config, cache)
 
