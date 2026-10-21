@@ -7,6 +7,7 @@ from pathlib import Path
 from decentralized_llm.config import Config, save_config
 from decentralized_llm.runtime import atomic_json
 from decentralized_llm.tuning.batching import format_time
+from decentralized_llm.tuning.outcomes import format_loss
 from decentralized_llm.tuning.plots import write_heatmaps
 from decentralized_llm.tuning.spec import Record
 
@@ -37,6 +38,7 @@ def write_report(directory: Path, state: Record) -> Record:
                         "loss": trial.get("loss"),
                         "attempts": trial["attempts"],
                         "result": trial.get("result"),
+                        "divergence": trial.get("divergence"),
                     }
                 )
             rows.append(
@@ -131,20 +133,19 @@ def write_report(directory: Path, state: Record) -> Record:
         for plot in phase["heatmaps"]:
             lines += [f"![{phase['name']} tuning losses]({plot['png']})", "", f"[SVG version]({plot['svg']})", ""]
         lines += [
-            "| Combination | Mean final loss | Sample std | Selected |",
+            "| Combination | Mean objective loss | Sample std | Selected |",
             "|---|---:|---:|---|",
         ]
         for row in phase["rankings"]:
             std = "—" if row["std_loss"] is None else f"{row['std_loss']:.6g}"
             selected = "yes" if row["id"] in phase["selected"] else ""
-            lines.append(f"| {describe(row)} | {row['mean_loss']:.8g} | {std} | {selected} |")
+            lines.append(f"| {describe(row)} | {format_loss(row['mean_loss'])} | {std} | {selected} |")
         lines += [""]
         for candidate in phase["candidates"]:
             lines += [f"### {candidate['description']}", ""]
             for trial in candidate["seeds"]:
-                lines.append(
-                    f"- Seed {trial['seed']}: {trial['status']}; loss={trial['loss']}; trial `{trial['trial_id']}`."
-                )
+                loss = "None" if trial["loss"] is None else format_loss(trial["loss"])
+                lines.append(f"- Seed {trial['seed']}: {trial['status']}; loss={loss}; trial `{trial['trial_id']}`.")
                 for attempt in trial["attempts"]:
                     label = attempt.get("job_id", attempt.get("pid", "unresolved"))
                     message = attempt.get("error", attempt.get("scheduler_state", ""))
@@ -167,6 +168,8 @@ def write_report(directory: Path, state: Record) -> Record:
         config.runtime.output_dir = directory / f"winner-run-revision-{state['revision']}"
         config.runtime.seed = state["spec"]["seed_start"]
         save_config(config, directory / "winner.yaml")
+    else:
+        (directory / "winner.yaml").unlink(missing_ok=True)
     temporary = directory / "report.md.tmp"
     temporary.write_text("\n".join(lines))
     temporary.replace(directory / "report.md")

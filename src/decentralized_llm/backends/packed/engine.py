@@ -14,6 +14,7 @@ from decentralized_llm.execution.native import TrainingExecution, build_executio
 from decentralized_llm.models.initialization import initialize_model
 from decentralized_llm.models.llama import Llama
 from decentralized_llm.models.packed import PackedLlama
+from decentralized_llm.runtime import NonfiniteUpdateError
 
 
 class PackedBackend:
@@ -89,7 +90,7 @@ class PackedBackend:
                 preload()
             norms = self.optimizer.clip_grad_norm_(cfg.optimizer.grad_clip)
             if not torch.isfinite(loss_sum).all():
-                raise FloatingPointError("nonfinite packed loss")
+                raise NonfiniteUpdateError("nonfinite packed loss")
             if cfg.distributed.mode == "decentralized" and cfg.distributed.scheme == "awc":
                 self.model.mix_(cfg.distributed.topology, step)
             self.optimizer.step()

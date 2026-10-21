@@ -21,7 +21,7 @@ from decentralized_llm.data.sampling import BatchSpec, rank_count
 from decentralized_llm.execution.cuda.adamw import FusedDecentralizedAdamW
 from decentralized_llm.execution.native import TrainingExecution
 from decentralized_llm.models.llama import token_losses
-from decentralized_llm.runtime import clip_grad_norm_
+from decentralized_llm.runtime import NonfiniteUpdateError, clip_grad_norm_
 from decentralized_llm.state import Batch
 
 
@@ -77,6 +77,8 @@ def optimizer_update(
             # Compute is already queued on CUDA; enqueue the upcoming transfer alongside it.
             preload()
         norm = clip_grad_norm_(model.parameters(), config.optimizer.grad_clip)
+        if not torch.isfinite(loss_sum):
+            raise NonfiniteUpdateError("nonfinite training loss")
         if isinstance(optimizer, FusedDecentralizedAdamW):
             if pending is not None:
                 pending.wait()

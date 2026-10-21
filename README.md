@@ -493,8 +493,8 @@ artifacts reused. Set affinity and compilation-cache preferences in `defaults.ya
 
 Each phase's `search` maps **one or more dotted configuration fields** to search
 specifications. The controller jointly evaluates their Cartesian product, averages
-final full-validation loss over the required training seeds, and keeps the **global
-top K complete combinations** specified by `top_k`. A later phase expands each
+final full-validation loss over the required training seeds, and keeps up to the **global
+top K finite-loss combinations** specified by `top_k`. A later phase expands each
 surviving combination with its new grid. Earlier winning coordinates remain paired.
 It can also revisit previous search fields, replacing those coordinates and
 deduplicating resulting configurations.
@@ -617,9 +617,22 @@ starts have a separate budget, also bounded by `max_retries` (at most three with
 default). Submission rejection counts against that allocation-failure budget. Legacy
 individual jobs and local processes retain their original submission-based retry counting.
 Exhausting either budget stops new submissions and phase advancement, exits unsuccessfully,
-and writes a partial report with a reason identifying the budget. A candidate requires
-every seed to succeed. Already submitted
+and writes a partial report with a reason identifying the budget. Already submitted
 jobs can finish and their results are collected on resume.
+
+Nonfinite training losses, gradient norms, and rejected fused updates produce a
+terminal `diverged` trial with objective loss +∞. These trials are not retried and
+do not halt tuning. The worker still exits unsuccessfully and preserves its traceback,
+rank, and last committed progress; the controller requires a structured numerical
+failure record with matching configuration and provenance. Other errors, including
+OOM, cancellation, and timeouts, retain their failure and retry behavior.
+
+Any diverged seed makes the candidate's mean objective loss +∞, with no sample
+standard deviation. Only candidates with finite means advance, up to `top_k`; later
+phases can therefore have fewer candidates. If none remain, the study finishes
+`complete` with a reason, `winner: null`, and no `winner.yaml`. JSON artifacts encode
+infinite losses and means as the string `"inf"` and their standard deviations as
+`null`; reports display ∞. Existing failed attempts are not reclassified.
 
 Dry-run JSON preserves trial counts such as `new_jobs` and `additional_attempts_upper_bound`
 (training attempts), and adds `new_allocations`, `already_submitted_allocations`,
@@ -642,14 +655,15 @@ recovery reconciles all its members together, preserves completed results, and r
 unfinished members for retry. Missing scheduler records never release individual members
 of a potentially live allocation.
 
-`extend` creates a new revision and replays phases using matching successful results.
+`extend` creates a new revision and replays phases using matching successful and diverged results.
 It supports revised grids, changed phase sequences, initial values, and seed counts.
 Increasing `max_retries` can reopen exhausted trials. Previous reports and state are
 archived under `revisions/`. Active jobs remain tracked even if a revised search no
 longer needs them. Reuse requires matching effective configuration, seed, cache content,
 and source/dependency fingerprints. Changed software or cache identity requires an
 extension and produces new trials. Every accepted result is checked against its
-configuration, completed budget, and recorded provenance.
+configuration and recorded provenance. Successful results must also complete the
+training budget and full validation; divergence records preserve the incomplete budget.
 
 The study directory contains atomically updated `state.json`, isolated
 `trials/<phase-name>/<id>/attempt-*/` artifacts, and `report.md`/`report.json`. A trial's
@@ -670,7 +684,7 @@ New SLURM tuning submissions, including groups of one, place shared batch artifa
 stdout, stderr, and execution JSON records for each trial attempt. Trial configurations,
 worker/step scripts, and training results remain in the trial attempt directories;
 attempt records and reports link to the allocation and step logs. Existing logs are
-never relocated. State version 1 studies are read compatibly and saved as version 2.
+never relocated. State versions 1 and 2 are read compatibly and saved as version 3.
 Existing active individual jobs remain tracked alongside new grouped allocations.
 
 As with other code changes, updating the controller changes the source fingerprint:
@@ -683,8 +697,9 @@ requested seeds. Screening plots use the first two search fields as horizontal a
 vertical axes; one-field searches use a heatmap strip. Additional searched fields and
 carried-over parameter combinations produce separate panels with a shared color scale.
 Confirmation plots show each candidate's seed losses and a mean column. Power notation
-is retained, selected cells are outlined, and pending, failed, and unsearched cells are
-labelled separately. A candidate's mean appears only after all its required seeds succeed.
+is retained, selected cells are outlined, and pending, failed, diverged (∞), and unsearched
+cells are labelled separately. Finite means appear after all required seeds succeed;
+divergence is labelled as soon as any seed diverges and is excluded from the color scale.
 PNG figures are embedded in `report.md`, SVG copies are linked for zooming/export, and
 `report.json` lists the relative paths in each phase's `heatmaps` array. Figures live in
 `plots/` and are copied with archived revision reports. Regenerating an older study's

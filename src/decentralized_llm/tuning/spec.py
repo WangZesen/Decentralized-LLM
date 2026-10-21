@@ -295,7 +295,8 @@ def expand(base: Config, phase: Phase, parents: list[Record] | None = None) -> l
                     labels[key] = {**point, "value": values[key]}
             identity = fingerprint(numeric_recipe(config))
             candidates.setdefault(identity, {"id": identity, "values": values, "labels": labels, "config": raw})
-    if len(candidates) < phase.top_k:
+    # Later phases can have fewer parents after divergent candidates are eliminated.
+    if parents is None and len(candidates) < phase.top_k:
         raise ValueError(f"{phase.name}: top_k exceeds the number of distinct candidates")
     return list(candidates.values())
 

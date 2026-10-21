@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -68,12 +69,30 @@ def publish_result(config: Config, *, invalid: bool = False) -> None:
     )
 
 
+def publish_divergence(config: Config, *, rank: int = 0) -> Path:
+    publish_result(config)
+    (config.runtime.output_dir / "result.json").unlink()
+    path = config.runtime.output_dir / f"failure-rank-{rank:05d}.json"
+    atomic_json(
+        path,
+        {
+            "kind": "nonfinite_update",
+            "rank": rank,
+            "message": "nonfinite gradient norm",
+            "traceback": "NonfiniteUpdateError: nonfinite gradient norm",
+            "progress": {"cursor": 0, "step": 0, "completed_epochs": 0},
+        },
+    )
+    return path
+
+
 class FakeBackend(Backend):
     def __init__(self) -> None:
         super().__init__()
         self.submissions: list[Record] = []
         self.failures = 0
         self.invalid = False
+        self.diverges: Callable[[Config], bool] = lambda _: False
         self.interrupt = False
         self.unknown = False
         self.max_active = 0
@@ -96,6 +115,16 @@ class FakeBackend(Backend):
         save_config(config, Path(attempt["directory"]) / "config.yaml")
         return {"job_id": str(len(self.submissions))}
 
+    def publish_outcome(self, attempt: Record) -> bool:
+        if attempt["number"] <= self.failures:
+            return True
+        config = load_config(Path(attempt["directory"]) / "config.yaml")
+        if self.diverges(config):
+            publish_divergence(config)
+            return True
+        publish_result(config, invalid=self.invalid)
+        return False
+
     def poll(self, attempts: list[Record]) -> dict[str, Record]:
         self.max_active = max(self.max_active, len(attempts))
         if attempts and self.interrupt:
@@ -106,9 +135,7 @@ class FakeBackend(Backend):
                 continue
             if "members" in attempt:
                 for member in self.allocation_members[attempt["name"]]:
-                    failed = member["number"] <= self.failures
-                    if not failed:
-                        publish_result(load_config(Path(member["directory"]) / "config.yaml"), invalid=self.invalid)
+                    failed = self.publish_outcome(member)
                     path = Path(member["execution_record"])
                     path.parent.mkdir(parents=True, exist_ok=True)
                     atomic_json(
@@ -124,9 +151,7 @@ class FakeBackend(Backend):
                     )
                 result[attempt["name"]] = {"state": "COMPLETED", "exit_code": "0:0"}
                 continue
-            failed = attempt["number"] <= self.failures
-            if not failed:
-                publish_result(load_config(Path(attempt["directory"]) / "config.yaml"), invalid=self.invalid)
+            failed = self.publish_outcome(attempt)
             result[attempt["name"]] = {
                 "state": "FAILED" if failed else "COMPLETED",
                 "exit_code": "1:0" if failed else "0:0",
@@ -783,6 +808,161 @@ def test_controller_lock(tmp_path: Path) -> None:
                 pytest.fail("second controller acquired the lock")
 
 
+@pytest.mark.parametrize("slurm", [False, True])
+@pytest.mark.parametrize("diverge_in", ["some", "screen", "confirmation"])
+def test_divergence_continues_tuning_without_retries(
+    cache: TokenCache,
+    tuning_file: Path,
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+    slurm: bool,
+    diverge_in: str,
+) -> None:
+    raw = yaml.safe_load(tuning_file.read_text())
+    raw.update(
+        screening_seeds=1,
+        phases=[
+            {
+                "name": "screen",
+                "initial_values": {"optimizer.beta1": 0.8},
+                "search": {"optimizer.lr": [0.001, 0.1]},
+                "top_k": 2,
+            },
+            {"name": "refine", "search": {"optimizer.beta1": [0.9]}, "top_k": 2},
+        ],
+        confirmation={"seeds": 2},
+    )
+    if slurm:
+        raw["base"]["overrides"] = {"launcher.kind": "slurm", "launcher.partition": "gpu"}
+        raw["controller"].update(jobs_per_allocation=4, max_jobs=1)
+        monkeypatch.setenv("account", "test-account")
+        monkeypatch.setattr("shutil.which", lambda _: "/bin/slurm")
+    tuning_file.write_text(yaml.safe_dump(raw))
+    fake_backend.diverges = lambda config: (
+        diverge_in == "screen"
+        or diverge_in == "some"
+        and config.optimizer.lr == 0.1
+        or diverge_in == "confirmation"
+        and config.runtime.seed > raw["seed_start"]
+    )
+    destination = tmp_path / "study"
+    assert execute("run", destination, tuning_file)["status"] == "complete"
+    state = load_state(destination)
+    diverged = [trial for trial in state["trials"].values() if trial["status"] == "diverged"]
+    assert diverged
+    assert all(trial["status"] in {"succeeded", "diverged"} for trial in state["trials"].values())
+    assert all(len(trial["attempts"]) == 1 for trial in state["trials"].values())
+    for trial in diverged:
+        assert trial["loss"] == "inf" and "result" not in trial
+        attempt = trial["attempts"][0]
+        assert attempt["status"] == "diverged"
+        assert not (Path(attempt["directory"]) / "run/result.json").exists()
+        assert Path(trial["divergence"]["file"]).is_file()
+    for phase in state["phases"]:
+        for row in phase["rankings"]:
+            if row["mean_loss"] == "inf":
+                assert row["id"] not in phase["selected"] and row["std_loss"] is None
+    if diverge_in == "some":
+        assert state["winner"]["values"]["optimizer.lr"] == 0.001
+        assert len(state["phases"][1]["candidates"]) == 1
+        assert (destination / "winner.yaml").exists()
+    else:
+        assert state["winner"] is None and "No finite-loss candidates" in state["reason"]
+        assert not (destination / "winner.yaml").exists()
+        assert state["phases"][-1]["name"] == diverge_in
+    if diverge_in == "confirmation":
+        assert all(row["seeds"][0]["loss"] != "inf" for row in state["phases"][-1]["rankings"])
+    for filename in ("state.json", "report.json"):
+        content = (destination / filename).read_text()
+        assert '"inf"' in content and "Infinity" not in content and "NaN" not in content
+    markdown = (destination / "report.md").read_text()
+    assert "diverged; loss=∞" in markdown
+    submissions = len(fake_backend.submissions)
+    assert execute("resume", destination)["status"] == "complete"
+    preview = execute("extend", destination, tuning_file, dry_run=True)
+    assert preview["new_jobs"] == 0 and not preview["completion_blocked"]
+    assert execute("extend", destination, tuning_file)["status"] == "complete"
+    assert len(fake_backend.submissions) == submissions
+    # Reusing a divergent result requires the original, authenticated evidence.
+    Path(diverged[0]["divergence"]["file"]).unlink()
+    with pytest.raises(ValueError, match="divergence"):
+        execute("resume", destination)
+
+
+@pytest.mark.parametrize("backend", ["local", "slurm", "grouped"])
+@pytest.mark.parametrize(
+    "problem", [None, "generic", "rank", "progress", "provenance", "timeout", "oom", "cancel", "parent_timeout"]
+)
+def test_divergence_requires_valid_worker_and_execution_evidence(
+    cache: TokenCache, tiny_config: Config, tmp_path: Path, backend: str, problem: str | None
+) -> None:
+    config = tiny_config.model_copy(deep=True)
+    config.distributed.gpus_per_node = 2
+    config.runtime.output_dir = tmp_path / "attempt/run"
+    marker = publish_divergence(config, rank=1)
+    # A peer's generic distributed failure must not hide the originating numerical error.
+    atomic_json(config.runtime.output_dir / "failure-rank-00000.json", {"traceback": "peer exited"})
+    if problem in {"generic", "rank", "progress"}:
+        record = json.loads(marker.read_text())
+        if problem == "generic":
+            record.pop("kind")
+        elif problem == "rank":
+            record["rank"] = 0
+        else:
+            record["progress"]["cursor"] = -1
+        atomic_json(marker, record)
+    trial = {
+        "id": "trial",
+        "status": "submitted",
+        "config": config.model_dump(mode="json"),
+        "seed": config.runtime.seed,
+        "provenance": controller.provenance(cache),
+    }
+    if problem == "provenance":
+        trial["provenance"]["source_sha256"] = "different source"
+    attempt = {
+        "name": "attempt",
+        "status": "submitted",
+        "backend": "slurm" if backend == "grouped" else backend,
+        "directory": str(tmp_path / "attempt"),
+        "number": 1,
+    }
+    trial["attempts"] = [attempt]
+    condition = {"timeout": "TIMEOUT", "parent_timeout": "TIMEOUT", "oom": "OUT_OF_MEMORY", "cancel": "CANCELLED"}.get(
+        problem or "", "FAILED"
+    )
+    if backend == "grouped":
+        record_path = tmp_path / "step.json"
+        attempt["execution_record"] = str(record_path)
+        atomic_json(
+            record_path,
+            {
+                "allocation_id": "a",
+                "trial_id": "trial",
+                "attempt": 1,
+                "started": True,
+                "state": "FAILED",
+                "exit_code": {"timeout": 143, "oom": 137, "cancel": -15}.get(problem or "", 1),
+            },
+        )
+        allocation = {"id": "a", "status": "finished", "scheduler_state": condition, "terminal_seen": 0}
+        controller.reconcile_step(trial, attempt, allocation, 0)
+    else:
+
+        class FinishedBackend(Backend):
+            def poll(self, attempts: list[Record]) -> dict[str, Record]:
+                return {"attempt": {"state": condition, "exit_code": "1:0"}}
+
+        assert reconcile({"trials": {"trial": trial}}, FinishedBackend(), 0)
+    if problem is None or backend == "grouped" and problem == "parent_timeout":
+        assert trial["status"] == attempt["status"] == "diverged"
+        assert trial["loss"] == "inf" and trial["divergence"]["rank"] == 1
+    else:
+        assert trial["status"] == attempt["status"] == "failed"
+        assert "loss" not in trial
+
+
 def test_ranking_uses_requested_seeds_and_stable_ties(tuning_file: Path) -> None:
     spec, base = read_spec(tuning_file)
     candidates = expand(base, spec.phases[0])[:2]
@@ -1248,24 +1428,26 @@ def test_batched_extension_replans_only_unsubmitted_work(
     assert len(fake_backend.submissions) == 10
 
 
+@pytest.mark.parametrize("version", [1, 2])
 def test_allocation_receipt_recovery_and_legacy_state(
     cache: TokenCache,
     tuning_file: Path,
     tmp_path: Path,
     fake_backend: FakeBackend,
     monkeypatch: pytest.MonkeyPatch,
+    version: int,
 ) -> None:
     fake_backend.interrupt = True
     destination = tmp_path / "study"
     execute("run", destination, tuning_file)
     state = load_state(destination)
-    state["version"] = 1
+    state["version"] = version
     state.pop("allocations")
     state["spec"]["controller"].pop("jobs_per_allocation")
     atomic_json(destination / "state.json", state)
     fake_backend.interrupt = False
     assert execute("resume", destination)["status"] == "complete"
-    assert load_state(destination)["version"] == 2
+    assert load_state(destination)["version"] == controller.VERSION
     parent = {
         "name": "batch-a",
         "directory": str(tmp_path),

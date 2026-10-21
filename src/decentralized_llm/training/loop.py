@@ -18,7 +18,7 @@ from decentralized_llm.data.cache import TokenCache, training_boundaries
 from decentralized_llm.data.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.data.sampling import check_memory, sampling_plan
 from decentralized_llm.execution.compilation import compiler_counters
-from decentralized_llm.runtime import append_metric, atomic_json, environment, restore_rng
+from decentralized_llm.runtime import NonfiniteUpdateError, append_metric, atomic_json, environment, restore_rng
 from decentralized_llm.training.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.training.evaluation import evaluate
 
@@ -57,6 +57,7 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
     output = config.runtime.output_dir
     output.mkdir(parents=True, exist_ok=True)
     lock = None
+    progress: dict[str, Any] = {}
     runtime = runtime_for(config)
     try:
         device = runtime.setup(config)
@@ -85,7 +86,7 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
         )
         backend = create_backend(config, device, runtime)
         model, optimizer = backend.model, backend.optimizer
-        progress: dict[str, Any] = {
+        progress = {
             "cursor": 0,
             "step": 0,
             "completed_epochs": 0,
@@ -269,9 +270,17 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
             finally:
                 transfer.close()
                 atomic_json(output / f"loader-rank-{runtime.rank:05d}.json", loader.metrics())
-    except BaseException:
+    except BaseException as error:
         failed_rank = int(os.environ.get("RANK", "0"))
-        atomic_json(output / f"failure-rank-{failed_rank:05d}.json", {"traceback": traceback.format_exc()})
+        failure: dict[str, Any] = {"traceback": traceback.format_exc()}
+        if isinstance(error, NonfiniteUpdateError):
+            failure.update(
+                kind="nonfinite_update",
+                rank=failed_rank,
+                message=str(error),
+                progress={key: progress[key] for key in ("cursor", "step", "completed_epochs") if key in progress},
+            )
+        atomic_json(output / f"failure-rank-{failed_rank:05d}.json", failure)
         raise
     finally:
         if lock is not None:

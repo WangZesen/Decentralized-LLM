@@ -13,6 +13,7 @@ from decentralized_llm.data.sampling import BatchSpec
 from decentralized_llm.execution.native import TrainingExecution
 from decentralized_llm.models.initialization import initialize_model
 from decentralized_llm.models.packed import PackedLlama
+from decentralized_llm.runtime import NonfiniteUpdateError
 
 pytestmark = [pytest.mark.cuda, pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")]
 
@@ -129,7 +130,7 @@ def test_captured_update_parity(
     gradient.fill_(float("nan"))
     optimizer._finalized = False
     optimizer.step(torch.zeros(workers, device=device))
-    with pytest.raises(FloatingPointError, match="nonfinite"):
+    with pytest.raises(NonfiniteUpdateError, match="nonfinite"):
         optimizer.inspect()
     assert torch.equal(model.parameter_storage, snapshot)
     assert torch.equal(optimizer.first_moment_storage, moments)

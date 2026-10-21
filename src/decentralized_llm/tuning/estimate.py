@@ -1,7 +1,6 @@
 """Read-only whole-study job estimates, exact when survivor identities do not matter."""
 
 import math
-import statistics
 
 from decentralized_llm.config import Config
 from decentralized_llm.tuning.batching import (
@@ -13,6 +12,7 @@ from decentralized_llm.tuning.batching import (
     training_attempts,
     trial_minutes,
 )
+from decentralized_llm.tuning.outcomes import TERMINAL_TRIALS, loss_value, select_finite, summarize_losses
 from decentralized_llm.tuning.spec import Record, TuningSpec, expand, field_value, search_points, trial_id
 
 
@@ -22,19 +22,19 @@ def ranking(candidates: list[Record], seeds: list[int], trials: Record, provenan
         losses = []
         for seed in seeds:
             trial = trials.get(trial_id(candidate, seed, provenance))
-            if trial is None or trial["status"] != "succeeded":
+            if trial is None or trial["status"] not in TERMINAL_TRIALS:
                 return None
             losses.append({"seed": seed, "loss": trial["loss"], "trial_id": trial["id"]})
-        values = [entry["loss"] for entry in losses]
+        mean, std = summarize_losses([entry["loss"] for entry in losses])
         rows.append(
             {
                 **candidate,
                 "seeds": losses,
-                "mean_loss": statistics.mean(values),
-                "std_loss": statistics.stdev(values) if len(values) > 1 else None,
+                "mean_loss": mean,
+                "std_loss": std,
             }
         )
-    return sorted(rows, key=lambda row: (row["mean_loss"], row["id"]))
+    return sorted(rows, key=lambda row: (loss_value(row["mean_loss"]), row["id"]))
 
 
 def estimate(
@@ -85,14 +85,12 @@ def estimate(
             count_known(row, candidates, spec.seeds(), trials, provenance, planned, limits)
             ranks = ranking(candidates, spec.seeds(), trials, provenance)
             if ranks is not None:
-                parents = ranks[: phase.top_k]
+                parents = select_finite(ranks, phase.top_k)
             else:
                 known = False
         else:
             # Without winner identities, revisited dimensions can collapse multiple parents.
             count = previous_count * math.prod(len(points) for points in searches.values())
-            if phase.top_k > count:
-                raise ValueError(f"{phase.name}: top_k exceeds even the candidate upper bound")
             row["candidates"] = count
             reuse = 0
             if (
@@ -110,8 +108,10 @@ def estimate(
         row["required_executions"] = row["candidates"] * spec.screening_seeds
         rows.append(row)
         previous_fields.update(phase.search)
-        previous_count = phase.top_k
+        previous_count = len(parents) if known and parents is not None else min(phase.top_k, row["candidates"])
         prior_initial = initial
+        if known and not parents:
+            break
     row = {
         "phase": "confirmation",
         "candidates": previous_count,
@@ -131,7 +131,8 @@ def estimate(
         row["reused"] = previous_count * spec.screening_seeds
         row["new_jobs"] = previous_count * (spec.confirmation.seeds - spec.screening_seeds)
         row["additional_attempts_upper_bound"] = row["new_jobs"] * limits
-    rows.append(row)
+    if not known or parents:
+        rows.append(row)
     for row in rows:
         allocation_estimate(row, spec, base)
     exact = all(row["exact"] for row in rows)
@@ -160,7 +161,8 @@ def estimate(
         "summary": summary,
         "exact": exact,
         "explanation": (
-            "Counts assume all required trials eventually succeed. One configuration/seed execution is one job."
+            "Counts for future phases assume finite results; divergence can reduce them. "
+            "One configuration/seed execution is one job."
             if exact
             else "Conservative upper estimate: unknown winners can change deduplication or reuse of existing trials."
         ),
@@ -238,7 +240,7 @@ def count_known(
         for seed in seeds:
             key = trial_id(candidate, seed, provenance)
             trial = trials.get(key)
-            if key in planned or trial is not None and trial["status"] == "succeeded":
+            if key in planned or trial is not None and trial["status"] in TERMINAL_TRIALS:
                 row["reused"] += 1
             else:
                 attempts = training_attempts(trial) if trial else 0

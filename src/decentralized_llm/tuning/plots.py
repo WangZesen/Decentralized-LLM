@@ -33,6 +33,8 @@ def value_label(candidate: Record, key: str) -> str:
 
 
 def result_cell(seeds: list[Record]) -> tuple[float, str]:
+    if any(seed["status"] == "diverged" for seed in seeds):
+        return float("inf"), "diverged (∞)"
     if seeds and all(
         seed["status"] == "succeeded" and isinstance(seed.get("loss"), (int, float)) and math.isfinite(seed["loss"])
         for seed in seeds

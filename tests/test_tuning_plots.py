@@ -88,6 +88,37 @@ def test_headless_heatmaps_handle_missing_and_equal_losses(
     assert phase_heatmaps(phase([], "lr")) == []
 
 
+@pytest.mark.parametrize("confirmation", [False, True])
+@pytest.mark.parametrize("finite_peer", [False, True])
+def test_divergence_is_labelled_and_excluded_from_color_scale(
+    tmp_path: Path, confirmation: bool, finite_peer: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import seaborn as sns
+
+    diverged = candidate("a", {"lr": 0.1}, [None, None])
+    for seed in diverged["seeds"]:
+        seed.update(status="diverged", loss="inf")
+    candidates = [diverged]
+    if finite_peer:
+        candidates.append(candidate("b", {"lr": 0.2}, [3.5, 3.5]))
+    current = phase(candidates, *([] if confirmation else ["lr"]))
+    actual = sns.heatmap
+    limits = []
+
+    def capture(*args: Any, **kwargs: Any):
+        limits.append((kwargs["vmin"], kwargs["vmax"]))
+        return actual(*args, **kwargs)
+
+    monkeypatch.setattr(sns, "heatmap", capture)
+    panel = phase_heatmaps(current)[0]
+    assert np.isinf(panel.losses[0, 0])
+    assert panel.statuses[0, 0] == "diverged (∞)"
+    paths = write_heatmaps(tmp_path, current)
+    assert "diverged (∞)" in (tmp_path / paths[0]["svg"]).read_text()
+    assert all(np.isfinite(bound) for pair in limits for bound in pair)
+    assert limits[0][0] > 3 if finite_peer else limits == [(0.0, 1.0)]
+
+
 def test_rendered_facets_share_scale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import seaborn as sns
 

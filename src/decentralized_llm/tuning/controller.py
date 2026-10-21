@@ -32,10 +32,11 @@ from decentralized_llm.tuning.batching import (
 )
 from decentralized_llm.tuning.estimate import estimate, ranking
 from decentralized_llm.tuning.jobs import ACTIVE, FAILED, Backend
+from decentralized_llm.tuning.outcomes import select_finite
 from decentralized_llm.tuning.report import write_report
 from decentralized_llm.tuning.spec import Record, TuningSpec, expand, numeric_recipe, read_spec, trial_id
 
-VERSION = 2
+VERSION = 3
 
 
 def provenance(cache: TokenCache) -> Record:
@@ -62,7 +63,7 @@ def study_lock(directory: Path) -> Iterator[None]:
 
 def load_state(directory: Path) -> Record:
     state = json.loads((directory / "state.json").read_text())
-    if state.get("version") not in {1, VERSION}:
+    if state.get("version") not in {1, 2, VERSION}:
         raise ValueError("unsupported tuning state version")
     state["version"] = VERSION
     state.setdefault("allocations", {})
@@ -74,9 +75,9 @@ def save_state(directory: Path, state: Record) -> None:
     atomic_json(directory / "state.json", state)
 
 
-def check_result(trial: Record, attempt: Record) -> Record:
+def check_run(trial: Record, attempt: Record) -> Config:
+    """Authenticate the run independently of whether it reached full validation."""
     output = Path(attempt["directory"]) / "run"
-    result = json.loads((output / "result.json").read_text())
     run = json.loads((output / "run.json").read_text())
     actual = load_config(output / "config.yaml")
     intended = Config.model_validate(trial["config"])
@@ -88,12 +89,67 @@ def check_result(trial: Record, attempt: Record) -> Record:
     for key in ("source_sha256", "lock_sha256", "python_version", "torch", "numpy"):
         if run["environment"][key] != expected[key]:
             raise ValueError(f"result provenance mismatch: {key}")
+    return intended
+
+
+def check_result(trial: Record, attempt: Record) -> Record:
+    output = Path(attempt["directory"]) / "run"
+    result = json.loads((output / "result.json").read_text())
+    intended = check_run(trial, attempt)
     if result["cursor"] != training_boundaries(intended, intended.model.parameter_count)[-1]:
         raise ValueError("result did not complete its training budget")
     loss = result["validation"]["loss"]
     if type(loss) not in (int, float) or not math.isfinite(loss) or result["validation"]["split"] != "full":
         raise ValueError("trial requires a finite final full-validation loss")
     return result
+
+
+def check_divergence(trial: Record, attempt: Record) -> Record | None:
+    """Accept only a structured numerical failure from an authenticated worker."""
+    output = Path(attempt["directory"]) / "run"
+    intended = Config.model_validate(trial["config"])
+    records = []
+    for rank in range(intended.physical_world_size):
+        path = output / f"failure-rank-{rank:05d}.json"
+        try:
+            record = json.loads(path.read_text())
+        except FileNotFoundError:
+            continue
+        if not isinstance(record, dict):
+            raise ValueError("invalid worker failure record")
+        if record.get("kind") != "nonfinite_update":
+            continue
+        if type(record.get("rank")) is not int or record["rank"] != rank:
+            raise ValueError("nonfinite worker rank mismatch")
+        if not all(isinstance(record.get(key), str) and record[key] for key in ("message", "traceback")):
+            raise ValueError("nonfinite worker diagnostics are missing")
+        progress = record.get("progress")
+        if not isinstance(progress, dict) or any(
+            type(progress.get(key)) is not int or progress[key] < 0 for key in ("cursor", "step", "completed_epochs")
+        ):
+            raise ValueError("invalid nonfinite worker progress")
+        total = training_boundaries(intended, intended.model.parameter_count)[-1]
+        if progress["cursor"] > total or progress["completed_epochs"] > intended.training.epoch_count:
+            raise ValueError("nonfinite worker progress exceeds training budget")
+        records.append({"file": str(path), **record})
+    if not records:
+        return None
+    check_run(trial, attempt)
+    return records[0]
+
+
+def finish_failed_trial(trial: Record, attempt: Record, reason: str, *, allow_divergence: bool) -> None:
+    if allow_divergence:
+        try:
+            record = check_divergence(trial, attempt)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            reason += f"; invalid divergence evidence: {error}"
+        else:
+            if record is not None:
+                attempt.update(status="diverged", error=record["message"], finished=time.time())
+                trial.update(status="diverged", loss="inf", divergence=record)
+                return
+    fail_trial(trial, attempt, reason)
 
 
 def fail_trial(trial: Record, attempt: Record, reason: str) -> None:
@@ -130,7 +186,12 @@ def reconcile(state: Record, backend: Backend, grace: float) -> bool:
         elif condition in FAILED or (
             condition == "COMPLETED" and status["exit_code"] is not None and status["exit_code"] != "0:0"
         ):
-            fail_trial(trial, attempt, f"job ended in {condition}, exit={status['exit_code']}")
+            finish_failed_trial(
+                trial,
+                attempt,
+                f"job ended in {condition}, exit={status['exit_code']}",
+                allow_divergence=condition in {"FAILED", "COMPLETED"} and status["exit_code"] == "1:0",
+            )
         elif condition == "COMPLETED" and status["exit_code"] == "0:0":
             attempt.setdefault("terminal_seen", time.time())
             try:
@@ -223,7 +284,15 @@ def reconcile_step(trial: Record, attempt: Record, allocation: Record, grace: fl
                 trial.update(status="succeeded", loss=result["validation"]["loss"], result=result)
             return
         if record["state"] == "FAILED":
-            fail_trial(trial, attempt, f"step failed, exit={record.get('exit_code')}: {record.get('reason', '')}")
+            # A finished step keeps its own outcome if a later step or parent fails.
+            finish_failed_trial(
+                trial,
+                attempt,
+                f"step failed, exit={record.get('exit_code')}: {record.get('reason', '')}",
+                allow_divergence=record["started"]
+                and type(record.get("exit_code")) is int
+                and record.get("exit_code") == 1,
+            )
             return
     # A queued/unknown/requeued parent still owns all of its unstarted members.
     if allocation["status"] == "finished" and time.time() - allocation["terminal_seen"] >= grace:
@@ -322,8 +391,13 @@ def advance(directory: Path, state: Record, spec: TuningSpec, base: Config) -> l
         phase = state["phases"][-1] if state["phases"] else add_phase(state, spec, base)
         materialize_phase(directory, state, phase)
         if phase["complete"]:
+            if not phase["selected"]:
+                state.update(
+                    status="complete", winner=None, reason=f"No finite-loss candidates remain in phase {phase['name']}."
+                )
+                return []
             if phase["name"] == "confirmation":
-                state.update(status="complete", winner=phase["rankings"][0], reason=None)
+                state.update(status="complete", winner=select_finite(phase["rankings"], 1)[0], reason=None)
                 return []
             phase = add_phase(state, spec, base)
             materialize_phase(directory, state, phase)
@@ -333,11 +407,11 @@ def advance(directory: Path, state: Record, spec: TuningSpec, base: Config) -> l
                 complete=True,
                 finished=time.time(),
                 rankings=ranks,
-                selected=[row["id"] for row in ranks[: phase["top_k"]]],
+                selected=[row["id"] for row in select_finite(ranks, phase["top_k"])],
             )
             save_state(directory, state)
             write_report(directory, state)
-            logger.info("Selected {} combinations in phase {}", phase["top_k"], phase["name"])
+            logger.info("Selected {} combinations in phase {}", len(phase["selected"]), phase["name"])
             continue
         required = [state["trials"][key] for keys in phase["trials"].values() for key in keys]
         exhausted = [reason for trial in required if (reason := exhausted_reason(trial, spec.controller.max_retries))]
@@ -472,9 +546,13 @@ def outstanding_allocations(state: Record) -> int:
 
 def validate_cached(state: Record) -> None:
     for trial in state["trials"].values():
-        if trial["status"] == "succeeded":
+        if trial["status"] in {"succeeded", "diverged"}:
             try:
-                check_result(trial, trial["attempts"][-1])
+                if trial["status"] == "diverged":
+                    if trial.get("loss") != "inf" or check_divergence(trial, trial["attempts"][-1]) is None:
+                        raise ValueError("cached divergence has no valid nonfinite evidence")
+                else:
+                    check_result(trial, trial["attempts"][-1])
             except (OSError, ValueError, KeyError, TypeError) as error:
                 raise ValueError(f"cached trial {trial['id']} no longer has a valid result: {error}") from error
 

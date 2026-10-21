@@ -17,6 +17,7 @@ from triton.language.extra.cuda import libdevice
 
 from decentralized_llm.config import Config
 from decentralized_llm.models.packed import PackedLlama
+from decentralized_llm.runtime import NonfiniteUpdateError
 
 from .kernels import jit
 
@@ -377,7 +378,7 @@ class ArenaAdamW:
     def inspect(self, expected_step=None):
         finite, completed = int(self.finite.item()), int(self.completed.item())
         if not finite:
-            raise FloatingPointError(f"nonfinite GH200 update after {completed} successful updates")
+            raise NonfiniteUpdateError(f"nonfinite GH200 update after {completed} successful updates")
         if expected_step is not None and completed != expected_step:
             raise RuntimeError(f"GH200 counter mismatch: device={completed}, expected={expected_step}")
         return completed

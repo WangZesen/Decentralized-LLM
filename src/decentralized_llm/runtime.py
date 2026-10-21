@@ -19,13 +19,19 @@ from torch import Tensor
 from decentralized_llm.state import RNGState
 
 
+class NonfiniteUpdateError(FloatingPointError):
+    """Training diverged numerically; the rejected update must not be committed."""
+
+
 def clip_grad_norm_(parameters: Iterable[Tensor], maximum: float | None) -> Tensor:
     """Return the gradient norm and reject nonfinite values; null disables scaling."""
-    if maximum is None:
-        return torch.nn.utils.get_total_norm(
-            [p.grad for p in parameters if p.grad is not None], error_if_nonfinite=True
-        )
-    return torch.nn.utils.clip_grad_norm_(parameters, maximum, error_if_nonfinite=True)
+    parameters = list(parameters)
+    norm = torch.nn.utils.get_total_norm([p.grad for p in parameters if p.grad is not None])
+    if not torch.isfinite(norm):
+        raise NonfiniteUpdateError("nonfinite gradient norm")
+    if maximum is not None:
+        torch.nn.utils.clip_grads_with_norm_(parameters, maximum, norm)
+    return norm
 
 
 def rng_state() -> RNGState:
