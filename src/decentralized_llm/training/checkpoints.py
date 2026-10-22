@@ -32,6 +32,7 @@ def recipe_identity(config: Config, cache: TokenCache, *, initialization: str | 
         "projection_fusion": True,
         "fused_rope": False,
         "sdpa_backend": "auto",
+        "fp32_precision": None,
     }
     for key, value in defaults.items():
         if runtime[key] == value:
@@ -68,7 +69,7 @@ def recipe_identity(config: Config, cache: TokenCache, *, initialization: str | 
             "optimizer": config.optimizer.model_dump(),
             "schedule": config.lr_schedule.model_dump(),
             "training": training,
-            "evaluation": config.evaluation.model_dump(),
+            "evaluation": config.evaluation.model_dump(exclude_none=True),
             "runtime": runtime,
             "distributed": distributed,
             "world_size": config.distributed.world_size,

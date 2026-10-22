@@ -14,6 +14,7 @@ from decentralized_llm.backends.factory import runtime_for
 from decentralized_llm.config import Config
 from decentralized_llm.data.cache import TokenCache
 from decentralized_llm.execution.native import build_execution
+from decentralized_llm.execution.precision import precision_context, precision_state
 from decentralized_llm.models.llama import Llama
 from decentralized_llm.runtime import preserve_rng
 from decentralized_llm.state import Batch, EvaluationResult, IndexArray
@@ -88,7 +89,8 @@ def evaluate(
     size = runtime.size
     decentralized = config.distributed.mode == "decentralized"
     consensus_available = size == 1 or not decentralized or average
-    with preserve_rng():
+    with preserve_rng(), precision_context(config.evaluation.fp32_precision):
+        effective_precision = precision_state()
         totals = torch.zeros(3, device=device, dtype=torch.float64)
         if backend is not None:
             backend.inspect()
@@ -115,7 +117,7 @@ def evaluate(
     if valid == 0:
         raise ValueError("validation has no targets")
     loss = loss_sum / valid
-    return EvaluationResult(
+    result = EvaluationResult(
         loss=loss,
         perplexity=math.exp(loss) if loss < 700 else None,
         consensus_error=distance_sum / size if consensus_available else None,
@@ -124,6 +126,9 @@ def evaluate(
         split="full" if full else "subset",
         validation_complete=cache.manifest["validation_complete"],
     )
+    if config.runtime.fp32_precision is not None or config.evaluation.fp32_precision is not None:
+        result["fp32_precision"] = effective_precision
+    return result
 
 
 def prefetched_validation_batches(

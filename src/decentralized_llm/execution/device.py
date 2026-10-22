@@ -9,9 +9,11 @@ import numpy as np
 import torch
 
 from decentralized_llm.config import Config
+from decentralized_llm.execution.precision import set_precision
 
 
 def setup_device(config: Config) -> torch.device:
+    set_precision(config.runtime.fp32_precision)
     local = int(os.environ.get("LOCAL_RANK", "0"))
     if config.runtime.device == "cuda":
         if config.runtime.deterministic:

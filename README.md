@@ -225,6 +225,37 @@ are in `metrics-rank-00000.jsonl`, with `local_losses` and `local_gradient_norms
 in logical-rank order (one entry for the shared synchronous model). Preflight, run metadata,
 and benchmarks report both logical world size and physical resource counts.
 
+## Comparing TF32 and FP32 training
+
+Set `runtime.amp=false` and `runtime.execution_backend=native` before choosing
+`runtime.fp32_precision=tf32` or `ieee`. Both keep FP32 tensors; TF32 permits
+reduced input precision in CUDA matrix multiplication. `runtime.sdpa_backend=math`
+selects the same math attention implementation for both groups. Optional
+`evaluation.fp32_precision=ieee` evaluates both groups in full FP32 and restores
+the training setting afterward. Unset precision fields retain existing behavior.
+Explicit precision rejects AMP and conflicting TF32 environment overrides.
+
+The paired campaign helper derives six runs from a tuning winner, using seeds
+42–44, one GH200 per run, native eager execution, and common FP32 evaluation:
+
+```bash
+python scripts/precision_campaign.py prepare
+python scripts/precision_campaign.py smoke-submit
+# After the smoke job has produced smoke/result.json:
+python scripts/precision_campaign.py submit
+python scripts/precision_campaign.py report
+```
+
+The default destination is
+`runs/precision/20m-awc-ef-8w-ring-512c-128bs-20tpp`. Override it with `--root`,
+and select another winner using `prepare --winner PATH`. Preparation freezes
+source files, dependencies' version requirements, and resolved configurations;
+queued workers import the frozen source. Submission requires matching successful
+GPU smoke evidence and records scheduler receipts without duplicating known jobs.
+An uncertain submission must be reconciled with Slurm before retrying.
+The report writes `report.json`, `results.csv`, and `validation-loss.png`;
+three-seed aggregate statistics remain unavailable until all three seeds finish.
+
 ## Optional A100 and GH200 setup presets
 
 After preparing the shared token cache, choose one hardware preset. Each is layered

@@ -163,12 +163,14 @@ class TrainingConfig(StrictModel):
 
 
 class EvaluationConfig(StrictModel):
+    fp32_precision: Literal["ieee", "tf32"] | None = None
     subset_blocks: int = Field(default=1024, gt=0)
     batch_size: int = Field(default=128, gt=0)
     seed: int = Field(default=12345, ge=0, lt=2**32)
 
 
 class RuntimeConfig(StrictModel):
+    fp32_precision: Literal["ieee", "tf32"] | None = None
     training_backend: Literal["distributed", "packed"] = "distributed"
     seed: int = Field(default=42, ge=0, lt=2**32)
     deterministic: bool = False
@@ -181,7 +183,7 @@ class RuntimeConfig(StrictModel):
     compile_scope: Literal["model", "blocks"] = "model"
     projection_fusion: bool = True
     fused_rope: bool | Literal["auto"] = "auto"
-    sdpa_backend: Literal["auto", "flash", "cudnn"] = "auto"
+    sdpa_backend: Literal["auto", "flash", "cudnn", "math"] = "auto"
     cpu_affinity: Literal["none", "local", "exclusive"] = "none"
     fused_optimizer: bool = True
     decentralized_optimizer: Literal["auto", "reference"] = "auto"
@@ -313,6 +315,11 @@ class Config(StrictModel):
             raise ValueError("CPU runs require the gloo communication backend")
         if self.runtime.device == "cpu" and self.runtime.cpu_affinity == "exclusive":
             raise ValueError("exclusive CPU affinity requires GPU placement through torchrun")
+        precisions = (self.runtime.fp32_precision, self.evaluation.fp32_precision)
+        if any(value is not None for value in precisions) and self.runtime.amp:
+            raise ValueError("explicit FP32 precision requires runtime.amp=false")
+        if "tf32" in precisions and self.runtime.device != "cuda":
+            raise ValueError("TF32 precision requires CUDA")
         return self
 
 

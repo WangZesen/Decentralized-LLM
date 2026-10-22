@@ -1,7 +1,7 @@
 """Shared types for tensor batches and serialized training state."""
 
 from collections.abc import Callable
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
@@ -23,6 +23,7 @@ class RNGState(TypedDict):
 
 
 class EvaluationResult(TypedDict):
+    fp32_precision: NotRequired[dict[str, str]]
     loss: float
     perplexity: float | None
     consensus_error: float | None

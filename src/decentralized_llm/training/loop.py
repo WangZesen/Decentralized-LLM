@@ -18,6 +18,7 @@ from decentralized_llm.data.cache import TokenCache, training_boundaries
 from decentralized_llm.data.loader import DevicePrefetcher, TokenLoader
 from decentralized_llm.data.sampling import check_memory, sampling_plan
 from decentralized_llm.execution.compilation import compiler_counters
+from decentralized_llm.execution.precision import precision_metadata
 from decentralized_llm.runtime import NonfiniteUpdateError, append_metric, atomic_json, environment, restore_rng
 from decentralized_llm.training.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.training.evaluation import evaluate
@@ -104,6 +105,9 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                 output / "run.json",
                 {
                     "environment": environment(),
+                    "precision": precision_metadata(
+                        config.runtime.fp32_precision, config.evaluation.fp32_precision, model
+                    ),
                     "world_size": config.distributed.world_size,
                     "training_backend": config.runtime.training_backend,
                     "physical_world_size": config.physical_world_size,

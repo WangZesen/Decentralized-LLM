@@ -27,7 +27,13 @@ class LossModule(nn.Module):
         context = (
             nullcontext()
             if self.sdpa_backend == "auto"
-            else sdpa_kernel(SDPBackend.FLASH_ATTENTION if self.sdpa_backend == "flash" else SDPBackend.CUDNN_ATTENTION)
+            else sdpa_kernel(
+                {
+                    "flash": SDPBackend.FLASH_ATTENTION,
+                    "cudnn": SDPBackend.CUDNN_ATTENTION,
+                    "math": SDPBackend.MATH,
+                }[self.sdpa_backend]
+            )
         )
         with context:
             if self.model.execution_backend in ("gh200", "a100"):
