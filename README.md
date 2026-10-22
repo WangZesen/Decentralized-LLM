@@ -428,6 +428,95 @@ It does not submit a job during a dry run. Submission artifacts are retained in 
 
 ## Phased hyperparameter tuning
 
+### Bounded 50M campaign
+
+The eight `configs/tunings/50m-*-1024c-64bs-20tpp.yaml` specifications compare
+synchronous training and eight-worker AWC on ring, exponential, and complete graphs,
+each with feedback gamma 0 or 1. All use packed execution on one physical GH200,
+context 1024, 65,536 global batch tokens, and 20 TPP (970,129,408 rounded training
+tokens). Their shared overlay pins the execution recipe independently of local defaults.
+
+Each core study runs five learning rates at transferred 20M beta values, keeps two
+rates for a joint 3-by-3 beta search, and confirms the best three combinations on
+seeds 42, 43, and 44. Exact reuse gives 27 training executions: 5 + 16 + 6.
+Every specification records its source winner report and SHA256. The controller
+allows 30 outstanding jobs per study, one trial per allocation, a 45-minute walltime,
+and one infrastructure retry. Numerical divergence is eliminated without retrying.
+
+Use `scripts/tune_50m.py` to run the core study followed by one bounded boundary
+check. For each coordinate where the confirmed winner is on the edge of its original
+grid, the wrapper evaluates one outward neighbor while fixing the other coordinates.
+Each neighbor uses all three seeds; there are at most nine additional executions.
+The boundary plan is fixed from the core winner and is not expanded recursively.
+Rerunning the same command resumes existing work. Separate wrapper instances may
+run the eight studies concurrently.
+
+```bash
+python scripts/tune_50m.py run \
+  --spec configs/tunings/50m-awc-8w-ring-1024c-64bs-20tpp.yaml \
+  --output runs/p-tuning/50m-campaign/50m-awc-8w-ring-1024c-64bs-20tpp
+python scripts/tune_50m.py report --root runs/p-tuning/50m-campaign --watch
+```
+
+The report command reads a `campaign.json` manifest containing a `studies` list,
+with an absolute `directory` for each study. It refreshes every minute, produces
+`report.json` and `report.md`, and exports each completed study's combined winner
+as `final-winner.yaml`. The controller's original `winner.yaml` remains the core
+search winner. Reports include three-seed statistics, consensus error, winner curves,
+observed runtime projections, and Slurm allocation GPU-hours including retries.
+Missing accounting is explicitly marked incomplete. Final winners at the expanded
+search boundary remain flagged. These are tuning results, not independent test scores.
+
+For a campaign spanning queued jobs, use a frozen source/configuration snapshot,
+absolute shared cache and compilation-cache paths, and an environment script that
+checks the pinned dependency versions without updating them. Run all dry runs from
+that snapshot before submission. The wrapper also dry-runs each new boundary study.
+The core budget is 216 executions across eight studies, or at most 288 with boundary
+checks, excluding infrastructure retries. The existing ring timing probe estimates
+about 91 or 121 GPU-hours respectively; actual costs vary across conditions.
+
+### Joint 50M extension
+
+The `extend` command imports authenticated results from the completed eight-study
+campaign, its boundary checks, and the three-seed synchronous follow-up. It keeps
+the original artifacts and training snapshot intact, freezes the new orchestration,
+and saves separate specifications and controller states. Historical reuse requires
+an exact configuration, seed, and provenance match, including full validation.
+
+```bash
+source runs/p-tuning/50m-1024c-64bs-20tpp/environment.sh
+"$DECENTRALIZED_PYTHON" scripts/tune_50m.py extend \
+  --source-root runs/p-tuning/50m-1024c-64bs-20tpp \
+  --output runs/p-tuning/50m-1024c-64bs-20tpp-extension-20261022 \
+  --dry-run
+```
+
+The dry run prepares and validates all eight saved studies without submitting jobs.
+Repeat without `--dry-run` to start resumable controllers and a report watcher in
+tmux. Repeating the command reuses existing states and does not duplicate active
+controllers. Run it from the repository with the original frozen environment above.
+
+Each study screens a full joint 3-by-3-by-3 LR/beta grid on seed 42, then confirms
+the best three candidates on seeds 43 and 44. The grids include each topology's
+EF/no-EF winners and reopen learning rates at the improved betas. Historical reuse
+limits this stage to 196 new runs across the eight studies. Each study's
+`budget.json` caps the extension at 30 new configuration/seed executions, including
+one boundary expansion round, with infrastructure retries counted separately.
+Boundary probes reserve all missing seeds before admission, in LR, beta1, beta2
+order, and skipped probes are reported. The 30-job concurrency limit and 45-minute
+single-GPU allocations remain in force.
+
+The extension report compares all completed three-seed candidates with the best
+historical result, including the improved synchronous baseline. It includes
+per-seed loss changes, sample standard deviations, consensus error, winner curves,
+and incremental GPU-hours; historical allocations are excluded. Boundary and retry
+spending are reported separately (retry spending overlaps its search phase).
+Final configurations are exported when each study completes. The measured original
+allocation times project approximately 75 GPU-hours for the joint search and
+confirmation, or 92 if all eight studies use their full 30-run budget, before retries.
+
+### Controller usage
+
 `decentralized-llm tune` runs a persistent controller over local training processes or
 SLURM jobs. Prepare the shared cache first. Run the controller from this repository in
 an enduring shell such as tmux, or in your own CPU allocation. SLURM uses the same

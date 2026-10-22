@@ -1,0 +1,47 @@
+# Prior: runs/tuning/20m-sync-1w-512c-128bs-20tpp/report.json
+# Prior report SHA256: 49bb5f62f653f4e94fba2b9e5d3c6ebbbcc39b04415f1bfc01509e47bb4b838b
+# 27 full runs: 5 learning rates + 16 new beta combinations + 6 confirmation seeds.
+base:
+  configs:
+  - ../base.yaml
+  - ../models/50m.yaml
+  - ../setups/slurm-ddp.yaml
+  - ../training-1024c-64bs-20tpp-packed-gh200.yaml
+  overrides:
+    distributed.mode: ddp
+    distributed.nodes: 1
+    distributed.gpus_per_node: 1
+    distributed.error_feedback_gamma: 0.0
+seed_start: 42
+screening_seeds: 1
+phases:
+- name: learning-rate
+  initial_values:
+    optimizer.beta1: 0.9
+    optimizer.beta2: 0.987258544901434
+  search:
+    optimizer.lr:
+    - 0.001953125
+    - 0.00390625
+    - 0.0078125
+    - 0.015625
+    - 0.03125
+  top_k: 2
+- name: betas
+  search:
+    optimizer.beta1:
+    - 0.81
+    - 0.9
+    - 0.948683298050514
+    optimizer.beta2:
+    - 0.950000000000001
+    - 0.987258544901434
+    - 0.996799302289812
+  top_k: 3
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 30
+  jobs_per_allocation: 1
+  max_retries: 1
+  poll_seconds: 30

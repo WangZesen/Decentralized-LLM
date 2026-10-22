@@ -1,0 +1,49 @@
+# Prior: runs/p-tuning/20m-awc-8w-exp-512c-128bs-20tpp/report.json
+# Prior report SHA256: 75ba4b433158c71d1913d99f3c93dd5a17ffc776483adae9aff52c3e3f2f3b8d
+# 27 full runs: 5 learning rates + 16 new beta combinations + 6 confirmation seeds.
+base:
+  configs:
+  - ../base.yaml
+  - ../models/50m.yaml
+  - ../setups/slurm-ddp.yaml
+  - ../training-1024c-64bs-20tpp-packed-gh200.yaml
+  overrides:
+    distributed.mode: decentralized
+    distributed.nodes: 2
+    distributed.gpus_per_node: 4
+    distributed.error_feedback_gamma: 0.0
+    distributed.scheme: awc
+    distributed.topology: one_peer_exponential
+seed_start: 42
+screening_seeds: 1
+phases:
+- name: learning-rate
+  initial_values:
+    optimizer.beta1: 0.948683298050514
+    optimizer.beta2: 0.999799655640411
+  search:
+    optimizer.lr:
+    - 0.001953125
+    - 0.00390625
+    - 0.0078125
+    - 0.015625
+    - 0.03125
+  top_k: 2
+- name: betas
+  search:
+    optimizer.beta1:
+    - 0.9
+    - 0.948683298050514
+    - 0.974003746425297
+    optimizer.beta2:
+    - 0.999198863356654
+    - 0.999799655640411
+    - 0.999949910146738
+  top_k: 3
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 30
+  jobs_per_allocation: 1
+  max_retries: 1
+  poll_seconds: 30
