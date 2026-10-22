@@ -423,6 +423,64 @@ def test_resident_partial_first_pass(tiny_config: Config, tmp_path: Path, world:
         assert collect(cache, tiny_config, stop=120, rank=rank)[0] == extended[rank::world]
 
 
+@pytest.mark.parametrize("factor", [1, 5])
+@pytest.mark.parametrize("world", [1, 3])
+@pytest.mark.parametrize("cursor,stop", [(0, 2), (0, 12), (6, 12), (24, 120)])
+def test_benchmark_resident_horizon_reads_only_during_preload(
+    cache: TokenCache,
+    tiny_config: Config,
+    monkeypatch: pytest.MonkeyPatch,
+    factor: int,
+    world: int,
+    cursor: int,
+    stop: int,
+) -> None:
+    tiny_config.training.data_reuse_factor = factor
+    tiny_config.training.num_accumulation = 1
+    tiny_config.distributed.gpus_per_node = world
+    tiny_config.data.loader_mode = "resident"
+    tiny_config.data.read_range_bytes = 6
+    sampler = GlobalSampler.from_config(cache, tiny_config)
+    expected = [sampler.block(p) for p in range(stop)]
+    resident_blocks = min(stop, sampler.blocks) if factor == 1 else sampler.blocks
+    original = os.pread
+    for rank in range(world):
+        monkeypatch.setattr(os, "pread", original)
+        with TokenLoader(cache, tiny_config, rank, cursor, stop, bound_resident_to_stop=True) as loader:
+            # Run in a future so a premature producer exit cannot hang the test.
+            with ThreadPoolExecutor(1) as consumer:
+                try:
+                    consumer.submit(loader.warmup, resident=True).result(timeout=5)
+                except BaseException:
+                    loader.close()
+                    raise
+            before = loader.metrics()
+            assert before["resident_complete"]
+            assert before["resident_loaded_blocks"] == before["resident_total_blocks"] == resident_blocks
+            assert loader.sampler.identity == sampler.identity
+            assert loader.memory == check_memory(cache, tiny_config, stop=stop, bound_resident_to_stop=True)
+
+            def fail(*_: object) -> bytes:
+                pytest.fail("bounded resident training read after preload")
+
+            monkeypatch.setattr(os, "pread", fail)
+            samples = []
+            while True:
+                try:
+                    batch = loader.next()
+                except StopIteration:
+                    break
+                samples.extend(batch.spec.indices.tolist())
+                for sample, row in zip(batch.spec.indices, batch.tokens, strict=True):
+                    np.testing.assert_array_equal(row, np.arange(sample * 4, sample * 4 + 5) % 17)
+            first = cursor + (rank - cursor) % world
+            assert samples == expected[first:stop:world]
+            after = loader.metrics()
+            assert after["read_bytes"] == before["read_bytes"]
+            assert after["read_calls"] == before["read_calls"]
+            assert after["requested_bytes"] == resident_blocks * 5 * 2
+
+
 @pytest.mark.parametrize("phase", ["open", "read"])
 def test_wait_diagnostics(cache: TokenCache, tiny_config: Config, monkeypatch: pytest.MonkeyPatch, phase: str) -> None:
     tiny_config.data.loader_mode = "streaming"

@@ -129,3 +129,26 @@ def test_reuse_rejects_small_cache(tiny_config: Config, tmp_path: Path, monkeypa
             action()
     tiny_config.training.data_reuse_factor = 6  # Now the pool fits.
     assert sampling_plan(cache, tiny_config).pool_blocks == 7
+
+
+@pytest.mark.parametrize("factor", [1, 5])
+@pytest.mark.parametrize("stop", [0, 6, 120])
+def test_benchmark_resident_memory_horizon(cache: TokenCache, tiny_config: Config, factor: int, stop: int) -> None:
+    tiny_config.training.data_reuse_factor = factor
+    tiny_config.data.loader_mode = "resident"
+    plan = sampling_plan(cache, tiny_config)
+    ordinary = check_memory(cache, tiny_config, stop=stop)
+    bounded = check_memory(cache, tiny_config, stop=stop, bound_resident_to_stop=True)
+    blocks = min(plan.pool_blocks, stop) if factor == 1 else plan.pool_blocks
+    assert bounded["resident_tokens"] == blocks * 5 * 2
+    assert bounded["resident_indices"] == bounded["resident_read_state"] == blocks * 8
+    assert bounded["permutation"] == ordinary["permutation"]
+    assert ordinary["resident_tokens"] == min(plan.pool_blocks, max(plan.total_blocks, stop)) * 5 * 2
+    if factor > 1:
+        assert bounded == ordinary
+
+
+@pytest.mark.parametrize("stop", [None, -1])
+def test_benchmark_resident_memory_requires_horizon(cache: TokenCache, tiny_config: Config, stop: int | None) -> None:
+    with pytest.raises(ValueError, match="nonnegative stop"):
+        check_memory(cache, tiny_config, stop=stop, bound_resident_to_stop=True)

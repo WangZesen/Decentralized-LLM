@@ -37,7 +37,14 @@ def launch(
     submission_dir: Path | None = None,
 ) -> dict:
     config = absolute_config(config)
-    report = validate(config, resume, launch=True, evaluation=action == "evaluate", verify=verify)
+    report = validate(
+        config,
+        resume,
+        launch=True,
+        evaluation=action == "evaluate",
+        benchmark=action == "benchmark-training",
+        verify=verify,
+    )
     destination = submission_dir or config.runtime.output_dir / f"submission-{time.time_ns()}"
     filename = destination / "config.yaml"
     if config.launcher.kind == "local":

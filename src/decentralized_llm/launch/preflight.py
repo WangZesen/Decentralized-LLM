@@ -3,6 +3,7 @@
 import os
 import shutil
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
 import torch
@@ -14,15 +15,28 @@ from decentralized_llm.training.checkpoints import validate_checkpoint
 
 
 def validate(
-    config: Config, resume: Path | None = None, *, launch: bool = False, verify: bool = True, evaluation: bool = False
+    config: Config,
+    resume: Path | None = None,
+    *,
+    launch: bool = False,
+    verify: bool = True,
+    evaluation: bool = False,
+    benchmark: bool = False,
 ) -> dict:
+    if benchmark and (evaluation or resume is not None):
+        raise ValueError("training benchmarks cannot evaluate or resume a checkpoint")
     cache = TokenCache(config.data.cache_dir)
     cache.validate_config(config)
     if verify:
         cache.verify()
     if cache.blocks("train", config.model.context_length) < 1:
         raise ValueError("training cache has no complete blocks")
-    memory = check_memory(cache, config)
+    bounds = None
+    if benchmark:
+        from decentralized_llm.benchmarks.protocol import benchmark_bounds
+
+        bounds = benchmark_bounds(config)
+    memory = check_memory(cache, config, stop=bounds.total_blocks if bounds else None, bound_resident_to_stop=benchmark)
     boundaries = training_boundaries(config, config.model.parameter_count)
     if resume is not None:
         checkpoint = validate_checkpoint(resume, config, cache, verify=verify, require_training=not evaluation)
@@ -74,4 +88,5 @@ def validate(
         "sampling": sampling_plan(cache, config).summary(),
         "memory_bytes_per_rank": memory,
         "loader_mode": "resident" if memory["resident_tokens"] else "streaming",
+        **({"benchmark_bounds": asdict(bounds)} if bounds else {}),
     }

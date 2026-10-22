@@ -86,6 +86,7 @@ def main() -> None:
             command.add_argument("--warmup", type=int)
             command.add_argument("--windows", type=int)
             command.add_argument("--min-seconds", type=float)
+            command.add_argument("--max-chunks", type=int)
             command.add_argument("--profile", action="store_true")
         if name == "benchmark-data":
             command.add_argument("--steps", type=int, default=100)
@@ -115,7 +116,7 @@ def main() -> None:
         initialize_local_defaults(dry_run=getattr(args, "dry_run", False))
     config = load_config(args.config, args.overrides, use_local_defaults=use_local_defaults)
     if args.command == "benchmark-training":
-        for key in ("steps", "warmup", "windows", "min_seconds"):
+        for key in ("steps", "warmup", "windows", "min_seconds", "max_chunks"):
             if getattr(args, key) is not None:
                 setattr(config.benchmark, key, getattr(args, key))
         if args.profile:

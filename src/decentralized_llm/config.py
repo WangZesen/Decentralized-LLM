@@ -230,6 +230,7 @@ class BenchmarkConfig(StrictModel):
     steps: int = Field(default=40, ge=1)
     windows: int = Field(default=3, ge=1)
     min_seconds: float = Field(default=2.0, gt=0)
+    max_chunks: int = Field(default=8, gt=0, strict=True)
     profile: bool = False
     wait_for_resident: bool = True
 

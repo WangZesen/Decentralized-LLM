@@ -1212,6 +1212,90 @@ The fixture is explicitly labeled synthetic and must not be used to claim langua
 quality. See [validation evidence](docs/validation.md) for what was actually tested and
 which hardware checks still require an allocated GPU job.
 
+## Steady-state eight-GPU campaign
+
+The campaign helper benchmarks 216 configurations on real distributed GH200 workers:
+20M/50M/90M models, contexts 512/1024/2048, global sequence batches 32/64/128, and
+synchronous DDP or decentralized AWC with complete/ring/exponential topology, each
+with EF gamma 0 or 1. Each global batch is split across eight GPUs without gradient
+accumulation. The compiled GH200 BF16 recipe uses the site's CXI transport setup.
+
+After activating the architecture-specific environment, run:
+
+```bash
+python scripts/benchmark_training_campaign.py prepare --dry-run
+python scripts/benchmark_training_campaign.py prepare
+python scripts/benchmark_training_campaign.py run --detach
+python scripts/benchmark_training_campaign.py status
+python scripts/benchmark_training_campaign.py report
+```
+
+The default destination is `runs/benchmarks/steady-8gpu-20261022`; every command accepts
+`--root PATH`, and preparation accepts `--cache PATH` (default `data/c4`). A dry run
+checks the matrix and bounded loader memory without writing files or submitting jobs.
+Preparation verifies the immutable token cache once and freezes source, dependency
+metadata, resolved configurations, and environment/transport scripts. Workers import
+that frozen source using the existing architecture-specific environment.
+
+The 54 allocations each request two nodes and four GPUs per node for at most 30 minutes.
+Each allocation fixes model/context/batch and EF, then runs synchronous, complete,
+ring, and exponential variants sequentially in fresh processes, with a seven-minute
+limit per variant. The four pilot allocations cover both EF settings at
+20M/context 512/batch 32 and 90M/context 2048/batch 128. The remaining 50 allocations
+start only after all pilot measurements pass. At most eight allocations are outstanding.
+The detached controller writes `controller.log` and can be inspected with `status`;
+rerunning `run` reconciles persisted scheduler receipts instead of duplicating live or
+completed work. Uncertain submissions remain unresolved until scheduler evidence exists.
+
+After a controller has stopped, explicitly retry terminal failed cases without replacing
+their evidence:
+
+```bash
+python scripts/benchmark_training_campaign.py retry --case 90m-c2048-b128-ef1-sync --dry-run
+python scripts/benchmark_training_campaign.py retry --case 90m-c2048-b128-ef1-sync
+python scripts/benchmark_training_campaign.py run --detach
+```
+
+Repeat `--case` to retry several failures. Successful cases are retained, while each retry
+gets separate configuration, logs, reports, and scheduler receipts; only its output path
+changes in the training recipe. The report preserves prior attempt histories, and retries
+add allocation attempts to the original 54 logical groups. Active and uncertain allocations
+cannot be retried. If the supervisor itself was updated after preparation, launch it with
+`run --detach --controller-script scripts/benchmark_training_campaign.py`; this records a
+separate hashed controller revision while preserving the frozen training source.
+
+For a duration-limit failure, add `--max-chunks-factor 2` to `retry` to double the selected
+cases' iteration allowance. The command preflights the larger resident working set before
+creating any retry artifacts and records the changed measurement bounds. Training settings,
+the 15-second minimum, three windows, and original attempt evidence are preserved. The same
+option works with `--dry-run` to inspect the new bounds and per-rank host-memory estimate.
+
+Every case preloads its bounded real C4 working set into host RAM, performs 30 warmup
+updates, then measures three windows of at least 60 updates and 15 seconds each.
+The timer includes host batch preparation, H2D transfers, forward/backward, clipping,
+optimizer updates, EF, and communication. It excludes startup, compilation, preload,
+evaluation, checkpoints, profiling, and metric-file writes. Elapsed time is the maximum
+across ranks. Measurements with timed compilation or further resident-data filesystem
+reads are invalid. Window variation is reported; three windows are not independent jobs.
+
+The generic benchmark's positive `benchmark.max_chunks` setting (CLI `--max-chunks`)
+defaults to eight. The campaign scales it with global batch tokens to provide at least
+128 Mi tokens of update capacity per timing window. Its shared preflight/runtime horizon
+bounds resident loading without changing ordinary training/resume working sets or reuse
+pools. A case that cannot reach its minimum window duration within that bound fails.
+
+CUDA peaks reset after warmup and are captured before profiling and result collection.
+The main memory result is the maximum per-GPU **allocated** peak across all eight ranks,
+including persistent model, gradient, optimizer, EF, and communication storage. Reserved
+memory is a separate allocator diagnostic and can include retained startup cache. These
+PyTorch allocator measurements exclude external CUDA/NCCL allocations and do not report
+whole-process lifetime RSS as training memory.
+
+`report.json` and `report.csv` retain all 216 cases, including missing, failed, OOM, and
+invalid measurements. Successful rows include window statistics and cross-rank peaks;
+each case retains its eight rank reports, configuration, and logs. Throughput and memory
+plots are exported as PNG and PDF. Failures never silently change batching or execution.
+
 ## Source layout
 
 Python imports use responsibility-based packages under `src/decentralized_llm`:

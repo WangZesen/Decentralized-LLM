@@ -188,10 +188,19 @@ class PositionalReader:
 
 
 class TokenLoader:
-    def __init__(self, cache: TokenCache, config: Config, rank: int, cursor: int, stop: int):
+    def __init__(
+        self,
+        cache: TokenCache,
+        config: Config,
+        rank: int,
+        cursor: int,
+        stop: int,
+        *,
+        bound_resident_to_stop: bool = False,
+    ):
         if not 0 <= rank < config.distributed.world_size or cursor < 0 or cursor > stop:
             raise ValueError("invalid rank or sampling cursor")
-        self.memory = check_memory(cache, config, stop=stop)
+        self.memory = check_memory(cache, config, stop=stop, bound_resident_to_stop=bound_resident_to_stop)
         self.mode = "resident" if self.memory["resident_tokens"] else "streaming"
         self.cache, self.config = cache, config
         self.sampler = GlobalSampler.from_config(cache, config)
@@ -364,8 +373,11 @@ class TokenLoader:
                         return
                 if exhausted and not batches:
                     self._mark_ready()
-                    self._put(None)
-                    return
+                    # A short rank stream may finish before its global resident
+                    # working set is loaded. Complete preload for resident warmup.
+                    if self.resident_ready.is_set():
+                        self._put(None)
+                        return
                 # Initial queue fill uses every reader. Afterwards leave one worker
                 # available for demand reads; background work never builds an
                 # unbounded executor queue. One-worker configurations serialize I/O.

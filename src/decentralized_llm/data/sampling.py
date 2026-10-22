@@ -170,7 +170,11 @@ class GlobalSampler:
             cursor = end
 
 
-def memory_estimate(cache: TokenCache, config: Config, *, stop: int | None = None) -> dict[str, int]:
+def memory_estimate(
+    cache: TokenCache, config: Config, *, stop: int | None = None, bound_resident_to_stop: bool = False
+) -> dict[str, int]:
+    if bound_resident_to_stop and (stop is None or stop < 0):
+        raise ValueError("bounded resident loading requires a nonnegative stop")
     plan = sampling_plan(cache, config)
     data = config.data
     length, depth, batch = config.model.context_length, data.prefetch_batches, config.process_micro_batch_size
@@ -208,7 +212,12 @@ def memory_estimate(cache: TokenCache, config: Config, *, stop: int | None = Non
     # K=1 may use only a prefix of its first pass through a much larger cache.
     # Cache exactly that working set, while preserving the full sampler permutation.
     # Loader-only callers may explicitly read beyond the configured training budget.
-    resident_blocks = min(plan.pool_blocks, max(plan.total_blocks, stop or 0))
+    # Benchmarks may explicitly bound this working set to their finite horizon.
+    # Reused data always retains its complete fixed pool, including future passes.
+    resident_horizon = max(plan.total_blocks, stop or 0)
+    if bound_resident_to_stop and plan.reuse_factor == 1:
+        resident_horizon = stop or 0
+    resident_blocks = min(plan.pool_blocks, resident_horizon)
     resident = {
         **parts,
         "resident_tokens": resident_blocks * (length + 1) * 2,
@@ -224,8 +233,10 @@ def memory_estimate(cache: TokenCache, config: Config, *, stop: int | None = Non
     return parts
 
 
-def check_memory(cache: TokenCache, config: Config, *, stop: int | None = None) -> dict[str, int]:
-    estimate = memory_estimate(cache, config, stop=stop)
+def check_memory(
+    cache: TokenCache, config: Config, *, stop: int | None = None, bound_resident_to_stop: bool = False
+) -> dict[str, int]:
+    estimate = memory_estimate(cache, config, stop=stop, bound_resident_to_stop=bound_resident_to_stop)
     budget = config.data.host_memory_mib * 1024**2
     if estimate["total"] > budget:
         raise ValueError(
