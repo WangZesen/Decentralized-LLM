@@ -7,6 +7,7 @@ from typing import Any
 import torch
 from torch import nn
 
+from decentralized_llm.algorithms.muon import MuonAdamW
 from decentralized_llm.config import Config
 from decentralized_llm.models.storage import ParameterStorage, prepare_parameter_storage
 
@@ -78,9 +79,11 @@ def optimizer_report(optimizer: torch.optim.Optimizer) -> dict[str, Any]:
     }
 
 
-def make_optimizer(model: nn.Module, config: Config, device: torch.device) -> torch.optim.AdamW:
+def make_optimizer(model: nn.Module, config: Config, device: torch.device) -> torch.optim.Optimizer:
     storage = prepare_parameter_storage(model)
     cfg = config.optimizer
+    if cfg.name == "muon_adamw":
+        return MuonAdamW(model.named_parameters(), config, device, storage)
     decay = [p for p in model.parameters() if p.ndim >= 2]
     no_decay = [p for p in model.parameters() if p.ndim < 2]
     fused = config.runtime.fused_optimizer and device.type == "cuda" and not config.runtime.deterministic

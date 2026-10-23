@@ -1,0 +1,7 @@
+# RMS-matched Muon for hidden matrices; AdamW for the tied embedding/head and scales.
+optimizer:
+  name: muon_adamw
+  lr: 0.001
+  muon_lr_ratio: 1.0
+  muon_momentum: 0.95
+  weight_decay: 0.1

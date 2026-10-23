@@ -85,12 +85,20 @@ class DataConfig(StrictModel):
 
 
 class OptimizerConfig(StrictModel):
+    name: Literal["adamw", "muon_adamw"] = "adamw"
     lr: float = Field(default=1e-3, gt=0)
+    muon_lr_ratio: float = Field(default=1.0, gt=0)
+    muon_momentum: float = Field(default=0.95, ge=0, lt=1)
     beta1: float = Field(default=0.9, ge=0, lt=1)
     beta2: float = Field(default=0.95, ge=0, lt=1)
     eps: float = Field(default=1e-8, gt=0)
     weight_decay: float = Field(default=0.1, ge=0)
     grad_clip: float | None = Field(default=1.0, gt=0)
+
+    def recipe(self) -> dict:
+        """Effective settings, preserving recipe identities from before Muon existed."""
+        exclude = {"name", "muon_lr_ratio", "muon_momentum"} if self.name == "adamw" else set()
+        return self.model_dump(mode="json", exclude=exclude)
 
 
 class CosineScheduleConfig(StrictModel):

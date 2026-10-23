@@ -7,7 +7,7 @@ import torch
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from decentralized_llm.algorithms.schedules import learning_rate
+from decentralized_llm.algorithms.schedules import learning_rates, set_learning_rates
 from decentralized_llm.backends.distributed.runtime import (
     begin_parameter_mix,
     mix_parameters,
@@ -43,9 +43,8 @@ def optimizer_update(
     length = config.model.context_length
     local_count = rank_count(start, stop, rank(), world_size())
     denominator = (stop - start) / world_size() if config.distributed.mode == "ddp" else local_count
-    lr = learning_rate(config, stop * length, total * length)
-    for group in optimizer.param_groups:
-        group["lr"] = lr
+    rates = learning_rates(config, stop * length, total * length)
+    set_learning_rates(optimizer.param_groups, rates)
     optimizer.zero_grad(set_to_none=True)
     cursor = start
     loss_sum = torch.zeros((), device=device)
@@ -97,7 +96,7 @@ def optimizer_update(
                 mix_parameters(model, config.distributed.topology, step, reuse=config.distributed.reuse_mix_buffers)
         if not collect_metrics:
             return {}
-        return {"lr": lr, "gradient_norm": float(norm), "local_loss": float(loss_sum) / (local_count * length)}
+        return {**rates, "gradient_norm": float(norm), "local_loss": float(loss_sum) / (local_count * length)}
     finally:
         if pending is not None:
             # A failed forward, backward or loader call must not leave a live exchange.

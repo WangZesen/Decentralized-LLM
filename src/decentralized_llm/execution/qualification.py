@@ -35,6 +35,7 @@ def compile_revision() -> str:
 
 def qualification_key(config: Config) -> dict:
     return {
+        **({"optimizer": config.optimizer.name} if config.optimizer.name != "adamw" else {}),
         "training_backend": config.runtime.training_backend,
         "model": config.model.model_dump(),
         "mode": config.distributed.mode,

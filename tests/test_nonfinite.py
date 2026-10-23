@@ -38,6 +38,7 @@ def test_finite_clipping_preserves_pytorch_behavior(maximum: float | None) -> No
 
 
 @pytest.mark.parametrize("backend_name", ["distributed", "packed"])
+@pytest.mark.parametrize("optimizer_name", ["adamw", "muon_adamw"])
 @pytest.mark.parametrize("bad_value", ["gradient", "loss", "generic"])
 @pytest.mark.parametrize("mode", ["ddp", "decentralized"])
 def test_rejected_training_update_preserves_progress_and_records_failure(
@@ -47,7 +48,9 @@ def test_rejected_training_update_preserves_progress_and_records_failure(
     backend_name: Literal["distributed", "packed"],
     bad_value: str,
     mode: Literal["ddp", "decentralized"],
+    optimizer_name: Literal["adamw", "muon_adamw"],
 ) -> None:
+    tiny_config.optimizer.name = optimizer_name
     tiny_config.runtime.training_backend = backend_name
     tiny_config.distributed.mode = mode
     tiny_config.distributed.error_feedback_gamma = 0.5

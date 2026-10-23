@@ -269,6 +269,7 @@ def read_spec(
 
 def numeric_recipe(config: Config) -> Record:
     raw = config.model_dump(mode="json")
+    raw["optimizer"] = config.optimizer.recipe()
     raw["initialization"] = INITIALIZATION
     raw.pop("launcher")
     raw["runtime"].pop("output_dir")

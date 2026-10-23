@@ -20,7 +20,7 @@ class PackedAdamW:
         self.scratch = torch.empty_like(self._arena) if self.previous_update is not None else None
         self.first_moment_storage = torch.zeros_like(self._arena)
         self.second_moment_storage = torch.zeros_like(self._arena)
-        self.optimizers: list[torch.optim.AdamW] = []
+        self.optimizers: list[torch.optim.Optimizer] = []
         self.local_parameters: list[list[nn.Parameter]] = []
         fused = (
             config.runtime.fused_optimizer and self._arena.device.type == "cuda" and not config.runtime.deterministic

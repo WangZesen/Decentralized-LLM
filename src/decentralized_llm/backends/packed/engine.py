@@ -6,7 +6,8 @@ from typing import Any
 import torch
 
 from decentralized_llm.algorithms.packed_adamw import PackedAdamW
-from decentralized_llm.algorithms.schedules import learning_rate
+from decentralized_llm.algorithms.packed_muon import PackedMuonAdamW
+from decentralized_llm.algorithms.schedules import learning_rates, set_learning_rates
 from decentralized_llm.backends.api import Runtime
 from decentralized_llm.config import Config
 from decentralized_llm.data.sampling import NextBatch
@@ -24,7 +25,11 @@ class PackedBackend:
         self.model = PackedLlama(
             config.model, self.workers, config.runtime.attention_backend, canonical=initialize_model(config)
         ).to(device)
-        self.optimizer: Any = PackedAdamW(self.model, config)
+        self.optimizer: Any = (
+            PackedMuonAdamW(self.model, config)
+            if config.optimizer.name == "muon_adamw"
+            else PackedAdamW(self.model, config)
+        )
         self.execution: TrainingExecution
         self.capture: Any = None
 
@@ -34,6 +39,7 @@ class PackedBackend:
             self.execution.policy["backend"] in ("gh200", "a100")
             and self.config.runtime.fused_optimizer
             and self.config.runtime.decentralized_optimizer != "reference"
+            and self.config.optimizer.name == "adamw"
         ):
             from decentralized_llm.execution.cuda.capture import CapturedUpdate
             from decentralized_llm.execution.cuda.packed_optimizer import ArenaAdamW
@@ -62,17 +68,16 @@ class PackedBackend:
     ) -> dict[str, Any]:
         cfg = self.config
         length = cfg.model.context_length
-        lr = learning_rate(cfg, stop * length, total * length)
+        rates = learning_rates(cfg, stop * length, total * length)
         if self.capture is not None:
-            self.capture.execute(next_batch, preload, start, stop, lr)
+            self.capture.execute(next_batch, preload, start, stop, rates["lr"])
             # Do not commit host progress or loader cursors for a rejected update.
             self.inspect(step + 1)
             if not collect_metrics:
                 return {}
             norms, means = self.optimizer.norms, self.optimizer.losses
         else:
-            for group in self.optimizer.param_groups:
-                group["lr"] = lr
+            set_learning_rates(self.optimizer.param_groups, rates)
             self.optimizer.zero_grad()
             cursor = start
             loss_sum = torch.zeros(self.workers, device=self.device)
@@ -100,7 +105,7 @@ class PackedBackend:
                 return {}
             means = loss_sum / denominator
         return {
-            "lr": lr,
+            **rates,
             "gradient_norm": float(norms.mean()),
             "local_loss": float(means.mean()),
             "local_gradient_norms": norms.tolist(),
@@ -144,7 +149,9 @@ class PackedBackend:
             "parameter_bytes": self.model.parameter_count * self.model.parameter_storage.element_size(),
             "parameter_storage_bytes": self.model.parameter_storage.nbytes,
             "optimizer": {
-                "implementation": "triton" if self.capture is not None else "reference",
+                "implementation": (
+                    "triton" if self.capture is not None else getattr(self.optimizer, "implementation", "reference")
+                ),
                 "history_bytes": previous.nbytes if previous is not None else 0,
                 "scratch_bytes": (
                     self.optimizer.scratch.nbytes if self.capture is None and self.optimizer.scratch is not None else 0

@@ -1,6 +1,6 @@
 # decentralized-llm
 
-Reproducible Llama pretraining with DDP or decentralized AdamW, using real distributed
+Reproducible Llama pretraining with DDP or decentralized AdamW/Muon + AdamW, using real distributed
 workers or packed workers on one GPU, and one immutable uint16 token cache on shared storage. Python **3.14** and dependencies
 are pinned in `uv.lock`.
 
@@ -824,6 +824,58 @@ PNG figures are embedded in `report.md`, SVG copies are linked for zooming/expor
 `report.json` lists the relative paths in each phase's `heatmaps` array. Figures live in
 `plots/` and are copied with archived revision reports. Regenerating an older study's
 report adds plots without moving trials or modifying training logs.
+
+## Muon + AdamW
+
+AdamW remains the default optimizer. Add `configs/muon.yaml` after your base/model/setup
+configs to select `optimizer.name=muon_adamw`:
+
+```bash
+uv run decentralized-llm train --config configs/base.yaml --config configs/muon.yaml \
+  --set optimizer.lr=0.0003 --set optimizer.muon_lr_ratio=2.0
+```
+
+`optimizer.lr` is the AdamW base learning rate (default `0.001`). Muon's base learning
+rate is `optimizer.lr * optimizer.muon_lr_ratio`, with the ratio defaulting to `1.0`.
+For example, the command above uses AdamW at `0.0003` and Muon at `0.0006`. Both follow
+the same token-based warmup and cosine/WSD decay, preserving the configured ratio.
+Hybrid training metrics still report the scheduled `muon_lr` and `adamw_lr`; `lr`
+remains an alias for the AdamW rate. These are base rates before Muon's matrix-shape
+adjustment. Tune the base rate and ratio independently, for example:
+
+```yaml
+search:
+  optimizer.lr: [0.0001, 0.0003, 0.001]
+  optimizer.muon_lr_ratio: [0.5, 1.0, 2.0]
+```
+
+The ratio must be positive and finite. Replace any earlier `optimizer.muon_lr` setting
+with `optimizer.muon_lr_ratio = old_muon_lr / optimizer.lr`; the absolute configuration
+field is no longer accepted.
+
+Muon updates each block's Q/K/V/output attention projections and gate/up/down MLP
+matrices. AdamW updates the shared embedding/LM-head weight once, all RMSNorm scales,
+and any biases. The shared `optimizer.weight_decay` applies to matrix weights, including
+the embedding, while scales and biases have zero decay. `optimizer.beta1`, `beta2`, and
+`eps` configure AdamW; `optimizer.muon_momentum` defaults to `0.95`.
+
+The implementation uses [PyTorch Muon](https://docs.pytorch.org/docs/stable/generated/torch.optim.Muon.html)
+with `match_rms_adamw` scaling, Nesterov momentum, five Newton–Schulz iterations, and
+epsilon `1e-7`. Its orthogonalization runs in BF16, including when model autocast is off.
+The scaling makes AdamW-scale learning rates a useful starting point; optimal rates
+still depend on the workload.
+
+Both distributed and packed training support the hybrid optimizer, with independent
+worker state, AWC/ATC mixing, gradient accumulation, and checkpoint resume. Error feedback
+corrects the combined Muon/AdamW displacement, including weight decay, once per update.
+Packed Muon operates on each worker's individual matrices, never across the worker axis.
+
+Compiled and fused model execution remains available. Hybrid runs bypass the custom
+AdamW-only decentralized Triton updates and packed full-update CUDA graph capture;
+`runtime.fused_optimizer` still controls PyTorch's fused auxiliary AdamW where supported.
+Reports identify the optimizer as `torch_muon_adamw`. Existing AdamW checkpoints retain
+their recipe identities; changing optimizer kind, base learning rate, or active Muon ratio requires
+a new training run.
 
 ## Training and recovery semantics
 

@@ -1,7 +1,9 @@
 """Global-token learning-rate schedules."""
 
 import math
+from collections.abc import Iterable
 from fractions import Fraction
+from typing import Any
 
 from decentralized_llm.config import Config, WSDScheduleConfig
 
@@ -36,3 +38,19 @@ def learning_rate(config: Config, consumed: int, total: int) -> float:
         return lr * cfg.min_lr_ratio
     progress = min(1.0, max(0.0, (consumed - warmup) / (total - warmup)))
     return lr * (cfg.min_lr_ratio + (1 - cfg.min_lr_ratio) * (1 + math.cos(math.pi * progress)) / 2)
+
+
+def learning_rates(config: Config, consumed: int, total: int) -> dict[str, float]:
+    """Scheduled base rates before Muon's per-matrix RMS adjustment."""
+    rates = {"lr": learning_rate(config, consumed, total)}
+    if config.optimizer.name == "muon_adamw":
+        rates.update(
+            adamw_lr=rates["lr"],
+            muon_lr=rates["lr"] * config.optimizer.muon_lr_ratio,
+        )
+    return rates
+
+
+def set_learning_rates(groups: Iterable[dict[str, Any]], rates: dict[str, float]) -> None:
+    for group in groups:
+        group["lr"] = rates["muon_lr"] if group.get("optimizer_kind") == "muon" else rates["lr"]

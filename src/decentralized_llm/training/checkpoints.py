@@ -66,7 +66,7 @@ def recipe_identity(config: Config, cache: TokenCache, *, initialization: str | 
         {
             **({"initialization": initialization} if initialization is not None else {}),
             "model": config.model.model_dump(),
-            "optimizer": config.optimizer.model_dump(),
+            "optimizer": config.optimizer.recipe(),
             "schedule": config.lr_schedule.model_dump(),
             "training": training,
             "evaluation": config.evaluation.model_dump(exclude_none=True),
