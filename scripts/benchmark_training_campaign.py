@@ -1,4 +1,4 @@
-"""Prepare and supervise the 216-case, real eight-GPU steady-training benchmark."""
+"""Prepare, extend and supervise real eight-GPU steady-training benchmarks."""
 
 import argparse
 import copy
@@ -199,48 +199,10 @@ def frozen_environment(source: Path, project: Path) -> str:
     )
 
 
-def prepare(root: Path, cache: Path, *, dry_run: bool = False) -> Record:
-    root, cache = root.resolve(), cache.resolve()
-    manifest_path = root / "campaign.json"
-    if manifest_path.exists():
-        manifest = read_json(manifest_path)
-        if manifest["cache"] != str(cache):
-            raise ValueError("campaign already uses a different token cache")
-        verify_snapshot(manifest)
-        return manifest if not dry_run else {**manifest["plan"], "prepared": True, "root": str(root)}
-    project = Path(__file__).resolve().parents[1]
-    configs, allocations = matrix(root, cache, project)
-    token_cache = TokenCache(cache)
-    # The dry run needs only metadata and memory feasibility, and writes no files.
-    for config in configs.values():
-        checked = config.model_copy(deep=True)
-        assert isinstance(checked.launcher, SlurmLauncher)
-        checked.launcher.environment_script = project / "scripts/environment.sh"
-        checked.launcher.environment_overlays = [project / "scripts/activate_cxi.sh"]
-        validate(checked, verify=False, benchmark=True)
-    summary = {
-        **plan_summary(configs, allocations),
-        "root": str(root),
-        "cache": str(cache),
-        "cache_identity": token_cache.manifest["identity"],
-    }
-    if dry_run:
-        return summary
-    token_cache.verify()  # Exactly once for a newly prepared campaign, never in each rank/job.
-    root.mkdir(parents=True, exist_ok=True)
-    source = root / "source"
-    if source.exists():
-        raise ValueError("incomplete campaign preparation already exists; choose a new root")
-    source.mkdir()
-    shutil.copytree(project / "src", source / "src", ignore=shutil.ignore_patterns("__pycache__"))
-    (source / "scripts").mkdir()
-    for filename in ("benchmark_training_campaign.py", "activate_cxi.sh", "toolchain.sh"):
-        shutil.copy2(project / "scripts" / filename, source / "scripts" / filename)
-    for filename in ("pyproject.toml", "uv.lock"):
-        shutil.copy2(project / filename, source / filename)
-    for settings in project.glob(".toolchain-*.sh"):
-        shutil.copy2(settings, source / settings.name)
-    (source / "environment.sh").write_text(frozen_environment(source, project))
+def write_allocations(
+    source: Path, configs: dict[str, Config], allocations: list[Record]
+) -> tuple[list[Record], dict[str, str]]:
+    """Freeze configs and sequential Slurm steps for newly planned allocations."""
     cases, launch_files = [], {}
     for allocation in allocations:
         folder = Path(allocation["directory"])
@@ -308,6 +270,52 @@ def prepare(root: Path, cache: Path, *, dry_run: bool = False) -> Record:
         )
         for path in (script, execution_manifest):
             launch_files[str(path)] = file_digest(path)
+    return cases, launch_files
+
+
+def prepare(root: Path, cache: Path, *, dry_run: bool = False) -> Record:
+    root, cache = root.resolve(), cache.resolve()
+    manifest_path = root / "campaign.json"
+    if manifest_path.exists():
+        manifest = read_json(manifest_path)
+        if manifest["cache"] != str(cache):
+            raise ValueError("campaign already uses a different token cache")
+        verify_snapshot(manifest)
+        return manifest if not dry_run else {**manifest["plan"], "prepared": True, "root": str(root)}
+    project = Path(__file__).resolve().parents[1]
+    configs, allocations = matrix(root, cache, project)
+    token_cache = TokenCache(cache)
+    # The dry run needs only metadata and memory feasibility, and writes no files.
+    for config in configs.values():
+        checked = config.model_copy(deep=True)
+        assert isinstance(checked.launcher, SlurmLauncher)
+        checked.launcher.environment_script = project / "scripts/environment.sh"
+        checked.launcher.environment_overlays = [project / "scripts/activate_cxi.sh"]
+        validate(checked, verify=False, benchmark=True)
+    summary = {
+        **plan_summary(configs, allocations),
+        "root": str(root),
+        "cache": str(cache),
+        "cache_identity": token_cache.manifest["identity"],
+    }
+    if dry_run:
+        return summary
+    token_cache.verify()  # Exactly once for a newly prepared campaign, never in each rank/job.
+    root.mkdir(parents=True, exist_ok=True)
+    source = root / "source"
+    if source.exists():
+        raise ValueError("incomplete campaign preparation already exists; choose a new root")
+    source.mkdir()
+    shutil.copytree(project / "src", source / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    (source / "scripts").mkdir()
+    for filename in ("benchmark_training_campaign.py", "activate_cxi.sh", "toolchain.sh"):
+        shutil.copy2(project / "scripts" / filename, source / "scripts" / filename)
+    for filename in ("pyproject.toml", "uv.lock"):
+        shutil.copy2(project / filename, source / filename)
+    for settings in project.glob(".toolchain-*.sh"):
+        shutil.copy2(settings, source / settings.name)
+    (source / "environment.sh").write_text(frozen_environment(source, project))
+    cases, launch_files = write_allocations(source, configs, allocations)
     manifest = {
         "version": 1,
         "created": time.time(),
@@ -328,6 +336,148 @@ def prepare(root: Path, cache: Path, *, dry_run: bool = False) -> Record:
     }
     atomic_json(manifest_path, manifest)
     return manifest
+
+
+def extend_batches(root: Path, batches: list[int], *, dry_run: bool = False) -> Record:
+    """Append batch sizes using frozen recipes, retaining all existing evidence."""
+    if not batches or any(type(batch) is not int or batch <= 0 or batch % 8 for batch in batches):
+        raise ValueError("batch sizes must be positive integers divisible by eight")
+    if len(batches) != len(set(batches)):
+        raise ValueError("batch sizes must be distinct")
+    root = root.resolve()
+    lock_path = root / ".controller.lock"
+    lock_context = (lock_path.open("r") if lock_path.exists() else nullcontext()) if dry_run else lock_path.open("a")
+    with lock_context as lock:
+        try:
+            if lock is not None:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("stop the campaign controller before extending its matrix") from None
+        manifest = read_json(root / "campaign.json")
+        verify_snapshot(manifest)
+        existing = {case["key"]: case for case in manifest["cases"]}
+        source = Path(manifest["source"])
+        configs: dict[str, Config] = {}
+        allocations: list[Record] = []
+        preflights: dict[str, Record] = {}
+        templates: dict[str, str] = {}
+        name_prefix = "steady8-" + hashlib.sha256(str(root).encode()).hexdigest()[:10]
+        for batch in sorted(batches):
+            expected = {
+                f"{model}-c{context}-b{batch}-ef{int(gamma)}-{variant}"
+                for model in MODELS
+                for context in CONTEXTS
+                for gamma in (0.0, 1.0)
+                for variant, _, _ in VARIANTS
+            }
+            if expected <= existing.keys():
+                continue  # Repeated preparation never creates duplicate cases or jobs.
+            if expected & existing.keys():
+                raise ValueError(f"batch {batch} has an incomplete matrix in the manifest")
+            for model in MODELS:
+                for context in CONTEXTS:
+                    for gamma in (0.0, 1.0):
+                        group = f"{model}-c{context}-b{batch}-ef{int(gamma)}"
+                        keys = []
+                        for variant, _, _ in VARIANTS:
+                            key = f"{group}-{variant}"
+                            candidates = [
+                                case
+                                for case in existing.values()
+                                if (
+                                    case["model"],
+                                    case["context_length"],
+                                    case["error_feedback_gamma"],
+                                    case["variant"],
+                                )
+                                == (model, context, gamma, variant)
+                            ]
+                            if not candidates:
+                                raise ValueError(f"no frozen template available for {key}")
+                            template = max(candidates, key=lambda case: case["global_batch_size"])
+                            raw = load_config(template["config"]).model_dump(mode="json")
+                            raw["training"]["batch_tokens"] = context * batch
+                            raw["runtime"]["output_dir"] = str(root / "cases" / key)
+                            # Twice the original capacity avoids the observed short-window failures.
+                            raw["benchmark"]["max_chunks"] = math.ceil(256 * 1024**2 / (60 * context * batch))
+                            config = Config.model_validate(raw)
+                            assert config.training.num_accumulation == 1 and config.physical_gpu_count == 8
+                            assert config.runtime.training_backend == "distributed"
+                            configs[key] = config
+                            templates[key] = template["key"]
+                            keys.append(key)
+                        folder = root / "allocations" / group
+                        allocations.append(
+                            {
+                                "id": group,
+                                "name": f"{name_prefix}-{len(manifest['allocations']) + len(allocations):03d}",
+                                "pilot": (model, context) in {("20m", 512), ("90m", 2048)},
+                                "cases": keys,
+                                "directory": str(folder),
+                                "receipt_path": str(folder / "receipt.json"),
+                                "state": "PLANNED",
+                                "created": time.time(),
+                            }
+                        )
+        if configs:
+            if any(allocation["state"] not in TERMINAL for allocation in manifest["allocations"]):
+                raise ValueError("extension requires known terminal allocations; reconcile existing work first")
+            for path in [
+                *(c.runtime.output_dir for c in configs.values()),
+                *(Path(a["directory"]) for a in allocations),
+            ]:
+                if path.exists():
+                    raise ValueError(f"unpublished extension artifacts already exist: {path}")
+            for key, config in configs.items():
+                checked = validate(config, verify=False, benchmark=True)
+                bounds = benchmark_bounds(config)
+                preflights[key] = {
+                    "max_chunks": config.benchmark.max_chunks,
+                    "maximum_updates_per_window": bounds.chunk * config.benchmark.max_chunks,
+                    "maximum_loader_updates": bounds.maximum_steps,
+                    "loader_memory_bytes_per_rank": checked["memory_bytes_per_rank"],
+                }
+        preview = {
+            "batch_sizes": sorted(batches),
+            "added_cases": len(configs),
+            "added_allocations": len(allocations),
+            "total_cases": len(existing) + len(configs),
+            "total_allocations": len(manifest["allocations"]) + len(allocations),
+            "pilot_allocations": [a["id"] for a in allocations if a["pilot"]],
+            "max_jobs": MAX_JOBS,
+            "nodes_per_allocation": 2,
+            "gpus_per_allocation": 8,
+            "allocation_time": "00:30:00",
+            "case_time": "00:07:00",
+            "window_capacity_tokens": 256 * 1024**2,
+            "training_source_sha256": manifest["source_sha256"],
+            "template_cases": templates,
+            "measurement_bounds": preflights,
+        }
+        if dry_run or not configs:
+            return preview
+        # Save the prior manifest before publishing any additions. Training sources and
+        # existing config/report artifacts are never rewritten by an extension.
+        extension_id = "batches-" + "-".join(map(str, sorted(batches)))
+        archive = root / "extensions" / extension_id
+        archive.mkdir(parents=True)
+        atomic_json(archive / "campaign-before.json", manifest)
+        cases, launch_files = write_allocations(source, configs, allocations)
+        for case in cases:
+            case.update(extension_id=extension_id, template_case=templates[case["key"]])
+        manifest["cases"].extend(cases)
+        manifest["allocations"].extend(allocations)
+        manifest["launch_files"].update(launch_files)
+        all_configs = {case["key"]: load_config(case["config"]) for case in manifest["cases"]}
+        manifest["plan"].update(plan_summary(all_configs, manifest["allocations"]))
+        manifest["extensions"] = [
+            *manifest.get("extensions", []),
+            {"id": extension_id, "created": time.time(), **preview},
+        ]
+        manifest["state"] = "EXTENSION_PREPARED"
+        atomic_json(archive / "plan.json", preview)
+        atomic_json(root / "campaign.json", manifest)
+        return preview
 
 
 def failure_details(directory: Path) -> tuple[str, str]:
@@ -408,6 +558,8 @@ def case_result(case: Record, allocation: Record, manifest: Record) -> Record:
         global_sequences_per_second=None,
         seconds_per_update=None,
         source_sha256=manifest["source_sha256"],
+        extension_id=case.get("extension_id"),
+        template_case=case.get("template_case"),
         config_sha256=case["config_sha256"],
         lock_sha256=manifest["lock_sha256"],
         cache_identity=manifest["cache_identity"],
@@ -629,8 +781,8 @@ def summarize(manifest: Record) -> Record:
         "updated": time.time(),
         "state": manifest.get("state"),
         "counts": dict(counts),
-        "expected_cases": 216,
-        "complete": len(rows) == 216 and counts["complete"] == 216,
+        "expected_cases": len(manifest["cases"]),
+        "complete": bool(rows) and counts["complete"] == len(manifest["cases"]),
         "pilot_passed": pilot_complete and pilot_clean,
         "pilot_failed": pilot_failed,
         "source_sha256": manifest["source_sha256"],
@@ -986,6 +1138,7 @@ def plots(root: Path, rows: list[Record]) -> None:
     import matplotlib.pyplot as plt
     import numpy as np
 
+    batches = sorted({row["global_batch_size"] for row in rows})
     labels = [(variant, gamma) for gamma in (0.0, 1.0) for variant, _, _ in VARIANTS]
     fields = (
         ("global_tokens_per_second", 1e6, "Global throughput (million tokens/s)", "throughput"),
@@ -1002,19 +1155,19 @@ def plots(root: Path, rows: list[Record]) -> None:
         for mi, model in enumerate(MODELS):
             for ci, context in enumerate(CONTEXTS):
                 axis = axes[mi, ci]
-                values = np.full((8, 3), np.nan)
+                values = np.full((8, len(batches)), np.nan)
                 states = {}
                 for row in rows:
                     if row["model"] != model or row["context_length"] != context:
                         continue
                     index = labels.index((row["variant"], row["error_feedback_gamma"]))
-                    column = BATCHES.index(row["global_batch_size"])
+                    column = batches.index(row["global_batch_size"])
                     states[index, column] = row["status"]
                     if row["status"] == "complete":
                         values[index, column] = row[field] / divisor
                 image = axis.imshow(np.ma.masked_invalid(values), aspect="auto", cmap="viridis")
                 for i in range(8):
-                    for j in range(3):
+                    for j in range(len(batches)):
                         label = f"{values[i, j]:.2f}" if math.isfinite(values[i, j]) else states.get((i, j), "pending")
                         axis.text(
                             j,
@@ -1026,7 +1179,7 @@ def plots(root: Path, rows: list[Record]) -> None:
                             color="white" if math.isfinite(values[i, j]) else "black",
                         )
                 axis.set_title(f"{model.upper()}, context {context}")
-                axis.set_xticks(range(3), BATCHES)
+                axis.set_xticks(range(len(batches)), batches)
                 axis.set_xlabel("Global batch (sequences)")
                 axis.set_yticks(range(8), [v + (" + EF" if g else "") for v, g in labels])
                 figure.colorbar(image, ax=axis, shrink=0.75)
@@ -1058,12 +1211,13 @@ def write_report(root: Path, manifest: Record) -> Record:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "run", "status", "report", "retry"))
+    parser.add_argument("action", choices=("prepare", "run", "status", "report", "retry", "extend"))
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--cache", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--detach", action="store_true")
     parser.add_argument("--once", action="store_true", help="run one controller reconciliation/submission cycle")
+    parser.add_argument("--batch-size", type=int, action="append", default=[], help="extend: new global batch size")
     parser.add_argument("--case", action="append", default=[], help="failed case to retry; repeat for several cases")
     parser.add_argument(
         "--max-chunks-factor",
@@ -1078,6 +1232,8 @@ def main() -> None:
     )
     parser.add_argument("--poll-seconds", type=float, default=30)
     args = parser.parse_args()
+    if bool(args.batch_size) != (args.action == "extend"):
+        parser.error("extend requires --batch-size; this option is only valid for extend")
     if args.poll_seconds <= 0:
         parser.error("--poll-seconds must be positive")
     if args.max_chunks_factor < 1 or (args.max_chunks_factor != 1 and args.action != "retry"):
@@ -1095,7 +1251,9 @@ def main() -> None:
     if args.cache is not None and str(args.cache.resolve()) != manifest["cache"]:
         parser.error("campaign already uses a different token cache")
     verify_snapshot(manifest)
-    if args.action == "retry":
+    if args.action == "extend":
+        result = extend_batches(root, args.batch_size, dry_run=args.dry_run)
+    elif args.action == "retry":
         result = retry_cases(root, args.case, dry_run=args.dry_run, max_chunks_factor=args.max_chunks_factor)
     elif args.dry_run:
         result = {**manifest["plan"], "state": manifest["state"], "counts": summarize(manifest)["counts"]}

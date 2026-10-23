@@ -1270,6 +1270,24 @@ creating any retry artifacts and records the changed measurement bounds. Trainin
 the 15-second minimum, three windows, and original attempt evidence are preserved. The same
 option works with `--dry-run` to inspect the new bounds and per-rank host-memory estimate.
 
+To append global batch 256 to a finished campaign, use:
+
+```bash
+python scripts/benchmark_training_campaign.py extend --batch-size 256 --dry-run
+python scripts/benchmark_training_campaign.py extend --batch-size 256
+python scripts/benchmark_training_campaign.py run --detach --controller-script scripts/benchmark_training_campaign.py
+```
+
+This adds 72 cases in 18 allocations, with 32 sequences per GPU and no accumulation.
+It copies the existing frozen recipes, changing only batch tokens, output paths and the
+measurement iteration ceiling. The training source, transport and prior evidence remain
+unchanged. New windows allow at least 256 Mi tokens of update capacity, with resident
+memory checked before any new configurations are written. Four new pilot allocations
+cover both EF settings for 20M/context 512 and 90M/context 2048 at the added batch size;
+the remaining allocations wait for their results. The eight-allocation concurrency cap
+still applies. Repeating `extend` does not duplicate already registered cases. Reports
+and plots include every registered batch size, including the new 256 column.
+
 Every case preloads its bounded real C4 working set into host RAM, performs 30 warmup
 updates, then measures three windows of at least 60 updates and 15 seconds each.
 The timer includes host batch preparation, H2D transfers, forward/backward, clipping,
@@ -1291,7 +1309,7 @@ memory is a separate allocator diagnostic and can include retained startup cache
 PyTorch allocator measurements exclude external CUDA/NCCL allocations and do not report
 whole-process lifetime RSS as training memory.
 
-`report.json` and `report.csv` retain all 216 cases, including missing, failed, OOM, and
+`report.json` and `report.csv` retain all registered cases, including missing, failed, OOM, and
 invalid measurements. Successful rows include window statistics and cross-rank peaks;
 each case retains its eight rank reports, configuration, and logs. Throughput and memory
 plots are exported as PNG and PDF. Failures never silently change batching or execution.

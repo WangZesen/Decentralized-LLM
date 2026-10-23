@@ -2,6 +2,7 @@ import copy
 import csv
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -209,6 +210,8 @@ def test_complete_result_aggregates_all_ranks_and_preserves_provenance(tmp_path:
     assert len(result["rank_memory"]) == 8 and len(result["transport"]) == 8
     assert result["gpu_names"] == ["NVIDIA GH200 120GB"]
     assert campaign.summarize(manifest)["pilot_passed"]
+    assert campaign.summarize(manifest)["expected_cases"] == 1
+    assert campaign.summarize(manifest)["complete"]
 
 
 @pytest.mark.parametrize(
@@ -582,3 +585,118 @@ def test_retry_refuses_successful_cases_and_controller_revision_preserves_traini
     (tmp_path / "controller-process.json").unlink()
     restarted = campaign.detach(tmp_path, 30)
     assert restarted["script"] == revision["path"] and launch.call_args.args[0][1] == revision["path"]
+
+
+def extension_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, dict]:
+    root, cache = tmp_path / "campaign", tmp_path / "cache"
+    cache.mkdir()
+    atomic_json(cache / "manifest.json", {"identity": "cache"})
+    monkeypatch.setattr(campaign, "TokenCache", lambda _: Mock(manifest={"identity": "cache"}))
+    monkeypatch.setattr(campaign, "validate", lambda *args, **kw: {"memory_bytes_per_rank": {"total": 1800 * 1024**2}})
+    manifest = campaign.prepare(root, cache)
+    for allocation in manifest["allocations"]:
+        allocation["state"] = "COMPLETED"
+    atomic_json(root / "campaign.json", manifest)
+    (root / ".controller.lock").touch()
+    return root, manifest
+
+
+def test_extend_batch_preserves_frozen_evidence_and_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, original = extension_fixture(tmp_path, monkeypatch)
+    before = {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    preview = campaign.extend_batches(root, [256], dry_run=True)
+    assert preview["added_cases"] == 72 and preview["added_allocations"] == 18
+    assert preview["total_cases"] == 288 and preview["total_allocations"] == 72
+    assert preview["pilot_allocations"] == [
+        "20m-c512-b256-ef0",
+        "20m-c512-b256-ef1",
+        "90m-c2048-b256-ef0",
+        "90m-c2048-b256-ef1",
+    ]
+    assert before == {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    assert campaign.extend_batches(root, [256]) == preview
+    manifest = campaign.read_json(root / "campaign.json")
+    campaign.verify_snapshot(manifest)
+    assert manifest["cases"][:216] == original["cases"]
+    assert manifest["allocations"][:54] == original["allocations"]
+    assert manifest["source_files"] == original["source_files"]
+    assert manifest["source_sha256"] == original["source_sha256"]
+    assert manifest["plan"]["cases"] == 288 and manifest["plan"]["allocations"] == 72
+    assert campaign.summarize(manifest)["expected_cases"] == 288
+    assert all(
+        file_digest(Path(path)) == digest for path, digest in before.items() if Path(path).name != "campaign.json"
+    )
+    old_cases = {case["key"]: case for case in original["cases"]}
+    for case in manifest["cases"][216:]:
+        config = load_config(case["config"])
+        previous = load_config(old_cases[case["template_case"]]["config"]).model_dump(mode="json")
+        previous["training"]["batch_tokens"] = config.training.batch_tokens
+        previous["runtime"]["output_dir"] = str(config.runtime.output_dir)
+        previous["benchmark"]["max_chunks"] = config.benchmark.max_chunks
+        assert config.model_dump(mode="json") == previous
+        assert config.micro_batch_size == 32 and config.training.num_accumulation == 1
+        assert config.physical_nodes == 2 and config.processes_per_node == 4
+        assert config.benchmark.max_chunks * 60 * config.training.batch_tokens >= 256 * 1024**2
+    for allocation in manifest["allocations"][54:]:
+        assert len(allocation["cases"]) == 4
+        assert "--nodes=2" in allocation["arguments"]
+        assert "--gpus-per-node=nvidia_gh200_120gb:4" in allocation["arguments"]
+        assert "--time=00:30:00" in allocation["arguments"]
+    before_repeat = {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    assert campaign.extend_batches(root, [256])["added_cases"] == 0
+    assert before_repeat == {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+
+
+def test_extend_preflight_failure_does_not_publish_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root, _ = extension_fixture(tmp_path, monkeypatch)
+    original = {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    monkeypatch.setattr(campaign, "validate", Mock(side_effect=ValueError("resident memory exceeds budget")))
+    with pytest.raises(ValueError, match="exceeds budget"):
+        campaign.extend_batches(root, [256])
+    assert original == {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+
+
+def test_extend_rejects_uncertain_submission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root, manifest = extension_fixture(tmp_path, monkeypatch)
+    manifest["allocations"][0]["state"] = "UNKNOWN"
+    atomic_json(root / "campaign.json", manifest)
+    with pytest.raises(ValueError, match="known terminal"):
+        campaign.extend_batches(root, [256], dry_run=True)
+
+
+@pytest.mark.parametrize("batches", [[], [0], [255], [-8], [256, 256], [True], [256.0]])
+def test_extend_rejects_invalid_batches(tmp_path: Path, batches: list) -> None:
+    with pytest.raises(ValueError, match="batch sizes"):
+        campaign.extend_batches(tmp_path, batches, dry_run=True)
+
+
+def test_plots_include_extended_batch_column(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from matplotlib.axes import Axes
+
+    original = Axes.set_xticks
+    tick_labels = []
+
+    def capture(self: Axes, ticks: range, labels: list[int] | None = None, **kwargs: Any):
+        tick_labels.append(labels)
+        return original(self, ticks, None if labels is None else list(map(str, labels)), **kwargs)
+
+    monkeypatch.setattr(Axes, "set_xticks", capture)
+    rows = [
+        {
+            "model": "20m",
+            "context_length": 512,
+            "global_batch_size": batch,
+            "variant": "sync",
+            "error_feedback_gamma": 0.0,
+            "status": "complete",
+            "global_tokens_per_second": 1e6,
+            "max_peak_allocated_bytes": 1e9,
+            "max_peak_reserved_bytes": 2e9,
+        }
+        for batch in (32, 64, 128, 256)
+    ]
+    campaign.plots(tmp_path, rows)
+    assert tick_labels == [[32, 64, 128, 256]] * 27
+    assert (tmp_path / "throughput.pdf").stat().st_size > 1000
