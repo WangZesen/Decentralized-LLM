@@ -194,10 +194,19 @@ class RuntimeConfig(StrictModel):
     sdpa_backend: Literal["auto", "flash", "cudnn", "math"] = "auto"
     cpu_affinity: Literal["none", "local", "exclusive"] = "none"
     fused_optimizer: bool = True
+    muon_optimizer: Literal["auto", "reference", "batched", "compiled", "cudagraph"] = "auto"
     decentralized_optimizer: Literal["auto", "reference"] = "auto"
     attention_backend: Literal["sdpa", "reference"] = "sdpa"
     output_dir: Path = Path("runs/default")
     cpu_threads: int = Field(default=8, gt=0)
+
+    def resolved_muon_optimizer(
+        self, device: str | None = None
+    ) -> Literal["reference", "batched", "compiled", "cudagraph"]:
+        """Select captured CUDA updates while preserving CPU support."""
+        if self.muon_optimizer == "auto":
+            return "cudagraph" if (device or self.device) == "cuda" else "reference"
+        return self.muon_optimizer
 
 
 class DistributedConfig(StrictModel):

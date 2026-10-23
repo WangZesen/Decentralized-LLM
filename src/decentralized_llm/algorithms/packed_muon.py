@@ -30,6 +30,9 @@ class PackedMuonAdamW(PackedAdamW):
             named = [(entry.name, parameter) for entry, parameter in zip(self.layout, parameters, strict=True)]
             self.optimizers.append(MuonAdamW(named, config, self._arena.device))
             self.local_parameters.append(parameters)
+        first = self.optimizers[0]
+        assert isinstance(first, MuonAdamW)
+        self.implementation = first.implementation
 
     def state_dict(self) -> TorchState:
         return {

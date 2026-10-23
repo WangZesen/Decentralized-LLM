@@ -356,6 +356,7 @@ def test_cuda_hybrid_update(tiny_config: Config, backend_name: Literal["distribu
     cfg = tiny_config
     cfg.optimizer.name = "muon_adamw"
     cfg.runtime.training_backend = backend_name
+    cfg.runtime.device = "cuda"
     cfg.runtime.fused_optimizer = True
     cfg.runtime.deterministic = False
     cfg.distributed.mode = "decentralized"
@@ -373,6 +374,7 @@ def test_cuda_hybrid_update(tiny_config: Config, backend_name: Literal["distribu
     children = optimizer.optimizers if isinstance(optimizer, PackedMuonAdamW) else [optimizer]
     for child in children:
         assert isinstance(child, MuonAdamW)
+        assert child.implementation == "cudagraph_muon_adamw"
         assert all(group["fused"] for group in child.adamw.param_groups)
     assert all(torch.isfinite(p).all() for p in model.parameters())
     restored = create_backend(cfg, device)

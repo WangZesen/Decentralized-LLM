@@ -6,6 +6,7 @@ from typing import Any, overload
 import torch
 from torch import nn
 
+from decentralized_llm.algorithms.batched_muon import BatchedMuon
 from decentralized_llm.config import Config
 from decentralized_llm.models.storage import ParameterStorage
 
@@ -76,7 +77,11 @@ class MuonAdamW(torch.optim.Optimizer):
             for index, partition in enumerate(partitions)
         ]
         super().__init__(groups, {})
-        self.muon = torch.optim.Muon(
+        mode = config.runtime.resolved_muon_optimizer(device.type)
+        constructor = torch.optim.Muon if mode == "reference" else BatchedMuon
+        options: dict[str, Any] = {} if mode == "reference" else {"mode": mode}
+        self.implementation = "torch_muon_adamw" if mode == "reference" else f"{mode}_muon_adamw"
+        self.muon = constructor(
             [self.param_groups[0]],
             lr=cfg.lr * cfg.muon_lr_ratio,
             momentum=cfg.muon_momentum,
@@ -84,6 +89,7 @@ class MuonAdamW(torch.optim.Optimizer):
             ns_steps=5,
             eps=1e-7,
             adjust_lr_fn="match_rms_adamw",
+            **options,
         )
         self.adamw = torch.optim.AdamW(
             self.param_groups[1:],

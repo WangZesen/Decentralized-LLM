@@ -34,8 +34,10 @@ def compile_revision() -> str:
 
 
 def qualification_key(config: Config) -> dict:
+    muon_mode = config.runtime.resolved_muon_optimizer()
     return {
         **({"optimizer": config.optimizer.name} if config.optimizer.name != "adamw" else {}),
+        **({"muon_optimizer": muon_mode} if config.optimizer.name == "muon_adamw" and muon_mode != "reference" else {}),
         "training_backend": config.runtime.training_backend,
         "model": config.model.model_dump(),
         "mode": config.distributed.mode,

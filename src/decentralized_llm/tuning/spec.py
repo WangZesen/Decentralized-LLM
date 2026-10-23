@@ -270,6 +270,11 @@ def read_spec(
 def numeric_recipe(config: Config) -> Record:
     raw = config.model_dump(mode="json")
     raw["optimizer"] = config.optimizer.recipe()
+    muon_mode = config.runtime.resolved_muon_optimizer()
+    if config.optimizer.name == "adamw" or muon_mode == "reference":
+        raw["runtime"].pop("muon_optimizer")
+    else:
+        raw["runtime"]["muon_optimizer"] = muon_mode
     raw["initialization"] = INITIALIZATION
     raw.pop("launcher")
     raw["runtime"].pop("output_dir")

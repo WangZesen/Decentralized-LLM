@@ -873,9 +873,72 @@ Packed Muon operates on each worker's individual matrices, never across the work
 Compiled and fused model execution remains available. Hybrid runs bypass the custom
 AdamW-only decentralized Triton updates and packed full-update CUDA graph capture;
 `runtime.fused_optimizer` still controls PyTorch's fused auxiliary AdamW where supported.
-Reports identify the optimizer as `torch_muon_adamw`. Existing AdamW checkpoints retain
+Reports identify the selected Muon implementation. Existing AdamW checkpoints retain
 their recipe identities; changing optimizer kind, base learning rate, or active Muon ratio requires
 a new training run.
+
+`runtime.muon_optimizer` defaults to `auto`: CUDA uses `cudagraph`, and CPU uses
+the reference PyTorch implementation. Explicit choices are `reference`,
+`batched` (group equal oriented matrix shapes), `compiled` (compile those batched
+updates), and `cudagraph` (also capture the Muon update).
+Batched modes require FP32 or FP64 parameters; compiled and
+captured modes also require CUDA. The auxiliary AdamW
+still uses its existing fused setting. Each matrix retains independent momentum
+and normalization; all modes use the same five Newton–Schulz iterations and
+RMS learning-rate adjustment. Compiled updates preserve explicit precision casts.
+Capture stages fresh gradients and the scheduled learning rate on every step,
+restores warmup state, and is rebuilt after checkpoint loading or a change in
+which parameters have gradients. This captures the Muon optimizer only.
+
+The canonical optimizer checkpoint format is shared across modes. Changing the
+mode may change floating-point rounding; tuning identities distinguish active
+optimized modes, while inactive AdamW settings and explicit reference mode
+retain their previous identities. Automatic and explicit selections of the same
+implementation share tuning and qualification identities. Benchmark the modes on
+the target hardware:
+
+```bash
+python scripts/benchmark_muon.py optimizer -c configs/base.yaml -c configs/models/20m.yaml \
+  -c configs/muon.yaml --output runs/benchmarks/muon-optimizer
+python scripts/benchmark_muon.py training -c configs/base.yaml -c configs/models/20m.yaml \
+  -c configs/setups/gh200-1gpu.yaml -c configs/training-512c-64bs-20tpp.yaml \
+  -c configs/muon.yaml --output runs/benchmarks/muon-training
+```
+
+Run these inside a single-GPU allocation with the repository environment active.
+The optimizer benchmark checks scheduled updates and restored state against
+PyTorch Muon, exports CUDA profiles, and compares all four hybrid modes with
+fused AdamW. Both benchmarks rotate execution order over three trials and exclude
+warmup/compilation from timing. Training measurements use the existing resident
+loader and reject compiler activity during timed windows.
+
+GH200 measurements on 2026-10-23 (20M, context 512, one worker, momentum 0.95,
+ratio 1.0; medians of three trials) were:
+
+| Implementation | Optimizer step (ms) | Training, batch 64 (ms) | Training, batch 128 (ms) |
+|---|---:|---:|---:|
+| Fused AdamW | 0.38 | 18.99 | 34.79 |
+| Reference Muon-AdamW | 36.91 | 53.42 | 64.23 |
+| Batched Muon-AdamW | 3.77 | 20.65 | 37.54 |
+| Compiled Muon-AdamW | 2.82 | 20.00 | 36.89 |
+| CUDA-graph Muon-AdamW | 1.15 | 19.52 | 35.32 |
+
+CUDA training uses the fastest measured mode by default. Use
+`--set runtime.muon_optimizer=reference` to select the previous implementation.
+It improved steady-state training throughput by **2.74×** at batch 64 and
+**1.82×** at batch 128. These measurements exclude compilation, evaluation and
+checkpoint I/O; AdamW was benchmarked in the same jobs on the same revision.
+
+The compiled modes are not bitwise equivalent to reference Muon. With identical
+gradients, the maximum relative L2 update difference was 0.52%, with identical
+momentum buffers. Two matched 1,000-step batch-64 runs had validation-subset loss
+increases of 0.00129 and 0.00527 versus reference. Parameters diverged during
+training, so these short checks do not establish equal full-run convergence.
+Keep the execution mode fixed within a tuning study. The completed 2026-10-23
+tuning campaign used reference Muon and retains its frozen source and results;
+reproducing that implementation with current code requires the explicit
+`reference` override. See the [benchmark summary](docs/performance/muon-summary.json)
+for per-trial timings, numerical checks, source hashes, job IDs and artifact paths.
 
 ## Training and recovery semantics
 

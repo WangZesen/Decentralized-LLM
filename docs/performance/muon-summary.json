@@ -1,0 +1,461 @@
+{
+  "recorded_date": "2026-10-23",
+  "git_base": "9c53c045b1dbeefc9b0e4e09739ed343f9fc8a3a",
+  "branch": "perf/batched-muon",
+  "hardware": "One NVIDIA GH200 120GB per allocation; 8 CPU cores; node n437",
+  "software": {
+    "python": "3.14.5 (main, May 10 2026, 19:28:19) [Clang 22.1.3 ]",
+    "torch": "2.14.0+cu130",
+    "cuda": "13.0",
+    "numpy": "2.5.3",
+    "lock_sha256": "8b3875f1a317c650d991032c6bf65effc5c23d7a15df62b1fb86327431a304a1"
+  },
+  "method": {
+    "model": "20M; context 512; synchronous distributed backend; one worker",
+    "recipes": {
+      "64": {
+        "name": "muon_adamw",
+        "lr": 0.0078125,
+        "muon_lr_ratio": 1.0,
+        "muon_momentum": 0.95,
+        "beta1": 0.948683298050514,
+        "beta2": 0.996799302289812,
+        "eps": 1e-08,
+        "weight_decay": 0.1,
+        "grad_clip": 1.0
+      },
+      "128": {
+        "name": "muon_adamw",
+        "lr": 0.0078125,
+        "muon_lr_ratio": 1.0,
+        "muon_momentum": 0.95,
+        "beta1": 0.9,
+        "beta2": 0.987258544901434,
+        "eps": 1e-08,
+        "weight_decay": 0.1,
+        "grad_clip": 1.0
+      }
+    },
+    "training_conditions": "BF16 mixed precision, compiled model, resident token loader, historical batch-specific AdamW betas, fused auxiliary AdamW. AdamW is a freshly benchmarked baseline on the same revision.",
+    "paired_trials": 3,
+    "order": "Rotate modes by trial; reverse every second trial. All modes within a benchmark job use the same allocated GPU.",
+    "optimizer_timing": "20 warmup steps, then median of three synchronized wall-clock windows of 100 steps; report median across three trials.",
+    "training_timing": "20 warmup steps, three windows of 64 steps; report median across three trials. All 30 measurements valid, with no compiler activity or data reads in timed windows.",
+    "scope": "Steady-state update and training throughput; excludes startup, compilation, checkpoint I/O and evaluation.",
+    "job_walltime_limit_minutes": 10
+  },
+  "optimizer": {
+    "artifact": "runs/benchmarks/muon-20261023-v2/optimizer/results.json",
+    "sha256": "391c0586595a95d01a07bd14c7be0176caa8a7e16825189b9275af391dc57e30",
+    "job_id": "4314488",
+    "source_sha256": "157d8f1e6fbbe66fc29b4a51d0b8ce7a6d9a253796fd5811751b369f42a7f166",
+    "variants": {
+      "adamw": {
+        "milliseconds_per_step": 0.37764143000458716,
+        "speedup_vs_reference": 97.73362959554754,
+        "trial_ms": [
+          0.33833370999673207,
+          0.3862920200026565,
+          0.37764143000458716
+        ],
+        "sample_std_ms": 0.025560154727475668
+      },
+      "reference": {
+        "milliseconds_per_step": 36.90826764000121,
+        "speedup_vs_reference": 1.0,
+        "trial_ms": [
+          36.90826764000121,
+          36.79879717999938,
+          37.30165372000556
+        ],
+        "sample_std_ms": 0.2644494562234228
+      },
+      "batched": {
+        "milliseconds_per_step": 3.770402310001373,
+        "speedup_vs_reference": 9.78894680339504,
+        "trial_ms": [
+          3.7034125399986806,
+          3.7815721700008,
+          3.770402310001373
+        ],
+        "sample_std_ms": 0.04227158781713114
+      },
+      "compiled": {
+        "milliseconds_per_step": 2.817482270002074,
+        "speedup_vs_reference": 13.099733770453875,
+        "trial_ms": [
+          2.9478970000036497,
+          2.8001929499987455,
+          2.817482270002074
+        ],
+        "sample_std_ms": 0.08075003485593947
+      },
+      "cudagraph": {
+        "milliseconds_per_step": 1.1498939200009772,
+        "speedup_vs_reference": 32.09710652263458,
+        "trial_ms": [
+          1.1535120999997162,
+          1.1498939200009772,
+          1.1471756199989613
+        ],
+        "sample_std_ms": 0.003178871922663756
+      }
+    }
+  },
+  "training": {
+    "64": {
+      "artifact": "runs/benchmarks/muon-20261023-v2/training-64bs/results.json",
+      "sha256": "59b8e4857a893b9b4e7f3e5bf1ffe15cf155799fc29a5f27107fa074d6fcbf6d",
+      "job_id": "4314489",
+      "source_sha256": "157d8f1e6fbbe66fc29b4a51d0b8ce7a6d9a253796fd5811751b369f42a7f166",
+      "variants": {
+        "adamw": {
+          "milliseconds_per_step": 18.993483781258647,
+          "speedup_vs_reference": 2.8122898583356752,
+          "trial_ms": [
+            18.993483781258647,
+            18.929632515622075,
+            19.00902059374232
+          ],
+          "sample_std_ms": 0.04207303889898141,
+          "tokens_per_second": 1725223.259586165
+        },
+        "reference": {
+          "milliseconds_per_step": 53.415181812496826,
+          "speedup_vs_reference": 1.0,
+          "trial_ms": [
+            53.74426057812798,
+            53.415181812496826,
+            50.570647374996724
+          ],
+          "sample_std_ms": 1.7450639798778322,
+          "tokens_per_second": 613458.5503242398
+        },
+        "batched": {
+          "milliseconds_per_step": 20.646630828125012,
+          "speedup_vs_reference": 2.5871137163809905,
+          "trial_ms": [
+            20.612653328115016,
+            20.646630828125012,
+            20.906300093741947
+          ],
+          "sample_std_ms": 0.16062950174035373,
+          "tokens_per_second": 1587087.0299750387
+        },
+        "compiled": {
+          "milliseconds_per_step": 20.000420374998384,
+          "speedup_vs_reference": 2.670702955787305,
+          "trial_ms": [
+            20.000420374998384,
+            19.995994984370213,
+            20.002190249996943
+          ],
+          "sample_std_ms": 0.0031910775585519096,
+          "tokens_per_second": 1638365.5636039423
+        },
+        "cudagraph": {
+          "milliseconds_per_step": 19.520903874990836,
+          "speedup_vs_reference": 2.736306789611805,
+          "trial_ms": [
+            19.5552445156153,
+            19.44546231250399,
+            19.520903874990836
+          ],
+          "sample_std_ms": 0.05615876463047651,
+          "tokens_per_second": 1678610.7963976327
+        }
+      }
+    },
+    "128": {
+      "artifact": "runs/benchmarks/muon-20261023-v2/training-128bs/results.json",
+      "sha256": "140e5b8184b4b7d3e37220c21cd5fd782dc4cd67ac5d7f5f2a0561c810887248",
+      "job_id": "4314490",
+      "source_sha256": "157d8f1e6fbbe66fc29b4a51d0b8ce7a6d9a253796fd5811751b369f42a7f166",
+      "variants": {
+        "adamw": {
+          "milliseconds_per_step": 34.78887198437519,
+          "speedup_vs_reference": 1.8461439056962408,
+          "trial_ms": [
+            34.78887198437519,
+            34.893435374996784,
+            34.78372074999925
+          ],
+          "sample_std_ms": 0.061910334102675955,
+          "tokens_per_second": 1883820.7812381596
+        },
+        "reference": {
+          "milliseconds_per_step": 64.22526400000095,
+          "speedup_vs_reference": 1.0,
+          "trial_ms": [
+            64.6294213750025,
+            64.22526400000095,
+            61.293533953133306
+          ],
+          "sample_std_ms": 1.8205552789767077,
+          "tokens_per_second": 1020408.4174725858
+        },
+        "batched": {
+          "milliseconds_per_step": 37.542157609365745,
+          "speedup_vs_reference": 1.7107504759923147,
+          "trial_ms": [
+            37.69330785937086,
+            37.542157609365745,
+            37.32041757811544
+          ],
+          "sample_std_ms": 0.1875554146513522,
+          "tokens_per_second": 1745664.1858977906
+        },
+        "compiled": {
+          "milliseconds_per_step": 36.892405750009516,
+          "speedup_vs_reference": 1.740880343645911,
+          "trial_ms": [
+            36.89645837499711,
+            36.892405750009516,
+            36.490850281253984
+          ],
+          "sample_std_ms": 0.23301686060837526,
+          "tokens_per_second": 1776408.9564688553
+        },
+        "cudagraph": {
+          "milliseconds_per_step": 35.32437704686231,
+          "speedup_vs_reference": 1.8181570170309844,
+          "trial_ms": [
+            35.39455554688686,
+            35.32437704686231,
+            35.1516612031304
+          ],
+          "sample_std_ms": 0.12500229782594863,
+          "tokens_per_second": 1855262.7244652638
+        }
+      }
+    }
+  },
+  "final_optimizer_recheck": {
+    "artifact": "runs/benchmarks/muon-20261023-v3/optimizer/results.json",
+    "sha256": "7bd2eb0e300585c6c6b34b5c1bc12ac78694bb6e1ae58f55ad8127e7046a9d2e",
+    "job_id": "4314606",
+    "source_sha256": "d207b02301a5557b4d0b5d42eed46ec09b2f589bd48568d0d39a958f8ad03ffd",
+    "variants": {
+      "reference": {
+        "milliseconds_per_step": 34.85687909998887,
+        "speedup_vs_reference": 1.0,
+        "trial_ms": [
+          27.834025329993892,
+          34.85687909998887,
+          35.592209240003285
+        ],
+        "sample_std_ms": 4.2827289405836195
+      },
+      "cudagraph": {
+        "milliseconds_per_step": 1.1460509599965008,
+        "speedup_vs_reference": 30.414772393799403,
+        "trial_ms": [
+          1.150529770002322,
+          1.1460509599965008,
+          1.1438782299956074
+        ],
+        "sample_std_ms": 0.0033917419120060885
+      }
+    }
+  },
+  "numerical_checks": {
+    "all_modes_v2": {
+      "batched": {
+        "passed": true,
+        "steps": 8,
+        "max_update_relative_l2_error": 5.122223086133861e-07,
+        "min_update_cosine_similarity": 0.999999999999869,
+        "max_momentum_relative_l2_error": 0.0,
+        "final_parameter_errors": {
+          "max_abs_error": 1.4901161193847656e-08,
+          "relative_l2_error": 1.3454968710898444e-08,
+          "cosine_similarity": 1.0
+        }
+      },
+      "compiled": {
+        "passed": true,
+        "steps": 8,
+        "max_update_relative_l2_error": 0.0052057978008588565,
+        "min_update_cosine_similarity": 0.9999864497666542,
+        "max_momentum_relative_l2_error": 0.0,
+        "final_parameter_errors": {
+          "max_abs_error": 0.0002058069221675396,
+          "relative_l2_error": 0.0003388874523856699,
+          "cosine_similarity": 0.9999999425776578
+        }
+      },
+      "cudagraph": {
+        "passed": true,
+        "steps": 8,
+        "max_update_relative_l2_error": 0.0052057978008588565,
+        "min_update_cosine_similarity": 0.9999864497666542,
+        "max_momentum_relative_l2_error": 0.0,
+        "final_parameter_errors": {
+          "max_abs_error": 0.0002058069221675396,
+          "relative_l2_error": 0.0003388874523856699,
+          "cosine_similarity": 0.9999999425776578
+        }
+      }
+    },
+    "final_cudagraph_v3": {
+      "cudagraph": {
+        "passed": true,
+        "steps": 8,
+        "max_update_relative_l2_error": 0.0052057978008588565,
+        "min_update_cosine_similarity": 0.9999864497666542,
+        "max_momentum_relative_l2_error": 0.0,
+        "final_parameter_errors": {
+          "max_abs_error": 0.0002058069221675396,
+          "relative_l2_error": 0.0003388874523856699,
+          "cosine_similarity": 0.9999999425776578
+        }
+      }
+    },
+    "inputs": "Identical initialization and gradients; eight changing learning rates; checkpoint reload after step four.",
+    "final_gates": {
+      "update_relative_l2_error_lt": 0.01,
+      "update_cosine_similarity_gt": 0.9999,
+      "momentum_relative_l2_error_lt": 1e-06,
+      "parameter_relative_l2_error_lt": 0.001
+    }
+  },
+  "early_trajectory": {
+    "artifact": "runs/benchmarks/muon-20261023-v3/trajectory.json",
+    "script": "runs/benchmarks/muon-20261023-v3/trajectory.py",
+    "script_sha256": "fda595e01c36148218e13f94197570a6b293bea0b044a39876af8991a9d89c00",
+    "job_id": "4314606",
+    "batch_size": 64,
+    "steps": 1000,
+    "seeds": [
+      42,
+      43
+    ],
+    "evaluation": "The same 1024-block validation subset (524288 tokens), not full validation.",
+    "comparisons": [
+      {
+        "seed": 42,
+        "relative_parameter_l2_error": 1.0400521166790018,
+        "max_parameter_abs_error": 2.4355615079402924,
+        "reference_loss": 4.281273432034141,
+        "cudagraph_loss": 4.282562022506681,
+        "loss_delta": 0.0012885904725408182
+      },
+      {
+        "seed": 43,
+        "relative_parameter_l2_error": 1.049754945144711,
+        "max_parameter_abs_error": 2.3079016990959644,
+        "reference_loss": 4.275122738588834,
+        "cudagraph_loss": 4.280388968974876,
+        "loss_delta": 0.0052662303860415705
+      }
+    ],
+    "interpretation": "The numerical trajectories diverge in parameter space. Validation losses remain close in these two short trials; this does not establish equal full-run convergence or justify mixing modes inside a tuning study."
+  },
+  "validation": {
+    "final_cpu_tests": {
+      "command": "CUDA_VISIBLE_DEVICES= PYTHONPATH=$PWD/src .venv/bin/python -m pytest -q tests/test_batched_muon.py",
+      "passed": 25,
+      "skipped": 3,
+      "log": "runs/benchmarks/muon-20261023-v3/cpu-tests.log"
+    },
+    "final_gpu_tests": {
+      "passed": 3,
+      "deselected": 25,
+      "job_id": "4314606"
+    },
+    "regression_checks": "100 relevant CPU tests passed before the final parameter-dtype guard; the final focused tests above include that guard.",
+    "ruff": "passed",
+    "pyright": "0 errors, 0 warnings",
+    "git_diff_check": "passed"
+  },
+  "provenance": {
+    "timing_manifest": "runs/benchmarks/muon-20261023-v2/manifest.json",
+    "final_manifest": "runs/benchmarks/muon-20261023-v3/manifest.json",
+    "final_source_sha256": "d207b02301a5557b4d0b5d42eed46ec09b2f589bd48568d0d39a958f8ad03ffd",
+    "final_source_files": {
+      "scripts/benchmark_muon.py": "3f7df37a207624efc8a99cab555bcccf86da5d9bdd594f11a9f4b2debaec4e98",
+      "src/decentralized_llm/algorithms/batched_muon.py": "a7c5131296a2b39cd4b04e6e0b762f39dfe3039d7cd545070034274b745372d5",
+      "tests/test_batched_muon.py": "17e325f3d521d363525157c0a9f86eee45ac6dbb716d49ec2c97b5b2d8badc0c"
+    },
+    "version_difference": "v3 adds parameter-dtype validation, a packed-wrapper type assertion, and tighter benchmark gates/no-grad checks. The timed Muon update code is unchanged from v2; v3 separately rechecks optimizer performance and correctness."
+  },
+  "jobs": [
+    {
+      "job_id": "4314410",
+      "state": "FAILED",
+      "elapsed_seconds": 16,
+      "gpus": 1,
+      "allocated_gpu_hours": 0.0044444444444444444
+    },
+    {
+      "job_id": "4314411",
+      "state": "CANCELLED",
+      "elapsed_seconds": 0,
+      "gpus": 0,
+      "allocated_gpu_hours": 0.0
+    },
+    {
+      "job_id": "4314412",
+      "state": "CANCELLED",
+      "elapsed_seconds": 0,
+      "gpus": 0,
+      "allocated_gpu_hours": 0.0
+    },
+    {
+      "job_id": "4314488",
+      "state": "COMPLETED",
+      "elapsed_seconds": 80,
+      "gpus": 1,
+      "allocated_gpu_hours": 0.022222222222222223
+    },
+    {
+      "job_id": "4314489",
+      "state": "COMPLETED",
+      "elapsed_seconds": 145,
+      "gpus": 1,
+      "allocated_gpu_hours": 0.04027777777777778
+    },
+    {
+      "job_id": "4314490",
+      "state": "COMPLETED",
+      "elapsed_seconds": 202,
+      "gpus": 1,
+      "allocated_gpu_hours": 0.05611111111111111
+    },
+    {
+      "job_id": "4314606",
+      "state": "COMPLETED",
+      "elapsed_seconds": 281,
+      "gpus": 1,
+      "allocated_gpu_hours": 0.07805555555555556
+    }
+  ],
+  "allocated_gpu_hours_total": 0.20111111111111113,
+  "failures": [
+    {
+      "job_id": "4314410",
+      "reason": "Initial compiled/cudagraph comparison exceeded its tolerance. Fixed by preserving explicit precision casts in compilation. Retests passed.",
+      "cancelled_dependents": [
+        "4314411",
+        "4314412"
+      ],
+      "artifacts": "runs/benchmarks/muon-20261023-v1"
+    }
+  ],
+  "activation": "runtime.muon_optimizer defaults to auto: cudagraph on CUDA, reference on CPU. Explicit reference mode reproduces the prior implementation. The completed tuning campaign retains its frozen reference sources and results.",
+  "artifact_root": "/nobackup/proj/flash/naiss2024-23-12/personal/zesen/Decentralized-LLM-muon-performance",
+  "default_promotion": {
+    "policy": "auto selects cudagraph on CUDA and reference on CPU; resolved modes share tuning and qualification identities",
+    "manifest": "runs/benchmarks/muon-20261023-default/manifest.json",
+    "gpu_job_id": "4314758",
+    "gpu_tests_passed": 5,
+    "gpu_log": "runs/benchmarks/muon-20261023-default/slurm-4314758.out",
+    "cpu_log": "runs/benchmarks/muon-20261023-default/cpu-tests.log",
+    "gpu_allocated_seconds": 18,
+    "scope": "The update math is unchanged; checks cover automatic selection in distributed and packed training, replay and checkpoint state.",
+    "cpu_tests_passed": 1003,
+    "cpu_tests_deselected": 84,
+    "ruff": "lint and format checks passed",
+    "pyright": "0 errors, 0 warnings"
+  }
+}
