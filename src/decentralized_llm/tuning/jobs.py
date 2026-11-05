@@ -10,6 +10,7 @@ from pathlib import Path
 
 from decentralized_llm.config import Config, save_config
 from decentralized_llm.launch.commands import launch
+from decentralized_llm.launch.slurm import SubmissionRejected
 from decentralized_llm.tuning.allocations import submit_allocation
 from decentralized_llm.tuning.batching import time_minutes
 from decentralized_llm.tuning.spec import Record
@@ -52,6 +53,45 @@ def process_identity(pid: int) -> str | None:
         return f"{boot}:{fields[19]}"
     except FileNotFoundError, ProcessLookupError:
         return None
+
+
+def process_group_active(pgid: int) -> bool | None:
+    """Distinguish surviving workers from dead/zombie groups; None retains reservations."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return None
+    observed_group = False
+    uncertain = False
+    try:
+        for process in Path("/proc").iterdir():
+            if not process.name.isdecimal():
+                continue
+            try:
+                fields = (process / "stat").read_text().rsplit(")", 1)[1].split()
+                if int(fields[2]) == pgid:
+                    observed_group = True
+                    if fields[0] not in {"Z", "X"}:
+                        return True
+            except FileNotFoundError, ProcessLookupError:
+                continue
+            except OSError, ValueError, IndexError:
+                uncertain = True
+    except OSError:
+        return None
+    if observed_group and not uncertain:
+        return False
+    # The group may have disappeared during enumeration. Otherwise an unreadable
+    # or changing process table cannot establish that its workers have stopped.
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        pass
+    return None
 
 
 def query(arguments: list[str]) -> str:
@@ -164,14 +204,37 @@ class Backend:
         directory = Path(attempt["directory"])
         if config.launcher.kind == "slurm":
             return launch(config, verify=False, job_name=attempt["name"], submission_dir=directory / "submission")
+        environment = dict(os.environ)
+        if "local_gpu_ids" in attempt:
+            gpu_ids = attempt["local_gpu_ids"]
+            if (
+                not isinstance(gpu_ids, list)
+                or any(
+                    not isinstance(gpu, str)
+                    or not gpu.startswith(("GPU-", "MIG-"))
+                    or any(char.isspace() or char == "," for char in gpu)
+                    for gpu in gpu_ids
+                )
+                or len(set(gpu_ids)) != len(gpu_ids)
+                or len(gpu_ids) != config.physical_gpu_count
+            ):
+                raise ValueError("local GPU assignment must contain one unique UUID per physical GPU")
+            if gpu_ids:
+                environment["CUDA_VISIBLE_DEVICES"] = ",".join(gpu_ids)
         save_config(config, directory / "config.yaml")
         with (directory / "runner.log").open("a") as log:
-            process = subprocess.Popen(
-                [sys.executable, "-m", "decentralized_llm.tuning.local_runner", str(directory)],
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+            try:
+                process = subprocess.Popen(
+                    [sys.executable, "-m", "decentralized_llm.tuning.local_runner", str(directory)],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    env=environment,
+                )
+            except OSError as error:
+                # Popen reports exec failures only after reaping its failed child.
+                # An interrupted/ambiguous submission must retain its reservation instead.
+                raise SubmissionRejected(f"local runner could not start: {error}") from error
         self.children[attempt["name"]] = process
         return {"pid": process.pid, "host": socket.gethostname(), "birth": process_identity(process.pid)}
 
@@ -185,22 +248,22 @@ class Backend:
                 child.poll()  # Reap completed children, including zombies.
             directory = Path(attempt["directory"])
             exit_path = directory / "exit.json"
-            if exit_path.is_file():
-                code = json.loads(exit_path.read_text())["exit_code"]
-                result[attempt["name"]] = {"state": "COMPLETED" if code == 0 else "FAILED", "exit_code": f"{code}:0"}
-                continue
             metadata = directory / "process.json"
             info = json.loads(metadata.read_text()) if metadata.is_file() else attempt
             state = "UNKNOWN"
-            if info.get("host") == socket.gethostname() and info.get("pid"):
-                birth = process_identity(info["pid"])
+            code = None
+            pid = info.get("pid")
+            if info.get("host") == socket.gethostname() and type(pid) is int and pid > 0:
+                birth = process_identity(pid)
                 if birth is not None and birth == info.get("birth"):
                     state = "RUNNING"
-                elif birth is None:
-                    # A killed supervisor may still have live torchrun descendants in its group.
-                    try:
-                        os.killpg(info["pid"], 0)
-                    except ProcessLookupError:
+                elif birth is None and process_group_active(pid) is False:
+                    # exit.json can precede the death of an interrupted supervisor's
+                    # torchrun descendants. Keep the GPU reservation until they exit.
+                    if exit_path.is_file():
+                        code = json.loads(exit_path.read_text())["exit_code"]
+                        state = "COMPLETED" if code == 0 else "FAILED"
+                    else:
                         state = "FAILED"
-            result[attempt["name"]] = {"state": state, "exit_code": None}
+            result[attempt["name"]] = {"state": state, "exit_code": f"{code}:0" if code is not None else None}
         return result

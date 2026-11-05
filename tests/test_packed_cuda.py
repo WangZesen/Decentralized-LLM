@@ -175,9 +175,15 @@ def test_production_compiled_packed_update(tiny_config: Config) -> None:
     from decentralized_llm.config import PRESETS
 
     name = torch.cuda.get_device_name()
-    hardware = "gh200" if "GH200" in name else "a100" if "A100" in name else None
+    hardware = (
+        "gh200"
+        if "GH200" in name
+        else "a100"
+        if "A100" in name or torch.cuda.get_device_capability() == (8, 9)
+        else None
+    )
     if hardware is None:
-        pytest.skip("production fused policy requires GH200 or A100")
+        pytest.skip("production fused policy requires GH200, A100, or experimental Ada 20M")
     raw = tiny_config.model_dump(mode="json")
     raw["model"].update(**PRESETS["20m"], context_length=16, vocab_size=128)
     raw["runtime"].update(

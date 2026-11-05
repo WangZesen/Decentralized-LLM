@@ -1,0 +1,42 @@
+# Layer after base.yaml and models/20m.yaml.
+# Keep the local example's context length; global batch size is 128 sequences.
+model:
+  context_length: 128
+data:
+  cache_dir: data/c4-20m-20tpp
+  revision: 1588ec454efa1a09f29cd18ddd04fe05fc8653a2
+  tokenizer_revision: 59f6f375b26bde864a6ca194a9a3044570490064
+  prepare_train_tokens: null
+  prepare_validation_tokens: null
+  prepare_workers: 8
+  shuffle_buffer: 100000
+  shard_tokens: 33554432
+  tokenize_batch_size: 256
+training:
+  batch_tokens: 16384
+  num_accumulation: 1
+  tokens_per_parameters: 20.0
+  epoch_tokens_per_parameters: 0.5
+  checkpoint_policy: explicit
+  checkpoint_epochs: [10, 20, 30, 40]
+  log_every: 50
+evaluation:
+  subset_blocks: 1024
+  batch_size: 32
+lr_schedule:
+  name: cosine
+  warmup_tokens_per_parameters: 1.0
+runtime:
+  training_backend: packed
+  execution_backend: native
+  compile: false
+  cpu_affinity: none
+  output_dir: runs/local-packed-8-20tpp-bs128
+distributed:
+  mode: decentralized
+  nodes: 1
+  gpus_per_node: 8
+  topology: one_peer_ring
+  scheme: awc
+launcher:
+  kind: local

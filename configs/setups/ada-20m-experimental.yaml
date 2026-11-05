@@ -1,0 +1,5 @@
+# Experimental A100 kernel path on Ada (SM89), restricted to the 20M preset.
+# Layer after the local training recipe; logical worker count and batching stay in that recipe.
+runtime:
+  execution_backend: a100
+  compile: true

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 
 import yaml
-from pydantic import Field, TypeAdapter, model_validator
+from pydantic import Field, TypeAdapter, field_validator, model_validator
 
 from decentralized_llm.config import Config, CosineScheduleConfig, StrictModel, WSDScheduleConfig, load_config
 from decentralized_llm.data.cache import fingerprint
@@ -133,10 +133,18 @@ class Confirmation(StrictModel):
 
 class Controller(StrictModel):
     max_jobs: int = Field(default=50, ge=1, strict=True)
+    local_gpus: list[Annotated[int, Field(ge=0, strict=True)]] | None = Field(default=None, min_length=1)
     jobs_per_allocation: int = Field(default=1, ge=1, strict=True)
     max_retries: int = Field(default=2, ge=0, strict=True)
     poll_seconds: float = Field(default=30, gt=0)
     result_grace_seconds: float = Field(default=120, ge=0)
+
+    @field_validator("local_gpus")
+    @classmethod
+    def unique_local_gpus(cls, value: list[int] | None) -> list[int] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("local_gpus must contain unique visible CUDA indices")
+        return value
 
 
 class TuningSpec(StrictModel):

@@ -1,0 +1,24 @@
+# Prepare the cache with base.yaml + models/20m.yaml + local-packed-8-example.yaml.
+# CUDA_VISIBLE_DEVICES limits the pool; each trial has eight logical workers on one GPU.
+base:
+  configs:
+    - ../base.yaml
+    - ../models/20m.yaml
+    - ../local-packed-8-example.yaml
+  overrides:
+    training.checkpoint_policy: none
+seed_start: 42
+screening_seeds: 1
+phases:
+  - name: learning-rate
+    search:
+      optimizer.lr: [0.0003, 0.001, 0.003]
+    top_k: 1
+confirmation:
+  seeds: 1
+controller:
+  max_jobs: 2
+  # Optional indices within CUDA_VISIBLE_DEVICES; omitted means all visible GPUs.
+  # local_gpus: [0, 1]
+  max_retries: 2
+  poll_seconds: 5

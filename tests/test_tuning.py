@@ -2,6 +2,7 @@ import copy
 import json
 import math
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -18,7 +19,7 @@ from decentralized_llm.config import Config, load_config, save_config
 from decentralized_llm.data.cache import TokenCache, training_boundaries
 from decentralized_llm.launch.slurm import SubmissionRejected
 from decentralized_llm.runtime import atomic_json, environment
-from decentralized_llm.tuning import controller, report
+from decentralized_llm.tuning import controller, local_gpus, report
 from decentralized_llm.tuning import jobs as backends
 from decentralized_llm.tuning.batching import allocation_failures, training_attempts
 from decentralized_llm.tuning.controller import execute, load_state, reconcile, study_lock
@@ -1091,6 +1092,341 @@ def test_slurm_concurrency_cap(
     monkeypatch.setattr("shutil.which", lambda _: "/bin/slurm")
     execute("run", tmp_path / "study", tuning_file)
     assert fake_backend.max_active == 5
+
+
+@pytest.fixture
+def local_gpu_spec(
+    tuning_file: Path, fake_backend: FakeBackend, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, list[str]]:
+    devices = [f"GPU-{index:08x}-0000-0000-0000-000000000000" for index in range(4)]
+
+    def discover(indices: list[int] | None = None) -> Record:
+        selected = range(len(devices)) if indices is None else indices
+        return {"host": socket.gethostname(), "gpu_ids": [devices[index] for index in selected]}
+
+    monkeypatch.setattr(local_gpus, "discover_gpus", discover)
+    monkeypatch.setattr("torch.cuda.device_count", lambda: len(devices))
+    original_poll = fake_backend.poll
+    polls = 0
+
+    def bounded_poll(attempts: list[Record]) -> dict[str, Record]:
+        nonlocal polls
+        polls += 1
+        assert polls <= 40, "local scheduling stopped making progress"
+        return original_poll(attempts)
+
+    monkeypatch.setattr(fake_backend, "poll", bounded_poll)
+    raw = yaml.safe_load(tuning_file.read_text())
+    raw["base"]["overrides"] = {
+        "runtime.device": "cuda",
+        "runtime.training_backend": "packed",
+        "distributed.gpus_per_node": 8,
+        "training.batch_tokens": 32,
+        "training.num_accumulation": 1,
+    }
+    raw["phases"] = [{"name": "lr", "search": {"optimizer.lr": [0.001, 0.002, 0.003, 0.004]}, "top_k": 1}]
+    raw["screening_seeds"] = raw["confirmation"]["seeds"] = 1
+    raw["controller"].update(local_gpus=[0, 1], max_jobs=4)
+    tuning_file.write_text(yaml.safe_dump(raw))
+    return tuning_file, devices
+
+
+@pytest.mark.parametrize(
+    "training_backend,workers,pool_size,max_jobs,expected_active,gpus_per_trial",
+    [("packed", 8, 2, 4, 2, 1), ("distributed", 2, 4, 4, 2, 2), ("distributed", 2, 4, 1, 1, 2)],
+)
+def test_local_gpu_dispatch_reserves_devices_before_submission(
+    cache: TokenCache,
+    local_gpu_spec: tuple[Path, list[str]],
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+    training_backend: str,
+    workers: int,
+    pool_size: int,
+    max_jobs: int,
+    expected_active: int,
+    gpus_per_trial: int,
+) -> None:
+    path, devices = local_gpu_spec
+    raw = yaml.safe_load(path.read_text())
+    raw["base"]["overrides"].update(
+        {"runtime.training_backend": training_backend, "distributed.gpus_per_node": workers}
+    )
+    raw["controller"].update(local_gpus=list(range(pool_size)), max_jobs=max_jobs)
+    path.write_text(yaml.safe_dump(raw))
+    destination = tmp_path / "gpu-study"
+    original_submit = fake_backend.submit
+
+    def submit(config: Config, attempt: Record) -> Record:
+        state = load_state(destination)
+        active = [
+            trial["attempts"][-1]
+            for trial in state["trials"].values()
+            if trial["status"] in {"submitting", "submitted"}
+        ]
+        saved = next(item for item in active if item["name"] == attempt["name"])
+        assert saved["local_gpu_ids"] == attempt["local_gpu_ids"]
+        assert saved["host"] == socket.gethostname()
+        assigned = [identifier for item in active for identifier in item["local_gpu_ids"]]
+        assert len(assigned) == len(set(assigned))
+        assert len(attempt["local_gpu_ids"]) == config.physical_gpu_count == gpus_per_trial
+        return original_submit(config, attempt)
+
+    monkeypatch.setattr(fake_backend, "submit", submit)
+    assert execute("run", destination, path)["status"] == "complete"
+    assert len(fake_backend.submissions) == 4
+    assert fake_backend.max_active == expected_active
+    state = load_state(destination)
+    assert state["local_gpu_pool"] == {"host": socket.gethostname(), "gpu_ids": devices[:pool_size]}
+    assert all(len(trial["attempts"]) == 1 for trial in state["trials"].values())
+
+
+def test_local_gpu_failed_trials_release_devices_for_retry(
+    cache: TokenCache, local_gpu_spec: tuple[Path, list[str]], tmp_path: Path, fake_backend: FakeBackend
+) -> None:
+    path, devices = local_gpu_spec
+    fake_backend.failures = 1
+    destination = tmp_path / "gpu-retries"
+    assert execute("run", destination, path)["status"] == "complete"
+    state = load_state(destination)
+    assert fake_backend.max_active == 2
+    assert len(fake_backend.submissions) == 8
+    for trial in state["trials"].values():
+        assert [attempt["status"] for attempt in trial["attempts"]] == ["failed", "succeeded"]
+        assert all(attempt["local_gpu_ids"][0] in devices[:2] for attempt in trial["attempts"])
+
+
+def test_local_gpu_resume_retains_running_assignment_and_frozen_pool(
+    cache: TokenCache,
+    local_gpu_spec: tuple[Path, list[str]],
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, devices = local_gpu_spec
+    original_devices = devices.copy()
+    destination = tmp_path / "gpu-resume"
+    fake_backend.interrupt = True
+    assert execute("run", destination, path)["status"] == "interrupted"
+    state = load_state(destination)
+    active = [trial["attempts"][-1] for trial in state["trials"].values() if trial["status"] == "submitted"]
+    assert len(active) == 2
+    held = active[0]
+    held_gpu = held["local_gpu_ids"][0]
+    devices.reverse()
+    fake_backend.interrupt = False
+    original_poll = fake_backend.poll
+    calls = 0
+    concurrent_with_held: list[list[str]] = []
+
+    def hold_running(attempts: list[Record]) -> dict[str, Record]:
+        nonlocal calls
+        calls += 1
+        if calls > 2:
+            return original_poll(attempts)
+        others = [attempt for attempt in attempts if attempt["name"] != held["name"]]
+        concurrent_with_held.append([identifier for attempt in others for identifier in attempt["local_gpu_ids"]])
+        result = original_poll(others)
+        result[held["name"]] = {"state": "RUNNING", "exit_code": None}
+        return result
+
+    monkeypatch.setattr(fake_backend, "poll", hold_running)
+    assert execute("resume", destination)["status"] == "complete"
+    assert len(fake_backend.submissions) == 4
+    assert all(held_gpu not in assigned for assigned in concurrent_with_held)
+    state = load_state(destination)
+    assert state["local_gpu_pool"]["gpu_ids"] == original_devices[:2]
+    assert all(len(trial["attempts"]) == 1 for trial in state["trials"].values())
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_local_gpu_unresolved_or_legacy_attempt_blocks_dispatch(
+    cache: TokenCache,
+    local_gpu_spec: tuple[Path, list[str]],
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy: bool,
+) -> None:
+    path, _ = local_gpu_spec
+    destination = tmp_path / "gpu-unresolved"
+    fake_backend.interrupt = True
+    assert execute("run", destination, path)["status"] == "interrupted"
+    state = load_state(destination)
+    active = [trial for trial in state["trials"].values() if trial["status"] == "submitted"]
+    held = active[0]["attempts"][-1]
+    if legacy:
+        held.pop("local_gpu_ids")
+        state.pop("local_gpu_pool")
+        atomic_json(destination / "state.json", state)
+    fake_backend.interrupt = False
+    original_poll = fake_backend.poll
+    calls = 0
+
+    def hold_unresolved(attempts: list[Record]) -> dict[str, Record]:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            assert len(fake_backend.submissions) == 2
+            raise KeyboardInterrupt
+        result = original_poll([attempt for attempt in attempts if attempt["name"] != held["name"]])
+        if legacy:
+            result[held["name"]] = {"state": "RUNNING", "exit_code": None}
+        return result
+
+    monkeypatch.setattr(fake_backend, "poll", hold_unresolved)
+    assert execute("resume", destination)["status"] == "interrupted"
+    assert len(fake_backend.submissions) == 2
+    state = load_state(destination)
+    assert state["trials"][active[0]["id"]]["status"] == "submitted"
+
+
+def test_local_gpu_extend_keeps_active_reservations_when_pool_changes(
+    cache: TokenCache,
+    local_gpu_spec: tuple[Path, list[str]],
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, devices = local_gpu_spec
+    destination = tmp_path / "gpu-extend"
+    fake_backend.interrupt = True
+    assert execute("run", destination, path)["status"] == "interrupted"
+    state = load_state(destination)
+    active = [trial["attempts"][-1] for trial in state["trials"].values() if trial["status"] == "submitted"]
+    held = next(attempt for attempt in active if attempt["local_gpu_ids"] == [devices[1]])
+    raw = yaml.safe_load(path.read_text())
+    raw["controller"].update(local_gpus=[1, 2], max_jobs=2)
+    path.write_text(yaml.safe_dump(raw))
+    fake_backend.interrupt = False
+    original_poll = fake_backend.poll
+    calls = 0
+
+    def hold_running(attempts: list[Record]) -> dict[str, Record]:
+        nonlocal calls
+        calls += 1
+        if calls > 2:
+            return original_poll(attempts)
+        others = [attempt for attempt in attempts if attempt["name"] != held["name"]]
+        assert all(devices[1] not in attempt["local_gpu_ids"] for attempt in others)
+        result = original_poll(others)
+        result[held["name"]] = {"state": "RUNNING", "exit_code": None}
+        return result
+
+    monkeypatch.setattr(fake_backend, "poll", hold_running)
+    assert execute("extend", destination, path)["status"] == "complete"
+    state = load_state(destination)
+    assert state["local_gpu_pool"]["gpu_ids"] == devices[1:3]
+    assert len(fake_backend.submissions) == 4
+    assert all(attempt["local_gpu_ids"] == [devices[2]] for attempt in fake_backend.submissions[2:])
+
+
+def test_local_gpu_dry_run_reports_pool_without_writing(
+    cache: TokenCache, local_gpu_spec: tuple[Path, list[str]], tmp_path: Path, fake_backend: FakeBackend
+) -> None:
+    path, devices = local_gpu_spec
+    destination = tmp_path / "gpu-dry-run"
+    result = execute("run", destination, path, dry_run=True)
+    assert result["local_gpu_pool"] == {"host": socket.gethostname(), "gpu_ids": devices[:2]}
+    assert result["local_max_jobs"] == 4
+    assert result["new_jobs"] == 4
+    assert not destination.exists() and not config_module.LOCAL_DEFAULTS_PATH.exists()
+    assert not fake_backend.submissions
+
+
+def test_local_gpu_trial_larger_than_pool_fails_before_writing(
+    cache: TokenCache, local_gpu_spec: tuple[Path, list[str]], tmp_path: Path, fake_backend: FakeBackend
+) -> None:
+    path, _ = local_gpu_spec
+    raw = yaml.safe_load(path.read_text())
+    raw["base"]["overrides"].update({"runtime.training_backend": "distributed", "distributed.gpus_per_node": 4})
+    path.write_text(yaml.safe_dump(raw))
+    destination = tmp_path / "gpu-oversized"
+    with pytest.raises(ValueError, match="(?i)(pool|GPU)"):
+        execute("run", destination, path)
+    assert not destination.exists() and not fake_backend.submissions
+
+
+def test_local_gpu_later_phase_capacity_failure_submits_none_of_that_phase(
+    cache: TokenCache, local_gpu_spec: tuple[Path, list[str]], tmp_path: Path, fake_backend: FakeBackend
+) -> None:
+    path, _ = local_gpu_spec
+    raw = yaml.safe_load(path.read_text())
+    raw["base"]["overrides"].update({"runtime.training_backend": "distributed", "distributed.gpus_per_node": 1})
+    raw["phases"] = [
+        {
+            "name": "lr",
+            "initial_values": {"distributed.gpus_per_node": 1},
+            "search": {"optimizer.lr": [0.001, 0.002]},
+            "top_k": 1,
+        },
+        {"name": "workers", "search": {"distributed.gpus_per_node": [1, 2, 4]}, "top_k": 1},
+    ]
+    path.write_text(yaml.safe_dump(raw))
+    destination = tmp_path / "gpu-later-oversized"
+    with pytest.raises(ValueError, match="(?i)(pool|GPU)"):
+        execute("run", destination, path)
+    assert len(fake_backend.submissions) == 2
+    state = load_state(destination)
+    assert state["status"] == "failed"
+    assert all(not trial["attempts"] for trial in state["trials"].values() if "/workers/" in trial["directory"])
+
+
+def test_local_gpu_mixed_device_search_keeps_cpu_trials_exclusive(
+    cache: TokenCache,
+    local_gpu_spec: tuple[Path, list[str]],
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, _ = local_gpu_spec
+    raw = yaml.safe_load(path.read_text())
+    raw["base"]["overrides"]["runtime.device"] = "cpu"
+    raw["phases"] = [
+        {"name": "device", "search": {"runtime.device": ["cpu", "cuda"], "optimizer.lr": [0.001, 0.002]}, "top_k": 1}
+    ]
+    path.write_text(yaml.safe_dump(raw))
+    original_poll = fake_backend.poll
+    observed: set[str] = set()
+
+    def check_exclusive(attempts: list[Record]) -> dict[str, Record]:
+        devices = [load_config(Path(attempt["directory"]) / "config.yaml").runtime.device for attempt in attempts]
+        observed.update(devices)
+        if "cpu" in devices:
+            assert len(attempts) == 1
+        for device, attempt in zip(devices, attempts, strict=True):
+            assert bool(attempt.get("local_gpu_ids")) == (device == "cuda")
+        return original_poll(attempts)
+
+    monkeypatch.setattr(fake_backend, "poll", check_exclusive)
+    assert execute("run", tmp_path / "mixed-devices", path)["status"] == "complete"
+    assert observed == {"cpu", "cuda"}
+    assert len(fake_backend.submissions) == 4
+
+
+def test_cpu_only_search_does_not_discover_gpus_from_cuda_base(
+    cache: TokenCache,
+    local_gpu_spec: tuple[Path, list[str]],
+    tmp_path: Path,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, _ = local_gpu_spec
+    raw = yaml.safe_load(path.read_text())
+    raw["controller"].pop("local_gpus")
+    raw["phases"][0]["search"]["runtime.device"] = ["cpu"]
+    path.write_text(yaml.safe_dump(raw))
+
+    def unexpected_discovery(*args: object) -> Record:
+        pytest.fail("CPU-only trials must not inspect CUDA devices")
+
+    monkeypatch.setattr(local_gpus, "discover_gpus", unexpected_discovery)
+    monkeypatch.setattr("torch.cuda.device_count", lambda: 0)
+    destination = tmp_path / "cpu-only"
+    assert execute("run", destination, path)["status"] == "complete"
+    assert load_state(destination)["local_gpu_pool"] is None
+    assert fake_backend.max_active == 1
 
 
 def test_rejected_submission_is_bounded(

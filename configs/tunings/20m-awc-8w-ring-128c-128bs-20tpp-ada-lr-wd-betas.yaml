@@ -1,0 +1,41 @@
+# Two joint stages on the full local 20M / 20-TPP recipe.
+# Each trial packs eight AWC ring workers onto one physical Ada GPU.
+# 66 new executions: 36 LR/decay + 24 new beta combinations + 6 confirmation seeds.
+base:
+  configs:
+    - ../base.yaml
+    - ../models/20m.yaml
+    - ../local-packed-8-20tpp.yaml
+    - ../setups/ada-20m-experimental.yaml
+  overrides:
+    training.checkpoint_policy: none
+    distributed.error_feedback_gamma: 0.0
+
+seed_start: 1
+screening_seeds: 1
+phases:
+  - name: learning-rate-and-decay
+    initial_values:
+      optimizer.beta1: 0.9
+      optimizer.beta2: 0.999
+    search:
+      # Equal log spacing: 0.0005, 0.001, 0.002, 0.004, 0.008, 0.016.
+      optimizer.lr:
+        scale: log
+        min: 0.0005
+        max: 0.016
+        points: 6
+      optimizer.weight_decay: [0.0, 0.03, 0.06, 0.1, 0.2, 0.3]
+    top_k: 3
+  - name: betas
+    search:
+      optimizer.beta1: [0.9, 0.95, 0.98]
+      optimizer.beta2: [0.99, 0.999, 0.9999]
+    top_k: 3
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 2
+  local_gpus: [0, 1]
+  max_retries: 2
+  poll_seconds: 5
