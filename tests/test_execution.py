@@ -311,6 +311,29 @@ def test_a100_fused_policy_is_explicit(preset: str, monkeypatch: pytest.MonkeyPa
         resolve_execution(config, torch.device("cpu"))
 
 
+def test_ada_20m_a100_path_requires_explicit_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = Config(model=ModelConfig(**PRESETS["20m"]))
+    device = torch.device("cuda", 0)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA RTX 5000 Ada Generation")
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (8, 9))
+    assert resolve_execution(config, device)["backend"] == "native"
+    config.runtime.execution_backend = "a100"
+    policy = resolve_execution(config, device)
+    assert policy["backend"] == "a100" and policy["compile"] and policy["fused_rope"]
+    assert "experimental" in policy["reason"] and "Ada" in policy["reason"]
+    config.runtime.compile = False
+    with pytest.raises(ValueError, match="requires compilation"):
+        resolve_execution(config, device)
+    config.runtime.compile = True
+    config.runtime.amp = False
+    with pytest.raises(ValueError, match="A100 execution requires"):
+        resolve_execution(config, device)
+    config.runtime.amp = True
+    config.model = ModelConfig(**PRESETS["50m"])
+    with pytest.raises(ValueError, match="A100 execution requires"):
+        resolve_execution(config, device)
+
+
 @pytest.mark.cuda
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 def test_a100_norm_schedule_preserves_gradients() -> None:

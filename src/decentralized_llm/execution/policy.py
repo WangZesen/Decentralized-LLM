@@ -30,11 +30,18 @@ def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
         and torch.cuda.get_device_capability(device) == (9, 0)
         and "GH200" in torch.cuda.get_device_name(device)
     )
+    # Explicit, bounded Ada experiment using the portable A100 kernel path.
+    # Automatic selection still requires the existing hardware-specific evidence.
+    ada_20m = (
+        fused_inputs
+        and torch.cuda.get_device_capability(device) == (8, 9)
+        and all(getattr(config.model, key) == value for key, value in PRESETS["20m"].items())
+    )
     a100_supported = (
         fused_inputs
         and torch.cuda.get_device_capability(device) == (8, 0)
         and "A100" in torch.cuda.get_device_name(device)
-    )
+    ) or ada_20m
     registry = json.loads(files("decentralized_llm.execution").joinpath("qualification.json").read_text())
     qualified = (
         next(
@@ -61,7 +68,12 @@ def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
     if backend == "gh200" and not supported:
         raise ValueError("GH200 execution requires a supported preset on GH200 with nondeterministic BF16 SDPA")
     if backend == "a100" and not a100_supported:
-        raise ValueError("A100 execution requires a supported preset on A100 with nondeterministic BF16 SDPA")
+        raise ValueError(
+            "A100 execution requires a supported preset on A100 (or experimental 20M on Ada SM89) "
+            "with nondeterministic BF16 SDPA"
+        )
+    if backend == "a100" and ada_20m:
+        reason = "experimental A100 kernels on Ada (SM89), 20M preset"
     fused_backend = backend in ("gh200", "a100")
     compile_enabled = runtime.compile
     if compile_enabled == "auto":

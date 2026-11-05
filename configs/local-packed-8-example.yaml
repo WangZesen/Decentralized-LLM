@@ -1,0 +1,39 @@
+# Layer after base.yaml and models/20m.yaml. Eight logical workers use one GPU.
+# Short real-C4 example; the validation cache is deliberately truncated.
+model:
+  context_length: 128
+data:
+  cache_dir: data/c4-local-packed-example
+  prepare_train_tokens: 524288
+  prepare_validation_tokens: 16385
+  shuffle_buffer: 256
+  shard_tokens: 262144
+  tokenize_batch_size: 32
+  prepare_workers: 2
+training:
+  batch_tokens: 4096
+  num_accumulation: 1
+  tokens_per_parameters: 0.02
+  epoch_tokens_per_parameters: 0.01
+  checkpoint_policy: final
+  log_every: 5
+evaluation:
+  subset_blocks: 64
+  batch_size: 8
+lr_schedule:
+  name: cosine
+  warmup_tokens_per_parameters: 0.002
+runtime:
+  training_backend: packed
+  execution_backend: native
+  compile: false
+  cpu_affinity: none
+  output_dir: runs/local-packed-8-example
+distributed:
+  mode: decentralized
+  nodes: 1
+  gpus_per_node: 8
+  topology: one_peer_ring
+  scheme: awc
+launcher:
+  kind: local

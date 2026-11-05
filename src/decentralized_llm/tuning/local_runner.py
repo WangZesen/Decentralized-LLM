@@ -21,6 +21,7 @@ def run(directory: Path) -> None:
                 "pid": os.getpid(),
                 "host": socket.gethostname(),
                 "birth": process_identity(os.getpid()),
+                "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
             },
         )
         code = 1

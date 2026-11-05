@@ -365,7 +365,41 @@ numerical checks, and reproduction commands. Automatic backend selection retains
 its qualification requirements; an explicit A100 selection requires supported model
 geometry, BF16 SDPA, compilation, and nondeterministic execution on an A100.
 
+The 20M preset can also explicitly test these kernels on Ada GPUs (SM89), using
+`configs/setups/ada-20m-experimental.yaml`. This is recorded as experimental in execution
+metadata and does not change automatic backend selection. Use the local launcher and
+retain the desired packed worker count; the A100 SLURM setup files also change placement.
+The [Ada benchmark report](docs/ada-performance.md) compares eager native, compiled native,
+and compiled A100 execution on the local RTX 5000 Ada.
+
 ## Local GPU smoke runs
+
+For eight logical decentralized workers on one local GPU, use the bounded 20M example:
+
+```bash
+uv run decentralized-llm prepare -c configs/base.yaml -c configs/models/20m.yaml \
+  -c configs/local-packed-8-example.yaml
+CUDA_VISIBLE_DEVICES=0 uv run decentralized-llm train \
+  -c configs/base.yaml -c configs/models/20m.yaml -c configs/local-packed-8-example.yaml --dry-run
+CUDA_VISIBLE_DEVICES=0 uv run decentralized-llm train \
+  -c configs/base.yaml -c configs/models/20m.yaml -c configs/local-packed-8-example.yaml
+```
+
+This uses native BF16 execution, packed workers, reciprocal ring mixing, and AWC AdamW,
+with no SLURM allocation. The 100 updates process 409,600 global tokens at context length
+128, with four sequences per worker per update. Preparation streams a small real C4
+sample into `data/c4-local-packed-example`; its reduced document shuffle buffer keeps
+startup bounded. Validation is intentionally truncated, so this is an execution example,
+not a model-quality benchmark. Logs, per-worker metrics, and the final packed checkpoint
+are written under `runs/local-packed-8-example`. To repeat training, add
+`--set runtime.output_dir=runs/local-packed-8-example-2` to use a fresh output directory.
+
+For a full 20-TPP run, replace `configs/local-packed-8-example.yaml` in those commands
+with `configs/local-packed-8-20tpp.yaml`. This keeps context length 128 and uses a global
+batch of 128 sequences (16,384 tokens), for 24,907 updates and 408,076,288 training tokens
+after whole-batch rounding. It prepares a fresh cache at `data/c4-20m-20tpp` with complete
+validation, restores the one-TPP warmup, and saves resumable checkpoints every ten virtual
+epochs plus the final checkpoint under `runs/local-packed-8-20tpp-bs128`.
 
 Prepare the small C4 cache once:
 
@@ -378,7 +412,7 @@ uv run decentralized-llm train -c configs/base.yaml -c configs/smoke.yaml -c con
 On an allocated GPU, run the hardware tests with `uv run pytest -q -m cuda` to exercise
 pinned-buffer reuse, BF16/SDPA parity, fused AdamW, and CUDA compilation.
 
-The decentralized local example requests two GPUs. Set `distributed.gpus_per_node=1`
+The distributed smoke example in `local-decentralized.yaml` requests two GPUs. Set `distributed.gpus_per_node=1`
 for a single-worker no-op mixing smoke. Set it to the actual GPU count for DDP.
 Local multi-node configurations are rejected. The launcher checks GPU visibility and
 executes the **current interpreter** with standalone `torchrun`, with no elastic restarts.
@@ -688,7 +722,48 @@ artifacts and submit no jobs; normal cache and launcher prerequisites still appl
 The controller settings default to `max_jobs: 50`, `jobs_per_allocation: 1`,
 `max_retries: 2`, `poll_seconds: 30`, and `result_grace_seconds: 120`. The SLURM cap
 counts queued and running **allocations**, each of which can contain multiple trials.
-Local training is sequential and ignores `jobs_per_allocation`. Scheduler queries are batched.
+For local CUDA sweeps, `max_jobs` caps concurrent trials, also limited by available GPUs
+in the study's pool. Local CPU trials remain sequential. Local execution ignores
+`jobs_per_allocation`. Scheduler queries are batched.
+
+To dispatch local trials across GPUs, set `launcher.kind: local` in the base training
+configuration and add the following to the tuning specification:
+
+```yaml
+controller:
+  max_jobs: 2
+  local_gpus: [0, 1]
+  poll_seconds: 5
+```
+
+`local_gpus` selects indices from the controller's CUDA-visible devices; omitting it
+uses all visible GPUs. For example, with `CUDA_VISIBLE_DEVICES=2,3`, `[0, 1]` selects
+physical GPUs 2 and 3. Each packed trial reserves one GPU regardless of its logical
+worker count. A distributed trial reserves `distributed.gpus_per_node` GPUs and waits
+until that many are free. Each child receives only its assigned GPU UUIDs through
+`CUDA_VISIBLE_DEVICES`, so concurrent trials within the study do not share GPUs.
+
+The controller records its host, GPU pool, and each trial's assignment before launch.
+`resume` keeps the saved UUIDs even if CUDA device ordering changes, and requires the
+same host with all pool devices still visible. Active or unresolved trials retain
+their reservations across restarts; an older active trial without an assignment blocks
+new local launches until it finishes. `extend` can select a different pool while still
+accounting for active trials. Dry runs report `local_gpu_pool` and `local_max_jobs`;
+`tune status` also lists `local_gpu_assignments`.
+
+GPU reservations apply within one study. Select disjoint pools for separate studies
+or unrelated training jobs; the controller does not detect external GPU usage. For
+example, while another run uses physical GPU 0, start a sweep with
+`CUDA_VISIBLE_DEVICES=1` and omit `local_gpus` (or set it to `[0]`).
+
+The bounded [local packed example](configs/tunings/local-packed-example.yaml) runs
+three learning-rate candidates using the small C4 cache prepared above:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 uv run decentralized-llm tune run \
+  --spec configs/tunings/local-packed-example.yaml --output runs/tuning/local-packed --dry-run
+# Remove --dry-run to start the sweep on the selected GPUs.
+```
 
 To amortize queue waits over several short trials, for example:
 

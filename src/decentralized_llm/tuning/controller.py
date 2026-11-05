@@ -23,6 +23,7 @@ from decentralized_llm.data.cache import TokenCache, training_boundaries
 from decentralized_llm.launch.preflight import validate
 from decentralized_llm.launch.slurm import SubmissionRejected
 from decentralized_llm.runtime import atomic_json, dependency_digest, source_digest
+from decentralized_llm.tuning import local_gpus
 from decentralized_llm.tuning.batching import (
     check_walltime,
     effective_config,
@@ -34,7 +35,7 @@ from decentralized_llm.tuning.estimate import estimate, ranking
 from decentralized_llm.tuning.jobs import ACTIVE, FAILED, Backend
 from decentralized_llm.tuning.outcomes import select_finite
 from decentralized_llm.tuning.report import write_report
-from decentralized_llm.tuning.spec import Record, TuningSpec, expand, numeric_recipe, read_spec, trial_id
+from decentralized_llm.tuning.spec import Record, TuningSpec, expand, numeric_recipe, read_spec, search_points, trial_id
 
 VERSION = 3
 
@@ -448,8 +449,13 @@ def prepare_attempt(directory: Path, state: Record, trial: Record) -> tuple[Conf
     return config, attempt
 
 
-def submit(directory: Path, state: Record, trial: Record, backend: Backend) -> None:
+def submit(
+    directory: Path, state: Record, trial: Record, backend: Backend, *, gpu_ids: list[str] | None = None
+) -> None:
     config, attempt = prepare_attempt(directory, state, trial)
+    if gpu_ids is not None:
+        # The durable intent owns its GPUs even if the controller dies during spawn.
+        attempt.update(local_gpu_ids=gpu_ids, host=state["local_gpu_pool"]["host"])
     destination = Path(attempt["directory"])
     trial["attempts"].append(attempt)
     trial["status"] = "submitting"
@@ -544,6 +550,82 @@ def outstanding_allocations(state: Record) -> int:
     return parents + legacy
 
 
+def active_local_attempts(state: Record) -> list[Record]:
+    return [
+        trial["attempts"][-1]
+        for trial in state["trials"].values()
+        if trial["status"] in {"submitting", "submitted"} and trial["attempts"][-1]["backend"] == "local"
+    ]
+
+
+def resolve_local_gpu_pool(spec: TuningSpec, base: Config, existing: Record | None, action: str) -> Record | None:
+    """Select visible devices for new revisions; resume uses the saved UUIDs."""
+    if base.launcher.kind != "local":
+        if spec.controller.local_gpus is not None:
+            raise ValueError("controller.local_gpus requires launcher.kind=local")
+        return None
+    devices = {base.runtime.device}
+    uses_cuda = False
+    for phase in spec.phases:
+        if "runtime.device" in phase.search:
+            devices = {
+                point["value"] for point in search_points(base, "runtime.device", phase.search["runtime.device"])
+            }
+        elif "runtime.device" in phase.initial_values:
+            devices = {phase.initial_values["runtime.device"]}
+        uses_cuda |= "cuda" in devices
+    if not uses_cuda:
+        if spec.controller.local_gpus is not None:
+            raise ValueError("controller.local_gpus requires CUDA trials")
+        return None
+    saved = existing.get("local_gpu_pool") if existing else None
+    if action == "resume" and saved is not None:
+        pool = local_gpus.restore_pool(saved, local_gpus.discover_gpus())
+    else:
+        pool = local_gpus.discover_gpus(spec.controller.local_gpus)
+    if existing:
+        # Also rejects live attempts from another host and overlapping reservations.
+        local_gpus.available_gpus(pool, active_local_attempts(existing))
+    return pool
+
+
+def validate_local_capacity(config: Config, pool: Record | None) -> None:
+    if config.launcher.kind == "local" and config.runtime.device == "cuda":
+        capacity = len(pool["gpu_ids"]) if pool is not None else 0
+        if config.physical_gpu_count > capacity:
+            raise ValueError(
+                f"local trial requires {config.physical_gpu_count} GPUs, "
+                f"but the selected local GPU pool has {capacity}; "
+                "select more GPUs with controller.local_gpus / CUDA_VISIBLE_DEVICES or reduce the trial GPU count"
+            )
+
+
+def submit_local(
+    directory: Path, state: Record, spec: TuningSpec, base: Config, pending: list[Record], backend: Backend
+) -> None:
+    pool = state.get("local_gpu_pool")
+    # Check the whole phase before launching any of it, including later search phases.
+    for trial in pending:
+        validate_local_capacity(effective_config(trial, base), pool)
+    for trial in pending:
+        active = active_local_attempts(state)
+        if outstanding_allocations(state) >= spec.controller.max_jobs:
+            break
+        config = effective_config(trial, base)
+        if config.runtime.device == "cpu":
+            # CPU trials retain their sequential behavior, including mixed-device searches.
+            if not outstanding_allocations(state):
+                submit(directory, state, trial, backend)
+            break
+        assert pool is not None
+        free = local_gpus.available_gpus(pool, active)
+        if len(free) < config.physical_gpu_count:
+            continue
+        submit(directory, state, trial, backend, gpu_ids=free[: config.physical_gpu_count])
+        if exhausted_reason(trial, spec.controller.max_retries):
+            break
+
+
 def validate_cached(state: Record) -> None:
     for trial in state["trials"].values():
         if trial["status"] in {"succeeded", "diverged"}:
@@ -594,8 +676,8 @@ def run_loop(directory: Path, state: Record, spec: TuningSpec, base: Config, bac
                             for key in allocation["trial_ids"]
                         ):
                             break
-                elif not outstanding_allocations(state) and pending:
-                    submit(directory, state, pending[0], backend)
+                elif pending:
+                    submit_local(directory, state, spec, base, pending, backend)
             save_state(directory, state)
             logger.info(
                 "Tuning revision {}: phase {}, {} outstanding allocations/processes{}",
@@ -650,6 +732,11 @@ def execute(
             "allocations": allocation_counts,
             "outstanding_allocations": outstanding_allocations(state),
             "allocation_details": list(state["allocations"].values()),
+            "local_gpu_pool": state.get("local_gpu_pool"),
+            "local_gpu_assignments": [
+                {key: attempt.get(key) for key in ("name", "host", "local_gpu_ids", "status")}
+                for attempt in active_local_attempts(state)
+            ],
         }
     if action == "report":
         with study_lock(directory):
@@ -672,10 +759,12 @@ def execute(
         raise ValueError("cache or software provenance changed; use extend to create a new tuning revision")
     if existing is not None:
         validate_cached(existing)
+    pool = resolve_local_gpu_pool(spec, base, existing, action)
     # All first-phase configurations are validated even for a dry run.
     for candidate in expand(base, spec.phases[0]):
         config = Config.model_validate(candidate["config"])
         config.runtime.output_dir = directory / "preflight"
+        validate_local_capacity(config, pool)
         validate(config, launch=True, verify=False)
     if base.launcher.kind == "slurm":
         for executable in ("squeue", "sacct"):
@@ -697,6 +786,8 @@ def execute(
                 for allocation in phase["allocations"]:
                     if phase["allocations_exact"]:
                         check_walltime(allocation["time_minutes"], limit, base.launcher.partition, trial_minutes(base))
+        elif pool is not None:
+            result.update(local_gpu_pool=pool, local_max_jobs=spec.controller.max_jobs)
         return result
     with study_lock(directory):
         if action == "run":
@@ -742,6 +833,7 @@ def execute(
                     phases=[],
                     winner=None,
                 )
+        state["local_gpu_pool"] = pool
         if retry_unresolved:
             reconcile(state, backend, spec.controller.result_grace_seconds)
             for name in retry_unresolved:
