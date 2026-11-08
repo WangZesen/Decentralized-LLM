@@ -91,6 +91,7 @@ def test_error_feedback_resume(
 @pytest.mark.parametrize("factor", [1, 2, 5, 7])
 @pytest.mark.parametrize("larger_cache,accumulation", [(False, 1), (True, 3)])
 @pytest.mark.parametrize("schedule", ["cosine", "wsd"])
+@pytest.mark.parametrize("repeat", [False, True])
 def test_resume_equivalence(
     cache: TokenCache,
     tiny_config: Config,
@@ -99,6 +100,7 @@ def test_resume_equivalence(
     larger_cache: bool,
     accumulation: int,
     schedule: str,
+    repeat: bool,
 ) -> None:
     raw = tiny_config.model_dump()
     raw["training"]["num_accumulation"] = accumulation
@@ -109,6 +111,7 @@ def test_resume_equivalence(
         tiny_config.data.cache_dir = tmp_path / "larger-cache"
         cache = make_cache(tiny_config.data.cache_dir, tiny_config, tokens=401)
     tiny_config.training.data_reuse_factor = factor
+    tiny_config.training.data_reuse_order = "repeat" if repeat else "reshuffle"
     tiny_config.data.loader_mode = "streaming" if factor == 7 else "resident"
     full = train(tiny_config)
     assert full["cursor"] == 42 and full["step"] == 7 and full["completed_epochs"] == 2
@@ -122,6 +125,7 @@ def test_resume_equivalence(
         "unique_training_tokens": min(pool, 42) * 4,
         "full_passes": 42 // pool,
         "partial_pass_blocks": 42 % pool,
+        **({"data_reuse_order": "repeat"} if repeat else {}),
     }
     original = torch.load(tiny_config.runtime.output_dir / "final/rank-00000.pt", weights_only=False)
     split = tiny_config.model_copy(deep=True)
@@ -159,6 +163,10 @@ def test_resume_equivalence(
         validate_checkpoint(checkpoint, changed, cache)
     changed = resumed.model_copy(deep=True)
     changed.training.data_reuse_factor = 2 if factor == 1 else 1
+    with pytest.raises(ValueError, match="recipe"):
+        validate_checkpoint(checkpoint, changed, cache)
+    changed = resumed.model_copy(deep=True)
+    changed.training.data_reuse_order = "reshuffle" if repeat else "repeat"
     with pytest.raises(ValueError, match="recipe"):
         validate_checkpoint(checkpoint, changed, cache)
     manifest_path = checkpoint / "manifest.json"

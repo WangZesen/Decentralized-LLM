@@ -3,6 +3,7 @@
 from bisect import bisect_left
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -22,8 +23,9 @@ class SamplingPlan:
     total_blocks: int
     reuse_factor: int
     context_length: int
+    reuse_order: Literal["reshuffle", "repeat"] = "reshuffle"
 
-    def summary(self) -> dict[str, int]:
+    def summary(self) -> dict[str, int | str]:
         full_passes, partial_pass_blocks = divmod(self.total_blocks, self.pool_blocks)
         return {
             "data_reuse_factor": self.reuse_factor,
@@ -31,6 +33,7 @@ class SamplingPlan:
             "unique_training_tokens": min(self.total_blocks, self.pool_blocks) * self.context_length,
             "full_passes": full_passes,
             "partial_pass_blocks": partial_pass_blocks,
+            **({"data_reuse_order": "repeat"} if self.reuse_order == "repeat" else {}),
         }
 
 
@@ -49,7 +52,7 @@ def sampling_plan(cache: TokenCache, config: Config) -> SamplingPlan:
             f"({pool * length + 1} cached tokens including lookahead); cache has {eligible} blocks. "
             "Prepare a larger cache at a new path."
         )
-    return SamplingPlan(eligible, pool, total, factor, length)
+    return SamplingPlan(eligible, pool, total, factor, length, config.training.data_reuse_order)
 
 
 def _fill_indices(indices: IndexArray) -> None:
@@ -94,6 +97,8 @@ class GlobalSampler:
             "numpy": np.__version__,
         }
         self.digest = fingerprint(self.identity)
+        self._order_digest = self.digest
+        self._repeat_order = False
         self._eligible_blocks = self.blocks
         self._selection_digest: str | None = None
         # Identity checks need no index allocation or shuffling.
@@ -117,6 +122,13 @@ class GlobalSampler:
                 "total_blocks": plan.total_blocks,
                 "selection_algorithm": "sampler-v1-first-pass-prefix",
             }
+            sampler.digest = fingerprint(sampler.identity)
+        # Keep selection and the first pass identical to the existing sampler.
+        # The extra identity field distinguishes resume/trial identity, not RNG order.
+        sampler._order_digest = sampler.digest
+        if plan.reuse_order == "repeat":
+            sampler._repeat_order = True
+            sampler.identity = {**sampler.identity, "data_reuse_order": "repeat"}
             sampler.digest = fingerprint(sampler.identity)
         return sampler
 
@@ -146,11 +158,12 @@ class GlobalSampler:
             self._initialize()
         pass_index, offset = divmod(position, self.blocks)
         if pass_index != self.pass_index:
-            if self._selection_digest is None:
-                _fill_indices(self.permutation)
-            else:
-                np.copyto(self.permutation, self.pool)
-            _shuffle(self.permutation, self.digest, pass_index)
+            if not self._repeat_order or self.pass_index < 0:
+                if self._selection_digest is None:
+                    _fill_indices(self.permutation)
+                else:
+                    np.copyto(self.permutation, self.pool)
+                _shuffle(self.permutation, self._order_digest, 0 if self._repeat_order else pass_index)
             self.pass_index = pass_index
         return int(self.permutation[offset])
 

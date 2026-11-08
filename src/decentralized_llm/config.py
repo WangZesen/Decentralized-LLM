@@ -117,6 +117,7 @@ class TrainingConfig(StrictModel):
     tokens_per_parameters: float = Field(default=20.0, gt=0)
     epoch_tokens_per_parameters: float = Field(default=0.5, gt=0)
     data_reuse_factor: int = Field(default=1, gt=0, strict=True)
+    data_reuse_order: Literal["reshuffle", "repeat"] = "reshuffle"
     batch_tokens: int = Field(default=32768, gt=0)
     num_accumulation: int = Field(default=1, gt=0, strict=True)
     checkpoint_policy: Literal["interval", "explicit", "final", "none"] = "final"

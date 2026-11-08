@@ -46,6 +46,7 @@ def test_presets_and_parameter_count() -> None:
 
 def test_data_reuse_configuration(tmp_path: Path) -> None:
     assert Config().training.data_reuse_factor == 1
+    assert Config().training.data_reuse_order == "reshuffle"
     cfg = load_config(overrides=["training.data_reuse_factor=4"])
     path = tmp_path / "reuse.yaml"
     save_config(cfg, path)
@@ -56,6 +57,12 @@ def test_data_reuse_configuration(tmp_path: Path) -> None:
             load_config(overrides=[f"training.data_reuse_factor={value}"])
     with pytest.raises(ValidationError, match="data_reuse_factor"):
         cfg.training.data_reuse_factor = True
+    cfg.training.data_reuse_order = "repeat"
+    save_config(cfg, path)
+    assert load_config(path).training.data_reuse_order == "repeat"
+    for value in ("unknown", "true", "1", "null"):
+        with pytest.raises(ValidationError, match="data_reuse_order"):
+            load_config(overrides=[f"training.data_reuse_order={value}"])
 
 
 def test_loader_configuration() -> None:

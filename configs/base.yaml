@@ -13,6 +13,7 @@ training:
   tokens_per_parameters: 20.0
   epoch_tokens_per_parameters: 0.5
   data_reuse_factor: 1
+  data_reuse_order: reshuffle
   checkpoint_policy: final
 lr_schedule:
   name: cosine

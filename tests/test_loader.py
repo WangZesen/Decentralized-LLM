@@ -82,9 +82,13 @@ def test_prefetch_threads_delays_and_resume(
 
 @pytest.mark.parametrize("factor", [2, 5, 100])
 @pytest.mark.parametrize("mode", ["resident", "streaming"])
-def test_reuse_global_stream_and_stop(cache: TokenCache, tiny_config: Config, factor: int, mode: str) -> None:
+@pytest.mark.parametrize("repeat", [False, True])
+def test_reuse_global_stream_and_stop(
+    cache: TokenCache, tiny_config: Config, factor: int, mode: str, repeat: bool
+) -> None:
     tiny_config.data = tiny_config.data.model_copy(update={"loader_mode": mode})
     tiny_config.training.data_reuse_factor = factor
+    tiny_config.training.data_reuse_order = "repeat" if repeat else "reshuffle"
     expected = collect(cache, tiny_config, stop=42)[0]
     pool_size = (42 + factor - 1) // factor
     assert len(set(expected)) == pool_size

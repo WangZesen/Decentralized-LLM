@@ -1212,12 +1212,27 @@ uv run decentralized-llm train -c configs/base.yaml -c configs/models/20m.yaml \
 `K` must be a positive integer and defaults to **1**, which preserves the existing sampler
 and checkpoint compatibility, including cycling an already-small cache. For `K > 1`,
 let `B` be the full training budget after the existing global-batch rounding, measured in
-context-length blocks. The sampler selects `U = ceil(B / K)` unique blocks and reshuffles
-that same pool on each pass. Every block is used once per complete pass before the next
+context-length blocks. The sampler selects `U = ceil(B / K)` unique blocks. By default,
+`training.data_reuse_order: reshuffle` reshuffles that same pool on each pass.
+Every block is used once per complete pass before the next
 pass starts in the global stream. Training stops after exactly `B` blocks: every selected
 block is used exactly `K` times when `B` divides evenly by `K`; otherwise the last pass
 may be partial. For example, `B=42, K=5` uses 9 unique blocks, with four complete passes
 and six blocks from a fifth pass. If `K > B`, the pool contains one block used `B` times.
+
+Set `training.data_reuse_order: repeat` to replay the first pass's exact block order on
+every later pass. Pool selection and the first pass are identical to `reshuffle` for the
+same configuration and seed. A partial final pass is a prefix of the first pass. With
+`K=1`, this option repeats the first permutation of the full cache when it is cycled.
+The setting is recorded in the sampler identity and `sampling` metadata for repeat mode;
+changing modes requires a fresh run. Omitting it preserves historical reshuffled streams,
+checkpoint recipe identities, and tuning candidate identities.
+
+The repeated order describes the global stream. If the pool size is not divisible by the
+number of workers, rank-strided ownership shifts between passes even though global order
+repeats. In particular, the 60-TPP/reuse-3 pool has 797,014 blocks, which is not divisible
+by eight; the 40/2 and 80/4 pools are divisible by eight. No extra pool or batch rounding
+is introduced by this option.
 
 Pool selection takes the first `U` entries of the normal sampler's first-pass permutation.
 It is reproducible for a given cache and training seed; larger factors select nested pools.
@@ -1520,6 +1535,18 @@ whole-process lifetime RSS as training memory.
 invalid measurements. Successful rows include window statistics and cross-rank peaks;
 each case retains its eight rank reports, configuration, and logs. Throughput and memory
 plots are exported as PNG and PDF. Failures never silently change batching or execution.
+
+## Repeated-order targeted runs
+
+The campaign at
+`runs/p-tuning/20m-512c-128bs-40-60-80tpp-reuse2-3-4-repeat-warmup3-20261107`
+uses `training.data_reuse_order: repeat` at 40/2, 60/3 and 80/4 TPP/reuse.
+It runs the confirmed 40-TPP/reuse-2 winner recipes for sync, cmp, exp and ring
+on seeds 42–44: 36 fresh jobs, with all twelve studies launched concurrently.
+Each study has its own persistent controller and three allocation slots.
+Source, winner evidence, configurations and cache provenance are frozen in the
+campaign; its `report.md` records progress and its final `analysis/report.md`
+compares repeat-order budgets and paired gaps versus synchronous training.
 
 ## Source layout
 

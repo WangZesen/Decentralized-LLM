@@ -121,6 +121,7 @@ def test_reference_updates(cache: TokenCache, tiny_config: Config, topology: str
 @pytest.mark.parametrize("mode", ["ddp", "decentralized"])
 @pytest.mark.parametrize("scheme", ["awc", "atc"])
 @pytest.mark.parametrize("gamma", [0.0, 0.5, 1.0])
+@pytest.mark.parametrize("repeat", [False, True])
 def test_packed_training_resume(
     cache: TokenCache,
     tiny_config: Config,
@@ -128,12 +129,16 @@ def test_packed_training_resume(
     mode: Literal["ddp", "decentralized"],
     scheme: str,
     gamma: float,
+    repeat: bool,
 ) -> None:
     cfg = packed_config(tiny_config, scheme=scheme, error_feedback_gamma=gamma)
     cfg.distributed.mode = mode
     # Enough updates to exercise both an interruption and rotating peers.
     cfg.training.tokens_per_parameters = 0.8
     cfg.training.epoch_tokens_per_parameters = 0.4
+    if repeat:
+        cfg.training.data_reuse_factor = 7
+        cfg.training.data_reuse_order = "repeat"
     cfg.distributed.topology = "one_peer_ring"
     train(cfg)
     original = torch.load(cfg.runtime.output_dir / "final/packed.pt", weights_only=False)

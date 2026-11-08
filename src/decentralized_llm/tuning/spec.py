@@ -277,6 +277,9 @@ def read_spec(
 
 def numeric_recipe(config: Config) -> Record:
     raw = config.model_dump(mode="json")
+    # Preserve existing candidate identities for the default sampler behavior.
+    if config.training.data_reuse_order == "reshuffle":
+        raw["training"].pop("data_reuse_order")
     raw["optimizer"] = config.optimizer.recipe()
     muon_mode = config.runtime.resolved_muon_optimizer()
     if config.optimizer.name == "adamw" or muon_mode == "reference":

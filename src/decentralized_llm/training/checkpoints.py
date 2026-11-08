@@ -69,6 +69,8 @@ def recipe_identity(config: Config, cache: TokenCache, *, initialization: str | 
     # Keep recipes written before data reuse was introduced resumable at K=1.
     if config.training.data_reuse_factor == 1:
         training.pop("data_reuse_factor")
+    if config.training.data_reuse_order == "reshuffle":
+        training.pop("data_reuse_order")
     return fingerprint(
         {
             **({"initialization": initialization} if initialization is not None else {}),
