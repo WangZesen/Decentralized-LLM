@@ -549,6 +549,62 @@ Final configurations are exported when each study completes. The measured origin
 allocation times project approximately 75 GPU-hours for the joint search and
 confirmation, or 92 if all eight studies use their full 30-run budget, before retries.
 
+### 20M data-reuse campaign
+
+`scripts/tune_data_reuse.py` compares AdamW at global batches 64 and 128, context
+512, and reuse factors 1, 2, and 4. It retains synchronous training and eight-worker
+AWC on ring, exponential, and complete graphs, each with feedback gamma fixed at
+0 or 1. All trials use packed execution on one physical GH200, BF16, clipping 1,
+weight decay 0.1, cosine decay, 1-TPP warmup, and the existing rounded 20-TPP budget.
+
+The 16 reference candidates come from
+`runs/update-20261025/data/selected-adamw.csv`. Preparation authenticates their
+three-seed raw results, including the historical feedback schema and relocated
+artifact paths, without editing those artifacts. References are rerun at reuse 1;
+their hyperparameters are also transferred unchanged to reuse 2 and 4.
+
+Each of the 32 reuse-2/4 studies screens a joint 27-point LR/beta grid on seed 42,
+then confirms the best three on seeds 43 and 44. The fixed reference receives all
+three seeds and participates in final selection. The grid uses learning-rate
+factors 1/2, 1, and 2; beta1 powers 2, 1, and 1/2; and beta2 powers 4, 1, and 1/4.
+A confirmed winner on an edge gets one outward axial probe per affected field,
+on all three seeds. This boundary round is frozen and never expands recursively.
+The conservative budget is 1,488 executions before exact duplicate elimination
+and infrastructure retries; numerical divergence is not retried.
+
+```bash
+.venv-x86_64/bin/python scripts/tune_data_reuse.py prepare --dry-run
+.venv-x86_64/bin/python scripts/tune_data_reuse.py prepare
+.venv-x86_64/bin/python scripts/tune_data_reuse.py run --dry-run
+.venv-x86_64/bin/python scripts/tune_data_reuse.py run
+.venv-x86_64/bin/python scripts/tune_data_reuse.py status
+.venv-x86_64/bin/python scripts/tune_data_reuse.py report
+```
+
+The default root is `runs/p-tuning/20m-data-reuse-20261102`; `--root` selects a
+different campaign directory. Dry runs create no campaign files. Preparation
+freezes the current working-tree source, resolved configurations, reference
+hashes, and paired initialization/sampling evidence. The saved environment uses
+existing architecture-specific virtual environments and checks pinned versions
+without synchronizing dependencies. Set the site's lowercase `account` variable
+before preparing or running.
+
+`run` starts or reconnects to a named tmux session. Two durable execution lanes
+each run one study at a time with at most 25 outstanding jobs, preserving the
+campaign-wide 50-job ceiling even after interruption. A failed lane retains its
+place until resumed; active jobs are reconciled before new submissions. Repeat
+`run` to resume, or use `run --foreground` under another durable process manager.
+The supervisor refreshes reports every minute and writes separate lane logs.
+
+Reports export JSON/CSV, final winner configurations, PNG/SVG comparison plots,
+and per-seed training/subset-validation curves against processed tokens. They
+separate fixed-parameter and retuned reuse penalties, AWC-minus-synchronous
+differences in those penalties, and the benefit from retuning. Endpoints require
+all three seeds and complete full validation. Reports flag missing results,
+divergence, remaining search boundaries, actual allocation accounting, and runtime
+projections updated from completed runs. The same seeds and validation split
+select winners; these are bounded tuning results, not independent test scores.
+
 ### Controller usage
 
 `decentralized-llm tune` runs a persistent controller over local training processes or
