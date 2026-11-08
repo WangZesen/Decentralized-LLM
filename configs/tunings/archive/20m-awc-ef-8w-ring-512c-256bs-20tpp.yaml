@@ -1,0 +1,76 @@
+# AdamW core tuning: 20M, context 512, global batch 256, clipping 1.0.
+# Eight logical AWC workers packed on one physical GH200.
+# 122 executions before retries: 5 beta1 + 105 new beta2/LR + 12 confirmation.
+base:
+  configs:
+  - ../../base.yaml
+  - ../../models/20m.yaml
+  - ../../setups/slurm-decentralized.yaml
+  overrides:
+    model.context_length: 512
+    training.batch_tokens: 131072
+    training.tokens_per_parameters: 20.0
+    training.num_accumulation: 1
+    training.checkpoint_policy: none
+    optimizer.name: adamw
+    optimizer.weight_decay: 0.1
+    optimizer.grad_clip: 1.0
+    lr_schedule.name: cosine
+    lr_schedule.warmup_tokens_per_parameters: 1.0
+    distributed.mode: decentralized
+    distributed.nodes: 2
+    distributed.gpus_per_node: 4
+    distributed.scheme: awc
+    distributed.topology: one_peer_ring
+    distributed.error_feedback_gamma: 1.0
+    runtime.training_backend: packed
+    runtime.execution_backend: gh200
+    runtime.compile: auto
+    runtime.cpu_affinity: none
+    runtime.fused_optimizer: true
+    runtime.amp: true
+    evaluation.subset_blocks: 1024
+    evaluation.batch_size: 128
+    evaluation.seed: 12345
+    launcher.partition: gpu
+    launcher.gpu_type: nvidia_gh200_120gb
+    launcher.time: 00:30:00
+seed_start: 42
+screening_seeds: 1
+phases:
+- name: beta1
+  initial_values:
+    optimizer.beta2: 0.987258544901434
+    optimizer.lr: 0.001953125
+  search:
+    optimizer.beta1:
+      scale: power
+      base: 0.9
+      exponent_scale: log
+      exponent_max: 1
+      exponent_min: 0.0625
+      points: 5
+  top_k: 3
+- name: beta2-and-lr
+  search:
+    optimizer.beta2:
+      scale: power
+      base: 0.95
+      exponent_scale: log
+      exponent_max: 1
+      exponent_min: 0.0009765625
+      points: 6
+    optimizer.lr:
+      scale: power
+      base: 2
+      exponent_min: -10
+      exponent_max: -5
+      points: 6
+  top_k: 6
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 50
+  jobs_per_allocation: 1
+  max_retries: 2
+  poll_seconds: 30

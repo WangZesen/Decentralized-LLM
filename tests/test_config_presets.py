@@ -18,6 +18,14 @@ HARDWARE = [
 ]
 
 
+@pytest.mark.parametrize("path", sorted(Path("configs/tunings").rglob("*.yaml")), ids=lambda path: str(path))
+def test_tuning_specs_resolve_active_and_archived_base_layers(path: Path) -> None:
+    spec, config = read_spec(path, use_local_defaults=False)
+    assert spec.base.configs
+    assert all((path.parent / base).is_file() for base in spec.base.configs)
+    assert config.model.parameter_count > 0
+
+
 @pytest.mark.parametrize("family,gpus,nodes,per_node", HARDWARE)
 @pytest.mark.parametrize("model", ["20m", "50m", "90m", "250m", "500m"])
 def test_hardware_presets_and_launch_scripts(

@@ -1,0 +1,74 @@
+# Local retuning: 9 LR/WD screens + 3 new beta screens + 4 confirmation executions.
+# Centered on prior winners; beta alternatives chosen from adjacent original-grid history.
+base:
+  configs:
+  - ../base.yaml
+  - ../models/20m.yaml
+  - ../setups/slurm-decentralized.yaml
+  - ../setups/8gpu-2nodes.yaml
+  overrides:
+    model.context_length: 512
+    training.batch_tokens: 65536
+    training.tokens_per_parameters: 40.0
+    training.num_accumulation: 1
+    training.data_reuse_factor: 2
+    training.checkpoint_policy: none
+    optimizer.name: adamw
+    optimizer.grad_clip: 1.0
+    lr_schedule.name: cosine
+    lr_schedule.warmup_tokens_per_parameters: 3.0
+    lr_schedule.min_lr_ratio: 0.0
+    distributed.mode: decentralized
+    distributed.scheme: awc
+    distributed.topology: one_peer_ring
+    distributed.error_feedback_gamma: 0.0
+    runtime.training_backend: packed
+    runtime.execution_backend: gh200
+    runtime.compile: auto
+    runtime.cpu_affinity: none
+    runtime.fused_optimizer: true
+    runtime.amp: true
+    evaluation.subset_blocks: 1024
+    evaluation.batch_size: 128
+    evaluation.seed: 12345
+    launcher.partition: gpu
+    launcher.gpu_type: nvidia_gh200_120gb
+    launcher.time: 00:30:00
+    training.data_reuse_order: repeat
+    optimizer.lr: 0.0078125
+    optimizer.weight_decay: 0.1
+    optimizer.beta1: 0.974003746425297
+    optimizer.beta2: 0.999948555759014
+seed_start: 42
+screening_seeds: 1
+phases:
+- name: local-lr-wd
+  initial_values:
+    optimizer.beta1: 0.974003746425297
+    optimizer.beta2: 0.999948555759014
+  search:
+    optimizer.lr:
+    - 0.0055242717280199
+    - 0.0078125
+    - 0.0110485434560398
+    optimizer.weight_decay:
+    - 0.0707106781186548
+    - 0.1
+    - 0.14142135623731
+  top_k: 1
+- name: local-betas
+  search:
+    optimizer.beta1:
+    - 0.948683298050514
+    - 0.974003746425297
+    optimizer.beta2:
+    - 0.999794238914572
+    - 0.999948555759014
+  top_k: 2
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 3
+  jobs_per_allocation: 1
+  max_retries: 2
+  poll_seconds: 30

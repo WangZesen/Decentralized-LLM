@@ -1,0 +1,73 @@
+# Incumbent: runs/p-tuning/muon-adamw-20m-awc-20261023/64bs/cmp/ef0/state.json
+# Source state SHA256: 75efd9fd6687659cebe0f0eb3b89512b234f00818b7db884f444e192a3d6436b
+# Source report SHA256: 02a8216f2d2e26ec30c6aa83379f0bae8c2a7cb00066dcdec42b7fe3796096ce
+# Confirmed incumbent candidate: 9a28478258f949893a89e26b54593bc66af63e107b6a3e4a1adf510e362fd0f9
+# Fixed incumbent betas; 39 seed-42 LR/momentum pairs, top three confirmed on seeds 43 and 44.
+# Reuse requires authenticated campaign history; a standalone fresh run costs 45 trials.
+base:
+  configs:
+  - ../../base.yaml
+  - ../../models/20m.yaml
+  - ../../setups/slurm-decentralized.yaml
+  - ../../muon.yaml
+  overrides:
+    model.context_length: 512
+    training.batch_tokens: 32768
+    training.tokens_per_parameters: 20.0
+    training.checkpoint_policy: none
+    optimizer.name: muon_adamw
+    optimizer.muon_lr_ratio: 1.0
+    optimizer.weight_decay: 0.1
+    optimizer.grad_clip: 1.0
+    lr_schedule.name: cosine
+    lr_schedule.warmup_tokens_per_parameters: 1.0
+    distributed.mode: decentralized
+    distributed.nodes: 2
+    distributed.gpus_per_node: 4
+    distributed.error_feedback_gamma: 0.0
+    runtime.training_backend: packed
+    runtime.execution_backend: gh200
+    runtime.compile: auto
+    runtime.cpu_affinity: none
+    runtime.fused_optimizer: true
+    launcher.partition: gpu
+    launcher.gpu_type: nvidia_gh200_120gb
+    launcher.time: 00:30:00
+    runtime.muon_optimizer: cudagraph
+    training.num_accumulation: 1
+    distributed.scheme: awc
+    distributed.topology: complete
+    runtime.amp: true
+    evaluation.subset_blocks: 1024
+    evaluation.batch_size: 128
+    evaluation.seed: 12345
+    optimizer.beta1: 0.986916281366002
+    optimizer.beta2: 0.999949910146738
+    data.cache_dir: /nobackup/proj/flash/naiss2024-23-12/personal/zesen/Decentralized-LLM/data/c4
+    runtime.compile_cache_dir: /nobackup/proj/flash/naiss2024-23-12/personal/zesen/Decentralized-LLM/.cache/compile
+seed_start: 42
+screening_seeds: 1
+phases:
+- name: lr-and-muon-momentum-refinement
+  top_k: 3
+  search:
+    optimizer.lr:
+      scale: power
+      base: 2
+      exponent_min: -8
+      exponent_max: -6
+      points: 3
+    optimizer.muon_momentum:
+      scale: power
+      base: 0.8
+      exponent_scale: log
+      exponent_min: 0.03125
+      exponent_max: 0.5
+      points: 13
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 25
+  jobs_per_allocation: 1
+  max_retries: 1
+  poll_seconds: 30

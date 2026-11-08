@@ -462,6 +462,319 @@ It does not submit a job during a dry run. Submission artifacts are retained in 
 
 ## Phased hyperparameter tuning
 
+### Current compact data-reuse study
+
+The 16 `configs/tunings/*-local-warmup3.yaml` specifications cover sync → cmp →
+exp → ring at 40 TPP/reuse 2 with repeat order, and at 60 TPP with fresh data,
+reshuffled reuse 3, and repeated-order reuse 3. Each study screens nine nearby
+LR/weight-decay combinations and three additional beta combinations, then adds
+four confirmation executions for its best two candidates on seeds 42–44.
+The total is 256 executions before retries, with identical search budgets across
+methods and a frozen boundary policy. These are local searches around earlier
+winners, not exhaustive optima.
+
+The completed campaign is
+`runs/p-tuning/20m-512c-128bs-40repeat-60tpp-local-tuning-warmup3-20261107`.
+See [the configuration index](configs/tunings/README.md) for active specifications.
+Earlier study configurations are tracked in `configs/tunings/archive/`; their
+relative base paths are adjusted, while numerical recipes and grids are unchanged.
+Established examples and platform presets retain their paths. Frozen campaign
+artifacts and original reports remain in their existing run directories.
+
+### Joint LR/decay and beta tuning: 20M, batch 64
+
+The historical study specifications in this section are in `configs/tunings/archive/`.
+
+The four `configs/tunings/archive/20m-*-512c-64bs-20tpp-lr-wd-betas.yaml` specifications
+compare one synchronous worker and eight-worker AWC on ring, exponential, and complete
+graphs, without error feedback. Each trial uses one physical GH200; AWC packs its
+eight logical workers onto that GPU. The recipe uses context 512, 32,768 global batch
+tokens (64 sequences), 20 TPP, data reuse factor 1, cosine decay with 1 TPP warmup,
+gradient clipping at 1.0, and no checkpoints.
+
+Stage 1 jointly searches learning rates `2^[-9, -8, -7, -6, -5]` and weight decays
+`[0.0125, 0.025, 0.05, 0.1, 0.2]`. All studies start at beta1 `0.9` and beta2
+`0.9^(1/32) = 0.996712898272925`. The best three LR/decay pairs each advance to a
+joint beta grid: beta1 `0.9^[1, 1/2, 1/4, 1/8]` and beta2
+`0.9^[1/2, 1/8, 1/32, 1/128, 1/512]`. Both exponent grids use logarithmic spacing.
+The controller preserves each LR/decay pair and selects the global best six final
+configurations within each study. Screening uses seed 42; confirmation uses seeds
+42–44 and selects by mean final full-validation loss.
+
+The completed batch-64 studies all selected LR `2^-7`. Beta1 exponent `1/16` was
+weakest in their initial screens, motivating its removal for this round. Nearby
+beta2 `0.996799` improved the previous decentralized screening results over `0.987259`
+at matching LR and beta1, and was the synchronous confirmed winner's beta2. This
+supports the common starting point without claiming it is optimal. The previous
+complete/exponential winners used beta2 about `0.999950`, above this round's grid.
+Historical runs inform the ranges and comparisons but are not imported as trials.
+
+Exact within-study reuse gives **94 runs per study**: 25 LR/decay, 57 new beta
+combinations, and 12 additional confirmation seeds. The four-study campaign plans
+**376 runs before retries**, provided enough finite candidates survive. It runs two
+studies concurrently, each capped at 25 outstanding allocations, with one trial per
+allocation, a 30-minute walltime, and two infrastructure retries. Numerical divergence
+is eliminated without retrying. Boundary winners are flagged without extending grids.
+
+Run an individual study from the repository root after preparing the C4 cache and
+SLURM environment:
+
+```bash
+source scripts/environment.sh
+python -m decentralized_llm tune run --no-local-config \
+  --spec configs/tunings/archive/20m-awc-8w-ring-512c-64bs-20tpp-lr-wd-betas.yaml \
+  --output runs/tuning/20m-awc-8w-ring-lr-wd-betas --dry-run
+```
+
+Remove `--dry-run` to submit; use `tune resume OUTPUT` to resume saved state.
+The frozen four-study campaign lives in
+`runs/p-tuning/20m-512c-64bs-20tpp-lr-wd-betas-20261105`. Its manifest records source,
+specification, and historical-reference hashes. Its persistent campaign driver runs
+at most two study controllers, authenticates completed results, and writes aggregate
+`report.json`, `report.md`, and `results.csv` alongside per-study reports and winners.
+Run `campaign_driver.py validate`, `campaign_driver.py launch`, or
+`campaign_driver.py report` from that directory with its `environment.sh` sourced.
+The launch command resumes incomplete studies and stops after verified confirmation;
+reports include per-seed losses, standard deviations, boundary flags, failures,
+allocated GPU-hours, and historical comparisons. Comparisons are tuning results,
+not independent test scores.
+
+The four `20m-*-512c-64bs-20tpp-lr-wd-betas-warmup3.yaml` specifications repeat
+this search with `lr_schedule.warmup_tokens_per_parameters: 3.0`. The total budget
+remains 20 TPP: warmup occupies approximately 15% of training instead of 5%.
+Grids, starting betas, seed policy, placement, and allocation limits are identical.
+The separate campaign is
+`runs/p-tuning/20m-512c-64bs-20tpp-lr-wd-betas-warmup3-20261105`; it plans another
+376 runs before retries and compares against the completed joint sweeps with 1 TPP
+warmup. Validation checks that the numerical base recipe differs only in warmup
+and that training source, dependencies, and cache provenance match the reference.
+The persistent driver uses the same `validate`, `launch`, and `report` commands
+and generates reports and winner configurations automatically.
+
+The four `20m-*-512c-64bs-20tpp-lr-wd-betas-warmup10.yaml` specifications extend
+warmup to 10 TPP within the same 20-TPP budget: 6,227 warmup updates out of 12,453
+total updates, approximately half of training. All other recipe settings, search
+grids, seeds, and allocation limits remain unchanged. The separate campaign at
+`runs/p-tuning/20m-512c-64bs-20tpp-lr-wd-betas-warmup10-20261105` plans 376 runs
+before retries and compares against the verified 3-TPP campaign. Validation checks
+that warmup is the only numerical recipe change and that training provenance
+matches. To validate, launch or resume, and refresh the aggregate report:
+
+```bash
+cd runs/p-tuning/20m-512c-64bs-20tpp-lr-wd-betas-warmup10-20261105
+source environment.sh
+"$DECENTRALIZED_PYTHON" campaign_driver.py validate
+"$DECENTRALIZED_PYTHON" campaign_driver.py launch
+"$DECENTRALIZED_PYTHON" campaign_driver.py report
+```
+
+The persistent launch runs two study controllers with 25 allocations each and
+automatically exports verified winners, per-seed losses, boundary flags, and GPU-hours.
+
+The eight `20m-*-512c-128bs-{20,40}tpp-lr-wd-betas-warmup3.yaml` specifications
+compare global batch 128 at 20 and 40 TPP. Warmup remains 3 TPP (934 updates),
+within 6,227 or 12,453 total updates respectively. They retain the five LR and
+decay points and four beta1 points, and extend beta2 to six logarithmically
+spaced exponents: `1/2, 1/8, 1/32, 1/128, 1/512, 1/2048`.
+The same starting betas and top-three/top-six selection give **106 runs per
+study**, `25 + 69 + 12`, or **848 runs before retries**. Executions are reused
+within a study; different training budgets have independent cosine schedules.
+
+The frozen campaign is
+`runs/p-tuning/20m-512c-128bs-20-40tpp-lr-wd-betas-warmup3-20261106`.
+Its two controller lanes run synchronous/exponential and ring/complete, with
+20-TPP studies before 40-TPP studies in each lane. Across both budgets, at most
+two studies and 50 allocations are outstanding. Each trial uses one GH200,
+a 30-minute walltime, two infrastructure retries, and 30-second polling.
+The campaign sets the lowercase `account` environment variable separately for
+each study: **20 TPP uses `naiss2026-3-205-gpu`; 40 TPP uses
+`naiss2026-4-1590-gpu`**. Retries and resumes inherit the study's routing;
+Slurm's recorded account is checked before the campaign is marked complete.
+Public training specifications and launcher receipts do not contain account fields.
+
+```bash
+cd runs/p-tuning/20m-512c-128bs-20-40tpp-lr-wd-betas-warmup3-20261106
+source environment.sh
+"$DECENTRALIZED_PYTHON" campaign_driver.py validate
+tmux -L adamw-joint-20m-bs128-20-40tpp-warmup3-20261106 new-session -d -s campaign \
+  'bash --noprofile --norc -c '\''source environment.sh; exec "$DECENTRALIZED_PYTHON" campaign_driver.py launch >> controller.log 2>&1'\'''
+"$DECENTRALIZED_PYTHON" campaign_driver.py report
+```
+
+If interrupted, repeat the `tmux` launch command from the campaign directory;
+the driver resumes saved studies and resets each lane's account before resuming.
+An existing `campaign` session should be inspected instead of launching a duplicate.
+
+The persistent driver authenticates full-validation results, exports winners and
+per-seed statistics, and reports GPU-hours by budget. After all studies finish,
+`analysis/report.md` includes sensitivity plots and matched-configuration
+correlations. Comparisons isolate batch 64 versus 128 at 20 TPP, then 20 versus
+40 TPP at batch 128, always using 3 TPP warmup. Historical beta comparisons use
+shared coordinates and report overlap counts; there is no batch-64/40-TPP group
+from which to infer a full batch-by-budget interaction.
+
+The four `20m-*-512c-128bs-40tpp-reuse2-lr-wd-betas-warmup3.yaml` specifications
+repeat the original 40-TPP search with `training.data_reuse_factor: 2` as the only
+numerical base-recipe change. The separate campaign at
+`runs/p-tuning/20m-512c-128bs-40tpp-reuse2-lr-wd-betas-warmup3-20261107`
+plans **424 executions before retries**, preserving the original six-point beta2
+grid, seeds, placement, and 50-allocation cap. All studies use the 40-TPP account
+`naiss2026-4-1590-gpu`. Each trial processes 816,119,808 tokens in two passes over
+408,059,904 unique token positions. Its automatic report compares tuned reuse-2
+winners with the original reuse-1 results at 40 TPP and includes 20-TPP context,
+using synchronous, complete, exponential, ring presentation order.
+
+The eight `20m-*-128bs-{60,80}tpp-reuse{3,4}-fixed40reuse2-warmup3.yaml`
+specifications transfer the reuse-2 campaign's winners to 60 TPP/reuse 3 and
+80 TPP/reuse 4. The campaign
+`runs/p-tuning/20m-512c-128bs-60-80tpp-reuse3-4-targeted-warmup3-20261107`
+runs **24 fresh executions** on seeds 42–44, retaining each winner's optimizer
+settings, batch 128, and 3-TPP warmup. Unique data remains approximately 20 TPP,
+with small differences from batch rounding. Two persistent lanes allow six
+outstanding allocations, all on `naiss2026-4-1590-gpu`. Automatic completion
+reports compare the fixed recipes at 40/reuse 2, 60/reuse 3, and 80/reuse 4.
+
+The twelve `*-warmup3-beta2-extended.yaml` specifications extend the completed
+batch-64/20-TPP, batch-128/20-TPP and batch-128/40-TPP studies to a common beta2
+grid with exponents `1/2, 1/8, 1/32, 1/128, 1/512, 1/2048, 1/8192`.
+Both beta dimensions retain power scale with logarithmic exponent spacing.
+The derivative campaign preserves the original frozen studies and audited reports:
+`runs/p-tuning/20m-512c-64-128bs-20-40tpp-lr-wd-betas-warmup3-beta2-extension-20261106`.
+
+Each extension reuses its own parent's completed executions and original three
+LR/decay pairs. There are 84 beta combinations per study. The batch-64 studies
+add 24 seed-42 screens each; the batch-128 studies already include exponent
+`1/2048`, so they add 12 each. Across twelve studies this is **192 new screens**,
+plus **0–144 new confirmation executions** after reselecting the best six
+seed-42 configurations and confirming on seeds 42–44. A fresh study with the
+expanded public specification would require 118 runs; use the derivative campaign
+to retain execution reuse. The extension's upper bound is **336 new runs before
+retries**, and original LR/decay screens are never resubmitted.
+
+The same two lanes run synchronous/exponential and ring/complete, traversing
+64/20, 128/20, then 128/40. They retain the 50-allocation global cap, 25 per study,
+one GH200 per trial, 30-minute walltime, two infrastructure retries and 30-second
+polling. Both 20-TPP groups use `naiss2026-3-205-gpu`; the 40-TPP group uses
+`naiss2026-4-1590-gpu`. Every extension or resume sets its account before dispatch.
+
+```bash
+cd runs/p-tuning/20m-512c-64-128bs-20-40tpp-lr-wd-betas-warmup3-beta2-extension-20261106
+source environment.sh
+# Before the first launch only:
+"$DECENTRALIZED_PYTHON" campaign_driver.py validate
+# Launch, or resume an interrupted campaign using its saved revision:
+tmux -L adamw-beta2-extension-20m-20261106 new-session -d -s campaign \
+  'bash --noprofile --norc -c '\''source environment.sh; exec "$DECENTRALIZED_PYTHON" campaign_driver.py launch >> controller.log 2>&1'\'''
+"$DECENTRALIZED_PYTHON" campaign_driver.py report
+```
+
+An existing session should be inspected before repeating the launch command.
+The driver authenticates complete full-validation results, exports updated
+winners and changes from their parents, reports extension-only GPU-hours, and
+generates sensitivity and matched-correlation plots in `analysis/` on completion.
+Presentation follows `scripts/report_style.py`: sync, complete, exponential, ring.
+Boundary winners are flagged without further grid expansion.
+
+The four `*-128bs-60tpp-targeted-warmup3.yaml` specifications transfer the
+confirmed batch-128/40-TPP winners to 60 TPP without further hyperparameter
+search. Each fixed recipe runs on seeds 42–44, for **12 fresh executions**.
+Warmup remains 3 TPP (934 updates); total training is 18,680 updates. All other
+numerical settings, frozen training source, dependencies and data match the
+40-TPP references. Each run starts fresh with its own 60-TPP cosine schedule.
+
+The campaign is
+`runs/p-tuning/20m-512c-128bs-60tpp-targeted-warmup3-20261106` and uses
+`naiss2026-4-1590-gpu`. Two persistent lanes run sync/exp and cmp/ring, retaining
+one GH200 per trial, 30-minute walltime, two infrastructure retries, and
+30-second polling. With three seeds per fixed recipe, at most six allocations
+are active concurrently. The completion report compares paired seed losses
+against the selected 40-TPP recipes and exports means, sample SDs, failures,
+GPU-hours and plots in sync/complete/exponential/ring order.
+
+```bash
+cd runs/p-tuning/20m-512c-128bs-60tpp-targeted-warmup3-20261106
+source environment.sh
+"$DECENTRALIZED_PYTHON" campaign_driver.py validate
+# Launch, or resume after the previous session has exited:
+tmux -L adamw-targeted-20m-bs128-60tpp-warmup3-20261106 new-session -d -s campaign \
+  'bash --noprofile --norc -c '\''source environment.sh; exec "$DECENTRALIZED_PYTHON" campaign_driver.py launch >> controller.log 2>&1'\'''
+"$DECENTRALIZED_PYTHON" campaign_driver.py report
+```
+
+This measures transfer of fixed recipes to longer training; it does not establish
+the optimum after retuning at 60 TPP. The reference recipes were selected using
+these same three seeds and validation data.
+
+The eight `*-128bs-{80,100}tpp-targeted-warmup3.yaml` specifications continue
+the same fixed-recipe comparison at 80 and 100 TPP, with **24 fresh runs** on
+seeds 42–44. Batch 128 and 3-TPP warmup remain fixed. Total updates are 24,907
+and 31,133, respectively, with 934 warmup updates at both budgets.
+
+Campaign: `runs/p-tuning/20m-512c-128bs-80-100tpp-targeted-warmup3-20261106`.
+Both budgets use `naiss2026-4-1590-gpu`. The two lanes retain one GH200 per
+trial, 30-minute walltime, two infrastructure retries and 30-second polling;
+each lane runs its 80-TPP studies before its 100-TPP studies. At most six
+allocations are outstanding. Each run starts fresh with its own cosine
+schedule and the same hyperparameters used at 40 and 60 TPP.
+
+```bash
+cd runs/p-tuning/20m-512c-128bs-80-100tpp-targeted-warmup3-20261106
+source environment.sh
+"$DECENTRALIZED_PYTHON" campaign_driver.py validate
+# Launch, or resume after the previous session has exited:
+tmux -L adamw-targeted-20m-bs128-80-100tpp-warmup3-20261106 new-session -d -s campaign \
+  'bash --noprofile --norc -c '\''source environment.sh; exec "$DECENTRALIZED_PYTHON" campaign_driver.py launch >> controller.log 2>&1'\'''
+"$DECENTRALIZED_PYTHON" campaign_driver.py report
+```
+
+Completion reporting authenticates all seeds and compares losses, paired budget
+changes, and gaps relative to synchronous training across 40/60/80/100 TPP,
+with sample SDs, failures and GPU-hours. Original historical artifacts remain
+unchanged; plot order and colors follow `scripts/report_style.py`.
+
+The four `*-128bs-20tpp-fixed40-warmup3.yaml` specifications complete the
+fixed-recipe comparison at 20 TPP. They reuse seven authenticated exact executions
+and launch only five missing seeds: exponential 43–44 and ring 42–44. The campaign
+is `runs/p-tuning/20m-512c-128bs-20tpp-fixed40-warmup3-20261106`, using
+`naiss2026-3-205-gpu`. Source, dependencies, references and resolved recipes are
+frozen. The existing controller retains two lanes, one GH200 per trial,
+30-minute walltime, two infrastructure retries and 30-second polling.
+
+```bash
+cd runs/p-tuning/20m-512c-128bs-20tpp-fixed40-warmup3-20261106
+source environment.sh
+"$DECENTRALIZED_PYTHON" campaign_driver.py validate # before first submission
+./launch.sh # also resumes saved state after an interruption
+"$DECENTRALIZED_PYTHON" campaign_driver.py report
+```
+
+Completion exports fixed-recipe 20–100-TPP trends and compares the new 20-TPP
+endpoints with the original tuned winners. Reused allocations are excluded from
+new GPU-hours; original studies and audited plots are retained. See the campaign
+README for exact reuse and comparison limitations.
+
+The four `*-128bs-120tpp-targeted-warmup3.yaml` specifications extend the fixed
+recipes to 120 TPP: **12 fresh runs**, seeds 42–44, batch 128, and 3-TPP warmup.
+Total updates are 37,360; warmup remains 934 updates. The frozen campaign is
+`runs/p-tuning/20m-512c-128bs-120tpp-targeted-warmup3-20261106`, using
+`naiss2026-4-1590-gpu`, one GH200 per trial, two lanes with up to six active
+trials, two infrastructure retries, and 30-second polling. The allocation limit
+increases to 45 minutes because the 100-TPP decentralized runs took about
+25 minutes. Numerical settings change only in total training TPP.
+
+```bash
+cd runs/p-tuning/20m-512c-128bs-120tpp-targeted-warmup3-20261106
+source environment.sh
+"$DECENTRALIZED_PYTHON" campaign_driver.py validate # before initial submission
+./launch.sh # also resumes after the previous session has exited
+"$DECENTRALIZED_PYTHON" campaign_driver.py report
+```
+
+Completion reporting authenticates all three seeds, compares 100→120-TPP loss
+and topology-gap changes, and extends the fixed-recipe plots through 120 TPP.
+It includes the corrected fixed-recipe 20-TPP endpoints and preserves previous
+scientific reports. See the campaign README for references and interpretation.
+
 ### Bounded 50M campaign
 
 The eight `configs/tunings/50m-*-1024c-64bs-20tpp.yaml` specifications compare

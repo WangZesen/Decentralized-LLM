@@ -1,0 +1,61 @@
+# Fixed 40-TPP/reuse-2 winner at 60 TPP/reuse 3; seeds 42–44.
+# Fresh runs; no hyperparameter search; approximately 20 unique TPP.
+base:
+  configs:
+  - ../../base.yaml
+  - ../../models/20m.yaml
+  - ../../setups/slurm-decentralized.yaml
+  - ../../setups/8gpu-2nodes.yaml
+  overrides:
+    model.context_length: 512
+    training.batch_tokens: 65536
+    training.tokens_per_parameters: 60.0
+    training.num_accumulation: 1
+    training.data_reuse_factor: 3
+    training.checkpoint_policy: none
+    optimizer.name: adamw
+    optimizer.grad_clip: 1.0
+    lr_schedule.name: cosine
+    lr_schedule.warmup_tokens_per_parameters: 3.0
+    lr_schedule.min_lr_ratio: 0.0
+    distributed.mode: decentralized
+    distributed.scheme: awc
+    distributed.topology: one_peer_ring
+    distributed.error_feedback_gamma: 0.0
+    runtime.training_backend: packed
+    runtime.execution_backend: gh200
+    runtime.compile: auto
+    runtime.cpu_affinity: none
+    runtime.fused_optimizer: true
+    runtime.amp: true
+    evaluation.subset_blocks: 1024
+    evaluation.batch_size: 128
+    evaluation.seed: 12345
+    launcher.partition: gpu
+    launcher.gpu_type: nvidia_gh200_120gb
+    launcher.time: 00:30:00
+    optimizer.lr: 0.0078125
+    optimizer.weight_decay: 0.1
+    optimizer.beta1: 0.974003746425297
+    optimizer.beta2: 0.999948555759014
+seed_start: 42
+screening_seeds: 3
+phases:
+- name: fixed-40tpp-reuse2-winner
+  search:
+    optimizer.lr:
+    - 0.0078125
+    optimizer.weight_decay:
+    - 0.1
+    optimizer.beta1:
+    - 0.974003746425297
+    optimizer.beta2:
+    - 0.999948555759014
+  top_k: 1
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 25
+  jobs_per_allocation: 1
+  max_retries: 2
+  poll_seconds: 30

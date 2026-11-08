@@ -1,0 +1,89 @@
+# Historical AdamW prior: runs/p-tuning/20m-512c-64bs-20tpp/20m-awc-ef-8w-ring-512c-64bs-20tpp/report.json
+# Report SHA256: c99ff4eeed48b85e0513f95d24045eb09cd82a4db65756e9a645896a3d3cf9e2
+# State SHA256: 20e4d96df189f615311eb59db0e03bb84c6aea4fb17b2820e9f79dc71440121e
+# Selected candidate: eb460da0f5c972eae62b60b9938017ea65bc09bc4d36471b899f6a1304ba7fb0; exact EF gamma=1.
+# Eight logical AWC workers packed on one GH200; global batch size.
+# 45 runs: 15 screening + 24 new beta combinations + 6 confirmation.
+base:
+  configs:
+  - ../../base.yaml
+  - ../../models/20m.yaml
+  - ../../setups/slurm-decentralized.yaml
+  - ../../muon.yaml
+  overrides:
+    model.context_length: 512
+    training.batch_tokens: 32768
+    training.tokens_per_parameters: 20.0
+    training.checkpoint_policy: none
+    optimizer.name: muon_adamw
+    optimizer.muon_lr_ratio: 1.0
+    optimizer.weight_decay: 0.1
+    optimizer.grad_clip: 1.0
+    lr_schedule.name: cosine
+    lr_schedule.warmup_tokens_per_parameters: 1.0
+    distributed.mode: decentralized
+    distributed.nodes: 2
+    distributed.gpus_per_node: 4
+    distributed.error_feedback_gamma: 1.0
+    runtime.training_backend: packed
+    runtime.execution_backend: gh200
+    runtime.compile: auto
+    runtime.cpu_affinity: none
+    runtime.fused_optimizer: true
+    launcher.partition: gpu
+    launcher.gpu_type: nvidia_gh200_120gb
+    launcher.time: 00:30:00
+    runtime.muon_optimizer: cudagraph
+    training.num_accumulation: 1
+    distributed.scheme: awc
+    distributed.topology: one_peer_ring
+    runtime.amp: true
+    evaluation.subset_blocks: 1024
+    evaluation.batch_size: 128
+    evaluation.seed: 12345
+seed_start: 42
+screening_seeds: 1
+phases:
+- name: lr-and-muon-momentum
+  initial_values:
+    optimizer.beta1: 0.974003746425297
+    optimizer.beta2: 0.999799655640411
+  search:
+    optimizer.lr:
+      scale: power
+      base: 2
+      exponent_min: -8
+      exponent_max: -6
+      points: 3
+    optimizer.muon_momentum:
+      scale: power
+      base: 0.8
+      exponent_scale: log
+      exponent_min: 0.0625
+      exponent_max: 1
+      points: 5
+  top_k: 3
+- name: adamw-betas
+  search:
+    optimizer.beta1:
+      scale: power
+      base: 0.9
+      exponent_scale: log
+      exponent_min: 0.125
+      exponent_max: 0.5
+      points: 3
+    optimizer.beta2:
+      scale: power
+      base: 0.95
+      exponent_scale: log
+      exponent_min: 0.0009765625
+      exponent_max: 0.015625
+      points: 3
+  top_k: 3
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 25
+  jobs_per_allocation: 1
+  max_retries: 1
+  poll_seconds: 30
