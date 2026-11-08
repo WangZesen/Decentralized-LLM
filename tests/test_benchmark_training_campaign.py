@@ -503,6 +503,87 @@ def test_retry_preserves_successful_evidence_and_recovers_pilot_gate(
     assert [row["job_id"] for row in summary["allocation_attempts"]] == ["123", "456"]
 
 
+def test_accept_pilot_oom_preserves_failure_and_evidence_and_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    failed, _, _, original = retry_fixture(tmp_path, monkeypatch)
+    (Path(failed["directory"]) / "stderr.log").write_text("torch.OutOfMemoryError: CUDA out of memory\n")
+    (tmp_path / ".controller.lock").touch()
+    before = {str(p): file_digest(p) for p in tmp_path.rglob("*") if p.is_file()}
+    assert campaign.summarize(original)["pilot_blocked"]
+    preview = campaign.accept_pilot_ooms(tmp_path, [failed["key"]], reason="User approved continuation", dry_run=True)
+    assert preview["newly_accepted_cases"] == [failed["key"]]
+    assert preview["pilot_gate_satisfied"] and not preview["pilot_blocked"]
+    assert preview["counts"] == {"oom": 1, "complete": 1}
+    assert before == {str(p): file_digest(p) for p in tmp_path.rglob("*") if p.is_file()}
+    campaign.accept_pilot_ooms(tmp_path, [failed["key"]], reason="User approved continuation")
+    updated = campaign.read_json(tmp_path / "campaign.json")
+    assert updated["cases"] == original["cases"] and updated["allocations"] == original["allocations"]
+    assert all(file_digest(Path(p)) == h for p, h in before.items() if Path(p).name != "campaign.json")
+    summary = campaign.summarize(updated)
+    assert summary["pilot_failed"] and not summary["pilot_passed"] and not summary["complete"]
+    assert summary["pilot_gate_satisfied"] and not summary["pilot_blocked"]
+    assert summary["accepted_pilot_ooms"][0]["reason"] == "User approved continuation"
+    before_repeat = file_digest(tmp_path / "campaign.json")
+    assert not campaign.accept_pilot_ooms(tmp_path, [failed["key"]], reason="Repeated request")["newly_accepted_cases"]
+    assert before_repeat == file_digest(tmp_path / "campaign.json")
+
+
+@pytest.mark.parametrize("field,value", [("config_sha256", "changed"), ("attempt", 2), ("job_id", "456")])
+def test_pilot_oom_acceptance_does_not_apply_to_changed_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: Any
+) -> None:
+    failed, _, _, _ = retry_fixture(tmp_path, monkeypatch)
+    (Path(failed["directory"]) / "stderr.log").write_text("CUDA out of memory\n")
+    campaign.accept_pilot_ooms(tmp_path, [failed["key"]], reason="User approved continuation")
+    manifest = campaign.read_json(tmp_path / "campaign.json")
+    manifest["accepted_pilot_ooms"][0][field] = value
+    summary = campaign.summarize(manifest)
+    assert summary["pilot_blocked"] and not summary["pilot_gate_satisfied"]
+
+
+def test_accept_oom_rejects_other_failures_and_successes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    failed, success, _, _ = retry_fixture(tmp_path, monkeypatch)
+    for key in (failed["key"], success["key"]):
+        with pytest.raises(ValueError, match="only terminal pilot OOMs"):
+            campaign.accept_pilot_ooms(tmp_path, [key], reason="User approved OOMs")
+
+
+def test_accepted_ooms_release_remaining_work_with_cap_and_no_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = submission_fixture(tmp_path)
+    pilots = [a for a in manifest["allocations"] if a["pilot"]]
+    for allocation in pilots:
+        allocation["state"] = "COMPLETED"
+    pilots[-1]["state"] = "FAILED"
+    preserved = copy.deepcopy(pilots)
+    submit = Mock(return_value={"job_id": "456", "cluster": None})
+    monkeypatch.setattr(campaign, "submit_batch", submit)
+    summary = {"pilot_passed": False, "pilot_failed": True, "pilot_gate_satisfied": True, "pilot_blocked": False}
+    campaign.submit_ready(tmp_path, manifest, summary)
+    assert submit.call_count == 8 and pilots == preserved
+    assert sum(a["state"] == "SUBMITTED" for a in manifest["allocations"]) == 8
+    assert all(not a["pilot"] for a in manifest["allocations"] if a["state"] == "SUBMITTED")
+    campaign.submit_ready(tmp_path, manifest, summary)
+    assert submit.call_count == 8
+
+
+def test_controller_finishes_with_retained_oom_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    failed, _, _, _ = retry_fixture(tmp_path, monkeypatch)
+    (Path(failed["directory"]) / "stderr.log").write_text("CUDA out of memory\n")
+    campaign.accept_pilot_ooms(tmp_path, [failed["key"]], reason="User approved continuation")
+    monkeypatch.setenv("account", "test-account")
+    monkeypatch.setattr(campaign.shutil, "which", lambda executable: executable)
+    monkeypatch.setattr(campaign, "Backend", lambda: Mock(partition_limit=Mock(return_value=30)))
+    submit = Mock()
+    monkeypatch.setattr(campaign, "submit_batch", submit)
+    summary = campaign.controller(tmp_path, once=True)
+    assert summary["state"] == "FINISHED_WITH_FAILURES" and not summary["complete"]
+    assert summary["counts"] == {"oom": 1, "complete": 1}
+    submit.assert_not_called()
+
+
 @pytest.mark.parametrize("state", ["UNKNOWN", "SUBMITTING", "RUNNING", "PLANNED"])
 def test_retry_rejects_unresolved_or_active_allocations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str
@@ -569,6 +650,8 @@ def test_retry_refuses_successful_cases_and_controller_revision_preserves_traini
         campaign.retry_cases(tmp_path, [success["key"]], dry_run=True)
     script = tmp_path / "revised-controller.py"
     script.write_text("# revised supervision only\n")
+    style = tmp_path / "report_style.py"
+    style.write_text('METHOD_ORDER = ("sync", "cmp", "exp", "ring")\n')
     process = Mock(pid=98765)
     launch = Mock(return_value=process)
     monkeypatch.setattr(campaign.subprocess, "Popen", launch)
@@ -581,6 +664,9 @@ def test_retry_refuses_successful_cases_and_controller_revision_preserves_traini
     revision = updated["controller_revisions"][0]
     assert revision["sha256"] == file_digest(script) and file_digest(Path(revision["path"])) == file_digest(script)
     assert result["script"] == revision["path"] and launch.call_args.args[0][1] == revision["path"]
+    frozen_style = Path(revision["path"]).with_name("report_style.py")
+    assert frozen_style.read_bytes() == style.read_bytes()
+    assert updated["launch_files"][str(frozen_style)] == file_digest(style)
     assert launch.call_args.kwargs["env"]["PYTHONPATH"] == str(Path(manifest["source"]) / "src")
     (tmp_path / "controller-process.json").unlink()
     restarted = campaign.detach(tmp_path, 30)
@@ -672,20 +758,158 @@ def test_extend_rejects_invalid_batches(tmp_path: Path, batches: list) -> None:
         campaign.extend_batches(tmp_path, batches, dry_run=True)
 
 
+def test_extend_models_covers_registered_batches_and_preserves_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = extension_fixture(tmp_path, monkeypatch)
+    campaign.extend_batches(root, [256])
+    original = campaign.read_json(root / "campaign.json")
+    for allocation in original["allocations"]:
+        allocation["state"] = "COMPLETED"
+    atomic_json(root / "campaign.json", original)
+    before = {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    preview = campaign.extend_models(root, ["500m", "250m"], dry_run=True)
+    assert preview["added_cases"] == 192 and preview["added_allocations"] == 48
+    assert preview["total_cases"] == 480 and preview["total_allocations"] == 120
+    assert preview["batch_sizes"] == [32, 64, 128, 256]
+    assert preview["context_lengths"] == [512, 1024, 2048]
+    assert preview["models"] == ["250m", "500m"]
+    assert preview["model_parameters"] == {"250m": 251943360, "500m": 516814080}
+    assert len(preview["pilot_allocations"]) == 8
+    assert preview["pilot_allocations"] == [
+        f"{model}-c{context}-b{batch}-ef{ef}"
+        for model in ("250m", "500m")
+        for context, batch in ((512, 32), (2048, 256))
+        for ef in (0, 1)
+    ]
+    assert len(preview["measurement_bounds"]) == 192
+    assert before == {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    assert campaign.extend_models(root, ["250m", "500m"]) == preview
+    updated = campaign.read_json(root / "campaign.json")
+    campaign.verify_snapshot(updated)
+    assert updated["cases"][:288] == original["cases"]
+    assert updated["allocations"][:72] == original["allocations"]
+    assert updated["source_files"] == original["source_files"]
+    assert updated["source_sha256"] == original["source_sha256"]
+    assert updated["plan"]["cases"] == 480 and updated["plan"]["allocations"] == 120
+    assert all(file_digest(Path(p)) == h for p, h in before.items() if Path(p).name != "campaign.json")
+    old_cases = {case["key"]: case for case in original["cases"]}
+    for case in updated["cases"][288:]:
+        config = load_config(case["config"])
+        previous = load_config(old_cases[case["template_case"]]["config"]).model_dump(mode="json")
+        previous["model"].update(preview["model_presets"][case["model"]]["architecture"])
+        previous["runtime"]["output_dir"] = str(config.runtime.output_dir)
+        previous["benchmark"]["max_chunks"] = config.benchmark.max_chunks
+        assert config.model_dump(mode="json") == previous
+        assert config.model.parameter_count == preview["model_parameters"][case["model"]]
+        assert config.training.num_accumulation == 1 and config.micro_batch_size == case["global_batch_size"] // 8
+        assert file_digest(Path(case["model_preset"])) == case["model_preset_sha256"]
+        assert config.benchmark.max_chunks * 60 * config.training.batch_tokens >= 256 * 1024**2
+    for allocation in updated["allocations"][72:]:
+        assert len(allocation["cases"]) == 4
+        assert "--nodes=2" in allocation["arguments"]
+        assert "--gpus-per-node=nvidia_gh200_120gb:4" in allocation["arguments"]
+        assert "--time=00:30:00" in allocation["arguments"]
+        steps = campaign.read_json(Path(allocation["directory"]) / "steps.json")["steps"]
+        assert len(steps) == 4 and all(step["time_minutes"] == 7 for step in steps)
+    # Repeating an extension is harmless even while its cases are pending/live.
+    before = {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    assert campaign.extend_models(root, ["250m", "500m"])["added_cases"] == 0
+    assert before == {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    submit = Mock(return_value={"job_id": "456", "cluster": None})
+    monkeypatch.setattr(campaign, "submit_batch", submit)
+    campaign.submit_ready(root, updated, {"pilot_passed": False, "pilot_failed": False})
+    assert submit.call_count == 8
+    assert all(a["pilot"] for a in updated["allocations"] if a["state"] == "SUBMITTED")
+    campaign.submit_ready(root, updated, {"pilot_passed": False, "pilot_failed": False})
+    assert submit.call_count == 8
+
+
+@pytest.mark.parametrize("models", [[], ["unknown"], ["../500m"], ["500m", "500m"]])
+def test_extend_rejects_invalid_models(tmp_path: Path, models: list[str]) -> None:
+    with pytest.raises(ValueError, match="models"):
+        campaign.extend_models(tmp_path, models, dry_run=True)
+
+
+def test_model_extension_preflight_and_unknown_submission_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, manifest = extension_fixture(tmp_path, monkeypatch)
+    before = {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    monkeypatch.setattr(campaign, "validate", Mock(side_effect=ValueError("resident memory exceeds budget")))
+    with pytest.raises(ValueError, match="exceeds budget"):
+        campaign.extend_models(root, ["250m", "500m"])
+    assert before == {str(p): file_digest(p) for p in root.rglob("*") if p.is_file()}
+    manifest["allocations"][0]["state"] = "UNKNOWN"
+    atomic_json(root / "campaign.json", manifest)
+    with pytest.raises(ValueError, match="known terminal"):
+        campaign.extend_models(root, ["250m"], dry_run=True)
+
+
+def test_batch_extension_includes_previously_added_models(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root, _ = extension_fixture(tmp_path, monkeypatch)
+    campaign.extend_models(root, ["250m", "500m"])
+    manifest = campaign.read_json(root / "campaign.json")
+    for allocation in manifest["allocations"]:
+        allocation["state"] = "COMPLETED"
+    atomic_json(root / "campaign.json", manifest)
+    preview = campaign.extend_batches(root, [256], dry_run=True)
+    assert preview["added_cases"] == 120 and preview["added_allocations"] == 30
+    assert preview["total_cases"] == 480 and preview["total_allocations"] == 120
+    assert preview["pilot_allocations"] == [
+        "20m-c512-b256-ef0",
+        "20m-c512-b256-ef1",
+        "500m-c2048-b256-ef0",
+        "500m-c2048-b256-ef1",
+    ]
+
+
+def test_cli_reexec_uses_frozen_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "source"
+    atomic_json(tmp_path / "campaign.json", {"source": str(source)})
+    execute = Mock()
+    monkeypatch.setattr(campaign.os, "execve", execute)
+    campaign.use_frozen_source(tmp_path)
+    assert execute.call_args.args[0] == campaign.sys.executable
+    assert execute.call_args.args[1] == [campaign.sys.executable, *campaign.sys.argv]
+    assert execute.call_args.args[2]["PYTHONPATH"] == str(source / "src")
+    assert execute.call_args.args[2]["PYTHONNOUSERSITE"] == "1"
+    actual_source = Path(campaign.sys.modules[load_config.__module__].__file__ or "").parents[2]
+    atomic_json(tmp_path / "campaign.json", {"source": str(actual_source)})
+    campaign.use_frozen_source(tmp_path)
+    assert execute.call_count == 1
+
+
 def test_plots_include_extended_batch_column(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from matplotlib.axes import Axes
 
     original = Axes.set_xticks
+    original_title = Axes.set_title
     tick_labels = []
+    method_labels = []
+    titles = []
 
     def capture(self: Axes, ticks: range, labels: list[int] | None = None, **kwargs: Any):
         tick_labels.append(labels)
         return original(self, ticks, None if labels is None else list(map(str, labels)), **kwargs)
 
     monkeypatch.setattr(Axes, "set_xticks", capture)
+    original_y = Axes.set_yticks
+
+    def capture_methods(self: Axes, ticks: range, labels: list[str], **kwargs: Any):
+        method_labels.append(labels)
+        return original_y(self, ticks, labels, **kwargs)
+
+    monkeypatch.setattr(Axes, "set_yticks", capture_methods)
+
+    def capture_title(self: Axes, label: str, **kwargs: Any):
+        titles.append(label)
+        return original_title(self, label, **kwargs)
+
+    monkeypatch.setattr(Axes, "set_title", capture_title)
     rows = [
         {
-            "model": "20m",
+            "model": model,
             "context_length": 512,
             "global_batch_size": batch,
             "variant": "sync",
@@ -695,8 +919,21 @@ def test_plots_include_extended_batch_column(tmp_path: Path, monkeypatch: pytest
             "max_peak_allocated_bytes": 1e9,
             "max_peak_reserved_bytes": 2e9,
         }
+        for model in ("20m", "50m", "90m", "250m", "500m")
         for batch in (32, 64, 128, 256)
     ]
     campaign.plots(tmp_path, rows)
-    assert tick_labels == [[32, 64, 128, 256]] * 27
+    assert tick_labels == [[32, 64, 128, 256]] * 15
+    assert (
+        method_labels
+        == [
+            [
+                name + suffix
+                for suffix in ("", " + EF")
+                for name in ("Sync", "AWC complete", "AWC exponential", "AWC ring")
+            ]
+        ]
+        * 15
+    )
+    assert titles == [f"{model.upper()}, context 512" for model in ("20m", "50m", "90m", "250m", "500m")] * 3
     assert (tmp_path / "throughput.pdf").stat().st_size > 1000

@@ -1510,6 +1510,41 @@ the remaining allocations wait for their results. The eight-allocation concurren
 still applies. Repeating `extend` does not duplicate already registered cases. Reports
 and plots include every registered batch size, including the new 256 column.
 
+To append the existing 250M and 500M model presets to a finished campaign, use:
+
+```bash
+python scripts/benchmark_training_campaign.py extend --model 250m --model 500m --dry-run
+python scripts/benchmark_training_campaign.py extend --model 250m --model 500m
+python scripts/benchmark_training_campaign.py run --detach --controller-script scripts/benchmark_training_campaign.py
+```
+
+Model extensions cover every registered context and batch size. With batch 256 already
+added, this appends 192 cases in 48 allocations, bringing the campaign to 480 cases in
+120 allocations. The actual parameter counts are 251,943,360 and 516,814,080. Eight new
+pilot allocations cover both EF settings at context 512/batch 32 and context 2048/batch
+256 for each model; the other 40 allocations wait for all pilots to pass. Resource and
+time limits, the training recipe, measurement protocol, and concurrency cap are unchanged.
+OOMs and timeouts remain explicit results; the helper does not reduce batch sizes or
+change accumulation or execution backends to make a case fit.
+
+The helper automatically loads the campaign's frozen configuration schema and launch
+code when operating on an existing campaign. Model extensions freeze copies and hashes
+of the selected architecture presets alongside resolved configurations, retaining the
+original training source, dependencies, transport setup, verified cache, and all prior
+results. As with batch extensions, preflight checks the resident loader budget, dry runs
+write nothing, and repeated extensions do not duplicate registered cases. Extend one
+dimension at a time (`--model` or `--batch-size`); subsequent batch extensions cover all
+registered models. Reports and throughput/memory plots include every registered model.
+
+If pilot OOMs are accepted as final outcomes, explicitly release the remaining work with
+`accept-oom --case CASE --reason "Authorization to retain this OOM and continue"`, repeating
+`--case` for each accepted failure. Inspect it with `--dry-run`, then run it and restart
+the controller with the current `--controller-script`. This records the acceptance against
+each case's configuration hash, attempt and job ID. It leaves the OOM results and all
+training settings unchanged, does not retry them, and retains the eight-allocation cap.
+Other pilot failures still block rollout. Reports distinguish observed pilot success from
+permission to continue; a campaign retaining OOMs finishes as `FINISHED_WITH_FAILURES`.
+
 Every case preloads its bounded real C4 working set into host RAM, performs 30 warmup
 updates, then measures three windows of at least 60 updates and 15 seconds each.
 The timer includes host batch preparation, H2D transfers, forward/backward, clipping,
