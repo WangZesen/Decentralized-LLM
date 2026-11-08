@@ -900,6 +900,23 @@ PNG figures are embedded in `report.md`, SVG copies are linked for zooming/expor
 `plots/` and are copied with archived revision reports. Regenerating an older study's
 report adds plots without moving trials or modifying training logs.
 
+Across reports, present training methods in communication order: **synchronous →
+complete → exponential → ring** (`sync`, `cmp`, `exp`, `ring`). Apply the same order
+to plot panels, legends, categorical axes, correlation heatmaps, and interactive
+selectors; method colors stay fixed. Shared definitions are in `scripts/report_style.py`.
+
+Regenerate the joint-tuning, warmup, sensitivity, and batch/TPP comparison reports with:
+
+```bash
+.venv-x86_64/bin/python scripts/render_tuning_reports.py
+# Use a fresh suffix when repeating the render:
+.venv-x86_64/bin/python scripts/render_tuning_reports.py --suffix communication-order-repeat
+```
+
+This writes presentation revisions, verifies plot ordering and unchanged numerical
+tables, and updates report indexes. The audited source reports remain available.
+The combined index is `runs/analysis/reports-communication-order.json`.
+
 ## Muon + AdamW
 
 AdamW remains the default optimizer. Add `configs/muon.yaml` after your base/model/setup
