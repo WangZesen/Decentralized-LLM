@@ -10,6 +10,17 @@ from decentralized_llm.config import initialize_local_defaults, load_config
 def main() -> None:
     parser = argparse.ArgumentParser(prog="decentralized-llm")
     commands = parser.add_subparsers(dest="command", required=True)
+    quality = commands.add_parser("benchmark-quality", help="zero-shot candidate likelihood benchmarks")
+    quality.add_argument("--config", "-c", type=Path, required=True, help="saved training configuration")
+    quality.add_argument("--checkpoint", type=Path, required=True)
+    quality.add_argument(
+        "--tasks", nargs="+", choices=("blimp", "piqa", "hellaswag"), default=["blimp", "piqa", "hellaswag"]
+    )
+    quality.add_argument("--output", type=Path, required=True)
+    quality.add_argument("--suite", type=Path, help="prepared, checksummed benchmark suite")
+    quality.add_argument("--device", default="cuda")
+    quality.add_argument("--batch-size", type=int, default=32)
+    quality.add_argument("--limit", type=int, help="smoke only: examples per BLiMP subset or other task")
     tuning = commands.add_parser("tune", help="run, resume, or inspect a phased hyperparameter search")
     actions = tuning.add_subparsers(dest="tune_action", required=True)
     for name in ("run", "resume", "extend", "status", "report"):
@@ -94,6 +105,21 @@ def main() -> None:
             command.add_argument("--cache-state", choices=("cold", "warm"), default="warm")
             command.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.command == "benchmark-quality":
+        from decentralized_llm.benchmarks.quality_tasks import benchmark_quality
+
+        result = benchmark_quality(
+            load_config(args.config),
+            args.checkpoint,
+            args.output,
+            suite=args.suite,
+            tasks=args.tasks,
+            device=args.device,
+            batch_size=args.batch_size,
+            limit=args.limit,
+        )
+        print(json.dumps(result, indent=2))
+        return
     if args.command == "tune":
         from decentralized_llm.tuning.controller import execute
 

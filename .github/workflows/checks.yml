@@ -12,8 +12,8 @@ jobs:
         with:
           version: '0.11.17'
           python-version: '3.14'
-      - run: uv sync --locked
-      - run: uv run --locked ruff check .
-      - run: uv run --locked ruff format --check .
-      - run: uv run --locked pyright --warnings
-      - run: uv run --locked pytest -q -m 'not cuda'
+      - run: uv sync --locked --extra evaluation
+      - run: uv run --locked --extra evaluation ruff check .
+      - run: uv run --locked --extra evaluation ruff format --check .
+      - run: uv run --locked --extra evaluation pyright --warnings
+      - run: uv run --locked --extra evaluation pytest -q -m 'not cuda'

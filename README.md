@@ -225,6 +225,92 @@ are in `metrics-rank-00000.jsonl`, with `local_losses` and `local_gradient_norms
 in logical-rank order (one entry for the shared synchronous model). Preflight, run metadata,
 and benchmarks report both logical world size and physical resource counts.
 
+## Model quality benchmarks
+
+Install the optional evaluation dependencies with `uv sync --extra evaluation` in
+your architecture-specific environment. BLiMP, PIQA, and HellaSwag use the pinned
+`lm-eval==0.4.13` prompts and metrics, with zero demonstrations and candidate
+log-likelihood scoring. No answers are generated.
+
+```bash
+python -m decentralized_llm benchmark-quality -c runs/my-model/config.yaml \
+  --checkpoint runs/my-model/final --output runs/my-model/quality \
+  --tasks blimp piqa hellaswag --device cuda --batch-size 32
+```
+
+The configuration must be the saved training recipe. Evaluation bypasses local
+execution defaults, verifies the checkpoint and saved tokenizer, and uses native
+FP32 IEEE inference. Packed and distributed decentralized checkpoints are evaluated
+using the mean of worker parameters; synchronous checkpoints use the shared model.
+The loader does not construct an optimizer or start a distributed process group.
+
+BLiMP evaluates all 67,000 pairs and reports the macro-average of its 67 subset
+accuracies. PIQA and HellaSwag evaluate their full labeled validation splits
+(1,838 and 10,042 examples), reporting both raw accuracy and character-normalized
+accuracy. Empty prompts receive an EOS prefix; no automatic BOS or appended EOS
+is scored. Prompt tokens and padding are masked. Oversized candidates are rejected;
+any left truncation of the prompt is recorded.
+
+The first invocation prepares a checksummed, tokenized dataset snapshot. Reuse it
+with `--suite PATH` across models. Dataset revisions, tokenizer identity, scoring
+code hashes, checkpoint identity, candidate scores, and sample counts are retained.
+`--limit N` limits each task/subset to N examples for smoke tests; such results are
+explicitly marked incomplete. Interrupted evaluations can reuse completed task
+outputs when their identities and checksums match.
+
+The winner campaign uses the original frozen training source and seeds 42–44,
+saves final resumable checkpoints, and runs two persistent GH200 Slurm lanes with
+the original account routing:
+
+```bash
+python -m scripts.quality_campaign prepare
+python -m scripts.quality_campaign smoke-submit
+# After smoke/result.json records a successful smoke test:
+python -m scripts.quality_campaign submit
+python -m scripts.quality_campaign status
+python -m scripts.quality_campaign report
+```
+
+Its default destination is
+`runs/quality/20m-512c-128bs-20-40tpp-winners-20261106`. Each lane processes twelve
+models sequentially. Resubmission reuses active jobs and completed checkpoints;
+an uncertain scheduler submission requires reconciliation before retrying. Reports
+include all per-seed scores, three-seed means and sample standard deviations, BLiMP
+subset scores, and historical C4 validation-loss differences. Differences exceeding
+0.005 nats are flagged for review. Methods retain the shared presentation order and
+colors: sync, complete, exponential, ring.
+
+For other winner campaigns, pass `--source SOURCE --root DESTINATION` to `prepare`
+and use the same `--root` for subsequent commands. Budgets are read from the source
+campaign. Add `--group-by configuration` at preparation to allocate one GH200 job
+per method and TPP budget, processing seeds 42, 43, and 44 sequentially. Jobs on the
+same account are chained with Slurm `afterany` dependencies, retaining the original
+one-allocation-per-account limit. When submitting several campaign roots on the
+same account, pass `--after-job JOB_ID` to link the next campaign to the preceding
+campaign's last job. Failed jobs do not prevent other configurations from running;
+resubmission waits for remaining active jobs and reuses completed checkpoints.
+`prepare --suite-source PATH` copies and verifies an existing frozen benchmark
+suite, preserving its dataset revisions and tokenizer identity.
+If the smoke job is still queued or running, `submit --wait-for-smoke` queues the
+full jobs with an `afterok` dependency on that smoke job. Each worker also checks
+the successful smoke result against its frozen snapshot before training begins.
+To switch accounts and allow all configuration jobs to run concurrently, cancel
+the active jobs and use `submit --account ACCOUNT --concurrent`. These settings
+are saved in `submission-policy.json` and reused on retries, while the historical
+account routing and training snapshot remain intact. Explicit `--after-job` and
+required smoke dependencies still apply; `--no-concurrent` restores serial jobs.
+
+`python -m scripts.render_quality_lines` combines the audited 20–120 TPP results
+into line plots for all six quality metrics, with three-seed means and sample
+standard deviations. It preserves the original reports and creates a presentation
+revision under `runs/quality/20m-512c-128bs-20-120tpp-winners-20261106`, including
+PNG/SVG/PDF plots, per-seed and plotted-value CSVs, and source checksums.
+The report also plots the selected weight decay, peak LR, β₁, and β₂, checked
+against the tuning reports and all three frozen retraining configurations.
+β₂ uses a labeled logit axis to distinguish values close to 1; exact values are
+saved in `selected-hyperparameters.csv`.
+Use `--budgets 20 40 60 80 100` to render the earlier range separately.
+
 ## Comparing TF32 and FP32 training
 
 Set `runtime.amp=false` and `runtime.execution_backend=native` before choosing
