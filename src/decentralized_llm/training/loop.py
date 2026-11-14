@@ -3,9 +3,9 @@
 import fcntl
 import os
 import socket
+import sys
 import time
 import traceback
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,7 @@ from decentralized_llm.execution.precision import precision_metadata
 from decentralized_llm.runtime import NonfiniteUpdateError, append_metric, atomic_json, environment, restore_rng
 from decentralized_llm.training.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.training.evaluation import evaluate
+from decentralized_llm.training.logs import SCHEMA_VERSION, session_start, timestamp, validate_destination
 
 
 class ThroughputWindow:
@@ -58,25 +59,60 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
     output = config.runtime.output_dir
     output.mkdir(parents=True, exist_ok=True)
     lock = None
+    session: int | None = None
     progress: dict[str, Any] = {}
     runtime = runtime_for(config)
+
+    def event(kind: str, fields: dict, *, durable: bool = True) -> None:
+        if session is None:
+            return
+        append_metric(
+            output / "events.jsonl",
+            {"event": kind, "timestamp": timestamp(), "rank": runtime.rank, "session": session, **fields},
+            durable=durable,
+        )
+
     try:
         device = runtime.setup(config)
+        admission = None
         if runtime.rank == 0:
-            lock = (output / ".run.lock").open("a")
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            if resume is None and (output / "run.json").exists():
-                raise ValueError("output already contains a training run; use resume or a new output directory")
-        runtime.barrier()
+            try:
+                lock = (output / ".run.lock").open("a")
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                validate_destination(output, resume)
+                next_session = session_start(output)["session"] + 1 if (output / "events.jsonl").exists() else 1
+                if not (output / "config.yaml").exists():
+                    save_config(config, output / "config.yaml")
+                append_metric(
+                    output / "events.jsonl",
+                    {
+                        "event": "session_start",
+                        "schema_version": SCHEMA_VERSION,
+                        "session": next_session,
+                        "rank": 0,
+                        "timestamp": timestamp(),
+                        "config": config.model_dump(mode="json"),
+                        "resume": str(resume) if resume else None,
+                    },
+                    durable=True,
+                )
+                admission = {"session": next_session}
+            except Exception as error:
+                admission = {"error": str(error)}
+        # Share admission before any peer can modify the run. Error/cleanup
+        # logging below never needs a collective after a worker has failed.
+        admission = runtime.gather(admission)[0]
+        if "error" in admission:
+            raise ValueError(admission["error"])
+        session = admission["session"]
         cache = TokenCache(config.data.cache_dir)
         cache.validate_config(config)
         memory = check_memory(cache, config)
         boundaries = training_boundaries(config, config.model.parameter_count)
         total = boundaries[-1]
-        atomic_json(
-            output / f"rank-{runtime.rank:05d}.json",
+        event(
+            "worker",
             {
-                "rank": runtime.rank,
                 "local_rank": int(os.environ.get("LOCAL_RANK", "0")),
                 "hostname": socket.gethostname(),
                 "pid": os.getpid(),
@@ -99,12 +135,10 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
             progress = {key: manifest[key] for key in progress}
             restore_rng(rng)
         if runtime.rank == 0:
-            name = "config.yaml" if resume is None else f"resume-{time.time_ns()}.yaml"
-            save_config(config, output / name)
-            atomic_json(
-                output / "run.json",
+            event(
+                "run",
                 {
-                    "environment": environment(),
+                    "environment": {**environment(), "recorded_at": timestamp()},
                     "precision": precision_metadata(
                         config.runtime.fp32_precision, config.evaluation.fp32_precision, model
                     ),
@@ -126,9 +160,7 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
         backend.prepare()
         forward = backend.execution
         optimizer = backend.optimizer
-        atomic_json(
-            output / f"execution-rank-{runtime.rank:05d}.json", {"policy": forward.policy, "cache": forward.cache}
-        )
+        event("execution", {"policy": forward.policy, "cache": forward.cache})
         selected = config.training.saved_epochs()
         batch_blocks = config.training.batch_tokens // config.model.context_length
         with TokenLoader(cache, config, runtime.rank, progress["cursor"], total) as loader:
@@ -175,15 +207,15 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                         loader.commit(stop)
                         if log_step:
                             throughput = window.measure(stop, config.model.context_length)
-                            append_metric(
-                                output / f"metrics-rank-{runtime.rank:05d}.jsonl",
+                            event(
+                                "train",
                                 {
-                                    "event": "train",
                                     "step": progress["step"],
                                     "cursor": stop,
                                     **metrics,
                                     "global_tokens_per_second": throughput,
                                 },
+                                durable=False,
                             )
                             if stop < boundary:
                                 window.start()
@@ -206,16 +238,14 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                     progress["completed_epochs"] = epoch
                     if progress["best_loss"] is None or result["loss"] < progress["best_loss"]:
                         progress["best_loss"], progress["best_epoch"] = result["loss"], epoch
-                        if runtime.rank == 0:
-                            atomic_json(output / "best.json", {"epoch": epoch, "loss": result["loss"]})
                     if runtime.rank == 0:
                         append_metric(
                             output / "metrics.jsonl",
                             {
-                                "event": "validation",
-                                "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+                                "timestamp": timestamp(),
+                                "session": session,
                                 "epoch": epoch,
-                                **{key: value for key, value in result.items() if key != "seconds"},
+                                **{key: value for key, value in result.items() if key not in {"seconds", "split"}},
                                 "val_seconds": round(result["seconds"], 2),
                                 "train_seconds": round(epoch_training_seconds, 2),
                             },
@@ -256,35 +286,42 @@ def train(config: Config, resume: Path | None = None, *, stop_after_steps: int |
                         progress,
                         backend=backend,
                     )
+                event("compiler", {"compiler_counters": compiler_counters() if forward.cache else {}})
                 if runtime.rank == 0:
                     atomic_json(
                         output / "result.json",
                         {
                             **progress,
+                            "session": session,
                             "validation": result,
                             "seconds": time.perf_counter() - started,
                             "session_seconds": time.perf_counter() - session_started,
                             "first_update_seconds": first_update_seconds,
                             "training_seconds": training_seconds,
-                            "execution": forward.policy,
-                            "compiler_counters": compiler_counters() if forward.cache else {},
                         },
                     )
                 return {**progress, "validation": result}
             finally:
-                transfer.close()
-                atomic_json(output / f"loader-rank-{runtime.rank:05d}.json", loader.metrics())
+                failing = sys.exc_info()[0] is not None
+                try:
+                    transfer.close()
+                    event("loader", loader.metrics())
+                except Exception as error:
+                    if not failing:
+                        raise
+                    print(f"Could not record loader cleanup: {error}", file=sys.stderr, flush=True)
     except BaseException as error:
-        failed_rank = int(os.environ.get("RANK", "0"))
         failure: dict[str, Any] = {"traceback": traceback.format_exc()}
         if isinstance(error, NonfiniteUpdateError):
             failure.update(
                 kind="nonfinite_update",
-                rank=failed_rank,
                 message=str(error),
                 progress={key: progress[key] for key in ("cursor", "step", "completed_epochs") if key in progress},
             )
-        atomic_json(output / f"failure-rank-{failed_rank:05d}.json", failure)
+        try:
+            event("failure", failure)
+        except Exception as logging_error:
+            print(f"Could not record training failure: {logging_error}", file=sys.stderr, flush=True)
         raise
     finally:
         if lock is not None:

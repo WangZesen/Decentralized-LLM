@@ -28,6 +28,14 @@ from decentralized_llm.data.sampling import GlobalSampler, sampling_plan
 from decentralized_llm.launch.preflight import validate
 from decentralized_llm.models.initialization import initialize_model
 from decentralized_llm.runtime import atomic_json
+from decentralized_llm.training.logs import (
+    provenance_paths,
+    read_config_data,
+    read_metadata,
+    read_result,
+    read_training_metrics,
+    read_validation_metrics,
+)
 from decentralized_llm.tuning.controller import (
     check_result,
     execute,
@@ -107,11 +115,11 @@ def historical_config(raw: Record) -> Config:
 def historical_result(trial: Record) -> Record:
     """Read the pre-gamma schema explicitly; never relax current-run authentication."""
     run = Path(trial["attempts"][-1]["directory"]) / "run"
-    actual = historical_config(yaml.safe_load((run / "config.yaml").read_text()))
+    actual = historical_config(read_config_data(run))
     intended = historical_config(trial["config"])
     if numeric_recipe(actual) != numeric_recipe(intended) or actual.runtime.seed != trial["seed"]:
         raise ValueError("Historical raw configuration does not match its trial")
-    metadata, result = read_json(run / "run.json"), read_json(run / "result.json")
+    metadata, result = read_metadata(run), read_result(run)
     expected = trial["provenance"]
     if metadata["cache"] != expected["cache_identity"] or any(
         metadata["environment"][key] != expected[key]
@@ -192,9 +200,7 @@ def reference_candidates(index: Path, project: Path) -> list[Record]:
                     "seed": trial["seed"],
                     "loss": trial["loss"],
                     "session_seconds": result.get("session_seconds"),
-                    "files": {
-                        str(run / name): file_digest(run / name) for name in ("config.yaml", "run.json", "result.json")
-                    },
+                    "files": {str(path): file_digest(path) for path in provenance_paths(run)},
                 }
             )
         if any(recipe != recipes[0] for recipe in recipes) or not math.isclose(
@@ -1031,14 +1037,8 @@ def plot_report(root: Path, report: Record) -> None:
             for training in (False, True):
                 figure, axis = plt.subplots(figsize=(8, 4.5))
                 for seed in result["seeds"]:
-                    path = Path(seed["run"]) / ("metrics-rank-00000.jsonl" if training else "metrics.jsonl")
-                    records = [json.loads(line) for line in path.read_text().splitlines()]
-                    records = [
-                        r
-                        for r in records
-                        if r.get("event") == ("train" if training else "validation")
-                        and (training or r.get("split") == "subset")
-                    ]
+                    read_metrics = read_training_metrics if training else read_validation_metrics
+                    records = read_metrics(Path(seed["run"]))
                     x = [
                         r["step"] * cfg.training.batch_tokens
                         if training

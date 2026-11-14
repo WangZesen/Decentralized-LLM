@@ -16,6 +16,7 @@ from decentralized_llm.models.llama import Llama
 from decentralized_llm.models.storage import parameter_storage
 from decentralized_llm.state import Batch
 from decentralized_llm.training.checkpoints import validate_checkpoint
+from decentralized_llm.training.logs import read_metadata
 from decentralized_llm.training.loop import train
 
 
@@ -115,7 +116,7 @@ def test_resume_equivalence(
     tiny_config.data.loader_mode = "streaming" if factor == 7 else "resident"
     full = train(tiny_config)
     assert full["cursor"] == 42 and full["step"] == 7 and full["completed_epochs"] == 2
-    run = json.loads((tiny_config.runtime.output_dir / "run.json").read_text())
+    run = read_metadata(tiny_config.runtime.output_dir)
     assert run["num_accumulation"] == accumulation
     assert run["micro_batch_size"] == 6 // accumulation
     pool = cache.blocks("train", 4) if factor == 1 else (42 + factor - 1) // factor

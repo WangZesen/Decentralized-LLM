@@ -23,6 +23,7 @@ import yaml
 from decentralized_llm.config import Config, save_config
 from decentralized_llm.data.cache import TokenCache, training_boundaries
 from decentralized_llm.runtime import atomic_json
+from decentralized_llm.training.logs import read_training_metrics, read_validation_metrics
 from decentralized_llm.tuning.controller import (
     VERSION,
     check_result,
@@ -303,15 +304,8 @@ def plot_winner(directory: Path, winner: Record) -> None:
     ]:
         figure, axis = plt.subplots(figsize=(8, 4.5))
         for seed in winner["seeds"]:
-            path = Path(seed["run"]) / ("metrics-rank-00000.jsonl" if training else "metrics.jsonl")
-            records = [json.loads(line) for line in path.read_text().splitlines()]
-            records = [
-                row
-                for row in records
-                if row.get("event") == ("train" if training else "validation")
-                and (training or row.get("split") == "subset")
-                and row.get(metric) is not None
-            ]
+            read_metrics = read_training_metrics if training else read_validation_metrics
+            records = [row for row in read_metrics(Path(seed["run"])) if row.get(metric) is not None]
             axis.plot(
                 [row["step" if training else "epoch"] for row in records],
                 [row[metric] for row in records],

@@ -24,6 +24,7 @@ from decentralized_llm.data.cache import TokenCache, file_digest, training_bound
 from decentralized_llm.launch.commands import launch
 from decentralized_llm.launch.slurm import SubmissionRejected, scheduler_arguments, submit_batch
 from decentralized_llm.runtime import atomic_json, source_digest
+from decentralized_llm.training.logs import read_failures, read_metadata, read_result, read_validation_metrics
 
 DEFAULT_NAME = "20m-awc-ef-8w-ring-512c-128bs-20tpp"
 SEEDS = (42, 43, 44)
@@ -333,8 +334,14 @@ def summarize(manifest: Record) -> Record:
         folder = Path(run["run"])
         row = {key: run.get(key) for key in ("mode", "seed", "job_id", "run")}
         path = folder / "result.json"
+        failures = read_failures(folder)
         if path.exists():
-            result = json.loads(path.read_text())
+            try:
+                result = read_result(folder)
+            except ValueError:
+                row["status"] = "failed" if failures else "incomplete"
+                rows.append(row)
+                continue
             config = load_config(run["config"])
             expected = training_boundaries(config, config.model.parameter_count)[-1]
             validation = result["validation"]
@@ -348,7 +355,7 @@ def summarize(manifest: Record) -> Record:
                 )
             else:
                 row["status"] = "incomplete"
-        elif list(folder.glob("failure-rank-*.json")):
+        elif failures:
             row["status"] = "failed"
         else:
             row["status"] = "pending" if run.get("job_id") else "missing"
@@ -454,12 +461,11 @@ def report(root: Path, manifest: Record) -> Record:
         path = Path(run["run"]) / "metrics.jsonl"
         if not path.exists():
             continue
-        records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-        records = [r for r in records if r.get("event") == "validation"]
+        records = read_validation_metrics(Path(run["run"]))
         if run["mode"] == "bf16":
             # Historical configs predate the error_feedback_gamma schema. Use the
             # actual saved epoch boundaries rather than reinterpreting the recipe.
-            saved = json.loads((Path(run["run"]) / "run.json").read_text())
+            saved = read_metadata(Path(run["run"]))
             bounds = saved["boundaries"]
             length = yaml.safe_load(Path(run["config"]).read_text())["model"]["context_length"]
         else:

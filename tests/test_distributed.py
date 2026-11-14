@@ -27,6 +27,7 @@ from decentralized_llm.models.storage import parameter_storage
 from decentralized_llm.runtime import clip_grad_norm_
 from decentralized_llm.training.checkpoints import load_checkpoint, save_checkpoint
 from decentralized_llm.training.evaluation import evaluate
+from decentralized_llm.training.logs import read_training_metrics
 from decentralized_llm.training.loop import train
 
 
@@ -490,10 +491,14 @@ def test_multiprocess_training_resume(
         join=True,
     )
     for output in tiny_config.runtime.output_dir.iterdir():
-        logged = [
-            [json.loads(line) for line in (output / f"metrics-rank-{worker:05d}.jsonl").read_text().splitlines()]
-            for worker in range(size)
-        ]
+        logged = [read_training_metrics(output, worker) for worker in range(size)]
+        assert {path.name for path in output.iterdir() if path.is_file()} <= {
+            ".run.lock",
+            "config.yaml",
+            "events.jsonl",
+            "metrics.jsonl",
+            "result.json",
+        }
         reference = [(row["step"], row["cursor"], row["global_tokens_per_second"]) for row in logged[0]]
         assert reference and all(row[2] > 0 for row in reference)
         for rows in logged[1:]:

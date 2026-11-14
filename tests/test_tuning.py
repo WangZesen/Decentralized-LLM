@@ -18,7 +18,7 @@ from decentralized_llm import config as config_module
 from decentralized_llm.config import Config, load_config, save_config
 from decentralized_llm.data.cache import TokenCache, training_boundaries
 from decentralized_llm.launch.slurm import SubmissionRejected
-from decentralized_llm.runtime import atomic_json, environment
+from decentralized_llm.runtime import append_metric, atomic_json, environment
 from decentralized_llm.tuning import controller, local_gpus, report
 from decentralized_llm.tuning import jobs as backends
 from decentralized_llm.tuning.batching import allocation_failures, training_attempts
@@ -631,13 +631,15 @@ def test_full_controller_reuses_trials_and_extends(
     assert len(state["trials"]) == 44
     for trial in state["trials"].values():
         root = destination / trial["directory"]
+        assert trial["display_id"] == trial["id"][:12] and len(trial["id"]) == 64
+        assert root.name == trial["display_id"]
         assert root.is_dir() and not root.is_symlink()
         assert not (destination / "trials" / trial["id"]).exists()
         assert all(Path(attempt["directory"]).parent == root for attempt in trial["attempts"])
     for phase in state["phases"]:
         for keys in phase["trials"].values():
             for key in keys:
-                view = destination / "trials" / phase["name"] / key
+                view = destination / "trials" / phase["name"] / state["trials"][key].get("display_id", key)
                 root = destination / state["trials"][key]["directory"]
                 assert view.resolve() == root
                 if view != root:
@@ -651,6 +653,8 @@ def test_full_controller_reuses_trials_and_extends(
     assert state["winner"]["values"]["optimizer.lr"] == 0.001
     assert state["winner"]["values"]["optimizer.beta1"] == 0.85
     assert "10^-3" in (destination / "report.md").read_text()
+    first_trial = next(iter(state["trials"].values()))
+    assert f"trial `{first_trial['display_id']}`" in (destination / "report.md").read_text()
     assert load_config(destination / "winner.yaml").optimizer.lr == 0.001
     before = len(fake_backend.submissions)
     assert execute("resume", destination, dry_run=True)["new_jobs"] == 0
@@ -679,6 +683,71 @@ def test_full_controller_reuses_trials_and_extends(
     assert len(fake_backend.submissions) == before + 2
     assert "optimizer.lr" not in load_state(destination)["winner"]["labels"]
     assert all(path.is_symlink() for path in (destination / "trials/renamed-first-phase").iterdir())
+    for key, trial in state["trials"].items():
+        assert load_state(destination)["trials"][key]["display_id"] == trial["display_id"]
+
+
+def test_display_alias_collision_does_not_change_existing_ids() -> None:
+    first, second, third = "a" * 64, "a" * 12 + "b" * 52, "a" * 12 + "b" * 4 + "c" * 48
+    trials = {first: {"id": first, "display_id": controller.new_display_id(first, {})}}
+    trials[second] = {"id": second, "display_id": controller.new_display_id(second, trials)}
+    assert trials[first]["display_id"] == first[:12]
+    assert trials[second]["display_id"] == second[:16]
+    assert controller.new_display_id(third, trials) == third[:20]
+    legacy = "d" * 64
+    trials[legacy] = {"id": legacy}
+    assert controller.new_display_id("e" * 64, trials) == "e" * 12
+    assert trials[legacy] == {"id": legacy}
+
+
+def test_legacy_pending_trial_retains_its_directory(tmp_path: Path) -> None:
+    key = "f" * 64
+    trial = {"id": key, "directory": f"trials/original/{key}", "attempts": []}
+    state = {"trials": {key: trial}}
+    phase = {"name": "confirmation", "trials": {"candidate": [key]}}
+    controller.materialize_phase(tmp_path, state, phase)
+    assert "display_id" not in trial
+    assert (tmp_path / "trials/confirmation" / key).resolve() == tmp_path / trial["directory"]
+
+
+def test_compact_results_and_divergence_are_authenticated(
+    cache: TokenCache, tiny_config: Config, tmp_path: Path
+) -> None:
+    tiny_config.runtime.output_dir = tmp_path / "attempt/run"
+    publish_result(tiny_config)
+    output = tiny_config.runtime.output_dir
+    raw = tiny_config.model_dump(mode="json")
+    trial = {"config": raw, "seed": tiny_config.runtime.seed, "provenance": controller.provenance(cache)}
+    attempt = {"directory": str(output.parent)}
+    old_result = json.loads((output / "result.json").read_text())
+    metadata = json.loads((output / "run.json").read_text())
+    (output / "run.json").unlink()
+    append_metric(output / "events.jsonl", {"event": "session_start", "schema_version": 1, "session": 1, "config": raw})
+    append_metric(output / "events.jsonl", {**metadata, "event": "run", "session": 1, "rank": 0})
+    atomic_json(output / "result.json", {**old_result, "session": 1})
+    assert controller.check_result(trial, attempt)["validation"] == old_result["validation"]
+    failure = {
+        "event": "failure",
+        "session": 1,
+        "rank": 0,
+        "kind": "nonfinite_update",
+        "message": "nonfinite",
+        "traceback": "original trace",
+        "progress": {"step": 0, "cursor": 0, "completed_epochs": 0},
+    }
+    append_metric(output / "events.jsonl", failure)
+    assert controller.check_divergence(trial, attempt) is not None
+    append_metric(output / "events.jsonl", {"event": "session_start", "schema_version": 1, "session": 2, "config": raw})
+    append_metric(output / "events.jsonl", failure)  # Delayed failure from the prior session.
+    assert controller.check_divergence(trial, attempt) is None
+    with pytest.raises(ValueError, match="earlier training session"):
+        controller.check_result(trial, attempt)
+    atomic_json(output / "result.json", {**old_result, "session": 2})
+    with pytest.raises(ValueError, match="no run provenance"):
+        controller.check_result(trial, attempt)
+    append_metric(output / "events.jsonl", {**metadata, "cache": "wrong", "event": "run", "session": 2, "rank": 0})
+    with pytest.raises(ValueError, match="cache identity mismatch"):
+        controller.check_result(trial, attempt)
 
 
 def test_local_defaults_are_frozen_for_resume_and_refreshed_for_extend(

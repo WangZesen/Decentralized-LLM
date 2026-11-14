@@ -33,6 +33,7 @@ def write_report(directory: Path, state: Record) -> Record:
                 seeds.append(
                     {
                         "trial_id": key,
+                        "display_id": trial.get("display_id", key),
                         "seed": trial["seed"],
                         "status": trial["status"],
                         "loss": trial.get("loss"),
@@ -145,7 +146,7 @@ def write_report(directory: Path, state: Record) -> Record:
             lines += [f"### {candidate['description']}", ""]
             for trial in candidate["seeds"]:
                 loss = "None" if trial["loss"] is None else format_loss(trial["loss"])
-                lines.append(f"- Seed {trial['seed']}: {trial['status']}; loss={loss}; trial `{trial['trial_id']}`.")
+                lines.append(f"- Seed {trial['seed']}: {trial['status']}; loss={loss}; trial `{trial['display_id']}`.")
                 for attempt in trial["attempts"]:
                     label = attempt.get("job_id", attempt.get("pid", "unresolved"))
                     message = attempt.get("error", attempt.get("scheduler_state", ""))

@@ -12,6 +12,7 @@ from decentralized_llm.backends.distributed import update as updates
 from decentralized_llm.config import Config, load_config
 from decentralized_llm.data.cache import TokenCache
 from decentralized_llm.training import loop as training
+from decentralized_llm.training.logs import read_events, read_training_metrics
 
 
 @pytest.fixture
@@ -39,7 +40,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 
 def records(directory: Path) -> list[dict]:
-    return [json.loads(line) for line in (directory / "metrics-rank-00000.jsonl").read_text().splitlines()]
+    return read_training_metrics(directory)
 
 
 def test_compact_logs_measure_recent_training(
@@ -62,6 +63,9 @@ def test_compact_logs_measure_recent_training(
         set(row)
         == {
             "event",
+            "timestamp",
+            "session",
+            "rank",
             "step",
             "cursor",
             "lr",
@@ -71,14 +75,14 @@ def test_compact_logs_measure_recent_training(
         }
         for row in logged
     )
-    diagnostics = json.loads((tiny_config.runtime.output_dir / "loader-rank-00000.json").read_text())
+    diagnostics = read_events(tiny_config.runtime.output_dir, "loader", rank=0)[0]
     assert "largest_waits" in diagnostics and "memory_estimate_bytes" in diagnostics
     assert clock.updates == 7
     validation = [
         json.loads(line) for line in (tiny_config.runtime.output_dir / "metrics.jsonl").read_text().splitlines()
     ]
     assert len(validation) == 2
-    assert all(row["event"] == "validation" and row["consensus_error"] == 0.0 for row in validation)
+    assert all("event" not in row and "split" not in row and row["consensus_error"] == 0.0 for row in validation)
     result = json.loads((tiny_config.runtime.output_dir / "result.json").read_text())
     assert result["validation"]["consensus_error"] == 0.0
     checkpoint_result = training.evaluate_checkpoint(tiny_config, tiny_config.runtime.output_dir / "final")
@@ -116,7 +120,7 @@ def test_short_run_logs_once_and_keeps_failure_diagnostics(
     monkeypatch.setattr(updates, "optimizer_update", Mock(side_effect=RuntimeError("injected failure")))
     with pytest.raises(RuntimeError, match="injected failure"):
         training.train(tiny_config)
-    assert (tiny_config.runtime.output_dir / "loader-rank-00000.json").is_file()
+    assert read_events(tiny_config.runtime.output_dir, "loader", rank=0)
 
 
 def test_throughput_uses_slowest_rank_and_completed_cuda_work(monkeypatch: pytest.MonkeyPatch) -> None:

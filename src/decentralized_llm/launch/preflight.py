@@ -12,6 +12,7 @@ from decentralized_llm.config import Config, SlurmLauncher
 from decentralized_llm.data.cache import TokenCache, training_boundaries
 from decentralized_llm.data.sampling import check_memory, sampling_plan
 from decentralized_llm.training.checkpoints import validate_checkpoint
+from decentralized_llm.training.logs import validate_destination
 
 
 def validate(
@@ -52,8 +53,8 @@ def validate(
         raise ValueError("output must not be inside the immutable token cache")
     if output.exists() and not output.is_dir():
         raise ValueError("output destination is not a directory")
-    if not evaluation and resume is None and (output / "run.json").exists():
-        raise ValueError("output already contains a run; use resume or a new destination")
+    if not evaluation:
+        validate_destination(output, resume)
     parent = output
     while not parent.exists():
         parent = parent.parent

@@ -1,5 +1,6 @@
 """Atomic artifacts, RNG preservation, and bounded provenance."""
 
+import fcntl
 import hashlib
 import json
 import os
@@ -80,9 +81,28 @@ def atomic_checkpoint(path: Path, value: object) -> None:
     temporary.replace(path)
 
 
-def append_metric(path: Path, value: object) -> None:
-    with path.open("a") as handle:
-        handle.write(json.dumps(value, allow_nan=False) + "\n")
+def append_metric(path: Path, value: object, *, durable: bool = False) -> None:
+    """Append one complete record across processes, repairing an interrupted tail."""
+    encoded = (json.dumps(value, allow_nan=False) + "\n").encode()
+    with path.open("a+b") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        # A killed writer can leave an unterminated record. Never turn it into
+        # corrupt interior data by appending the next record to that fragment.
+        end = handle.seek(0, os.SEEK_END)
+        while end:
+            start = max(0, end - 8192)
+            handle.seek(start)
+            block = handle.read(end - start)
+            newline = block.rfind(b"\n")
+            if newline >= 0:
+                end = start + newline + 1
+                break
+            end = start
+        handle.truncate(end)
+        handle.write(encoded)
+        handle.flush()
+        if durable:
+            os.fsync(handle.fileno())
 
 
 def source_digest(package: Path, *, include_metadata: bool = True) -> str:

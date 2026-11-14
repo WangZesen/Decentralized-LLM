@@ -221,7 +221,7 @@ Packed checkpoints store all worker state in `packed.pt` and publish `manifest.j
 last. Resume requires the same training backend and logical world size; conversion
 between packed and distributed checkpoints is unsupported. Validation evaluates the
 averaged decentralized model without modifying local workers. Packed training metrics
-are in `metrics-rank-00000.jsonl`, with `local_losses` and `local_gradient_norms` arrays
+are `train` events in `events.jsonl`, with `local_losses` and `local_gradient_norms` arrays
 in logical-rank order (one entry for the shared synchronous model). Preflight, run metadata,
 and benchmarks report both logical world size and physical resource counts.
 
@@ -1316,8 +1316,11 @@ configuration and recorded provenance. Successful results must also complete the
 training budget and full validation; divergence records preserve the incomplete budget.
 
 The study directory contains atomically updated `state.json`, isolated
-`trials/<phase-name>/<id>/attempt-*/` artifacts, and `report.md`/`report.json`. A trial's
-physical directory belongs to the phase that first creates it; later phases reuse it
+`trials/<phase-name>/<id>/attempt-*/` artifacts, and `report.md`/`report.json`. New trials
+use a persisted 12-character hash prefix for their directory ID, extended by four characters
+if needed to avoid a collision. Reports display this `display_id`; full SHA-256 identities
+remain in state keys, provenance, and `trial_id` fields. Existing trial IDs and paths stay unchanged.
+A trial's physical directory belongs to the phase that first creates it; later phases reuse it
 through relative symlinks directly to that directory. Retries stay in the original
 directory. Phase directories persist across revisions, while reports describe the current
 revision's candidates. Existing flat trial directories remain in place and can be linked
@@ -1489,12 +1492,40 @@ for per-trial timings, numerical checks, source hashes, job IDs and artifact pat
 
 ## Training and recovery semantics
 
+New training runs use four primary files, independent of worker count:
+
+| File | Contents |
+|---|---|
+| `config.yaml` | Initial resolved configuration |
+| `metrics.jsonl` | Periodic subset-validation measurements, one record per epoch |
+| `result.json` | Final progress, best loss/epoch, full validation, and timings |
+| `events.jsonl` | Session configuration, provenance, worker placement, training metrics, execution and loader diagnostics, failures |
+
+The existing `.run.lock` is a fifth operational file. Checkpoints, launcher/submission
+artifacts, and shared compilation caches are separate from this training-log budget.
+Failures can leave fewer than four primary files because no final result is published.
+Execution policy and compiler counters live in events rather than the final result.
+
+Events carry `event`, physical `rank`, `session`, and `timestamp`. Event kinds are
+`session_start`, `run`, `worker`, `execution`, `train`, `compiler`, `loader`, and `failure`.
+The session-start record includes `schema_version: 1`, the complete effective configuration,
+and the resume checkpoint. In-place resumes of compact runs append a new session, preserving
+the initial `config.yaml`; no additional resume YAML files are created. Shared readers in
+`decentralized_llm.training.logs` select the current session and accept both compact and legacy
+layouts. Earlier session history remains in the files. Results and failures from earlier
+sessions cannot establish the current session's outcome.
+
+Legacy artifacts are never migrated automatically. To resume a legacy checkpoint, choose
+a new `runtime.output_dir`; resuming into its original legacy directory is rejected.
+Event appends use a shared file lock. An interrupted final line is ignored by readers and
+removed before the next append; malformed complete records are reported as errors.
+
 Training metrics are saved every **50 optimizer iterations** by default; override
 `training.log_every` for a different cadence. A final partial interval is also logged
-when training finishes or stops at a requested step. Each per-rank JSONL record contains
+when training finishes or stops at a requested step. Each worker's `train` event contains
 the step, committed global cursor, learning rate, local loss, gradient norm, and throughput.
 Loss and gradient norm describe the logged update, not an average across the interval.
-Full loader diagnostics are written once to `loader-rank-*.json` at shutdown, including
+Full loader diagnostics are written once per worker as a `loader` event at shutdown, including
 failure cleanup, instead of being repeated in every training record.
 
 `global_tokens_per_second` measures global tokens committed since the previous log
@@ -1527,7 +1558,7 @@ This division must produce a positive integer; invalid configurations fail befor
 launch. With `batch_tokens=32768`, context length `1024`, and `num_accumulation=1`,
 one, four, and eight workers use micro-batches of `32`, `8`, and `4` sequences per
 rank. Increasing `num_accumulation` reduces the micro-batch size while preserving
-the global token budget. Preflight output and `run.json` report both values.
+the global token budget. Preflight output and the `run` event report both values.
 
 Remove `training.micro_batch_size` from older configs and set
 `training.num_accumulation: 1` for no accumulation. To preserve an older recipe,
@@ -1693,7 +1724,7 @@ Pool selection takes the first `U` entries of the normal sampler's first-pass pe
 It is reproducible for a given cache and training seed; larger factors select nested pools.
 The unique training-token count is `U * context_length`, counting token positions rather
 than distinct vocabulary IDs and excluding the extra lookahead token. Preflight and
-`run.json` report the factor, pool size, unique training tokens, and full/partial pass counts
+the `run` event report the factor, pool size, unique training tokens, and full/partial pass counts
 under `sampling`. Resume requires the same reuse settings and regenerates the selected pool
 and pass order from the committed global cursor. Changing reader threads or prefetch depth
 does not change sampling.
@@ -1807,10 +1838,12 @@ time until the producer made the batch ready, time after readiness, and the batc
 read group (shard, byte offset, sample, descriptor-lookup/open time, and read-loop time).
 The lifetime slowest read group is also retained. These wall-clock timings can include OS
 scheduling; they are not pure disk latency or a measure of GPU idle time.
-`metrics-rank-*.jsonl`, `loader-rank-*.json`, `rank-*.json`, failure tracebacks, resolved
-configuration, source digest, library versions, and evaluation metrics remain in the run.
-Validation entries in `metrics.jsonl` include a UTC `timestamp` with second precision
-(for example, `2026-10-17T14:30:00+00:00`), recorded when the result is written.
+Worker training metrics, loader diagnostics, placement, failure tracebacks, resolved
+configuration, source digest, and library versions are retained in `events.jsonl`.
+All compact log timestamps use UTC with millisecond precision and no timezone suffix
+(for example, `2026-11-14T14:30:00.123`), recorded when the record is written.
+Validation entries in `metrics.jsonl` omit the constant `event` and `split` fields;
+every row represents subset validation. Full-validation results retain their `split` marker.
 They report validation duration as `val_seconds` and wall time in the last virtual
 epoch's training loop as `train_seconds`, both rounded to two decimal places.
 Training time excludes validation and checkpoint saving. On a mid-epoch resume,

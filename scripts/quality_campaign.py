@@ -22,6 +22,7 @@ from decentralized_llm.config import load_config
 from decentralized_llm.data.cache import TokenCache, file_digest, fingerprint
 from decentralized_llm.launch.slurm import SubmissionRejected, scheduler_arguments, submit_batch
 from decentralized_llm.runtime import atomic_json, source_digest
+from decentralized_llm.training.logs import has_run, read_result
 from scripts.report_style import METHOD_COLORS, METHOD_LABELS, METHOD_ORDER
 
 DEFAULT_SOURCE = Path("runs/p-tuning/20m-512c-128bs-20-40tpp-lr-wd-betas-warmup3-20261106")
@@ -42,6 +43,9 @@ if (c.runtime.output_dir / 'final/manifest.json').exists():
     final = c.runtime.output_dir / 'final'
     result = json.loads((final / 'manifest.json').read_text())
     result['validation'] = evaluate_checkpoint(c, final)
+    if (c.runtime.output_dir / 'events.jsonl').exists():
+        from decentralized_llm.training.logs import session_start
+        result['session'] = session_start(c.runtime.output_dir)['session']
     atomic_json(c.runtime.output_dir / 'result.json', result)
 else:
     train(c, checkpoint, stop_after_steps=stop)
@@ -439,13 +443,18 @@ def train_run(root: Path, row: dict, stop: int | None = None) -> Path:
     run = Path(row["run"])
     final = run / "final"
     if final.joinpath("manifest.json").exists() and (run / "result.json").exists():
-        return final
+        try:
+            read_result(run)
+        except ValueError:
+            pass
+        else:
+            return final
     checkpoints = sorted(
         (p.parent for p in run.glob("*/manifest.json")),
         key=lambda p: json.loads((p / "manifest.json").read_text())["step"],
     )
     resume = checkpoints[-1] if checkpoints else None
-    if (run / "run.json").exists() and resume is None:
+    if has_run(run) and resume is None:
         run.rename(run.with_name(f"run-failed-{time.time_ns()}"))
     env = dict(os.environ, PYTHONPATH=str(root / "training-source/src"))
     log = Path(row["config"]).parent / f"training-{time.time_ns()}.log"
@@ -540,8 +549,12 @@ def run_result(row: dict) -> dict:
     result["status"] = "pending"
     training, quality = Path(row["run"]) / "result.json", Path(row["quality"]) / "results.json"
     if training.exists():
+        try:
+            trained = read_result(Path(row["run"]))
+        except ValueError:
+            return result
         result["status"] = "trained"
-        result["validation_loss"] = json.loads(training.read_text())["validation"]["loss"]
+        result["validation_loss"] = trained["validation"]["loss"]
         result["validation_delta"] = result["validation_loss"] - row["historical_loss"]
         result["review_validation"] = abs(result["validation_delta"]) > 0.005
     if quality.exists() and result["status"] == "trained":

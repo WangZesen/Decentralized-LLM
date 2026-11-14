@@ -22,6 +22,7 @@ from decentralized_llm.models.llama import token_losses
 from decentralized_llm.models.packed import PackedLlama
 from decentralized_llm.runtime import clip_grad_norm_
 from decentralized_llm.training.checkpoints import validate_checkpoint
+from decentralized_llm.training.logs import read_events, read_metadata
 from decentralized_llm.training.loop import evaluate_checkpoint, train
 from decentralized_llm.tuning.batching import resource_key
 
@@ -287,7 +288,7 @@ def test_legacy_initialization_is_preserved(
     tiny_config.runtime.output_dir = tmp_path / "legacy-resumed"
     train(tiny_config, checkpoint)
     legacy = "legacy_rank_offset_v1" if mode == "decentralized" else "legacy_shared_seed_v1"
-    assert json.loads((tiny_config.runtime.output_dir / "run.json").read_text())["initialization"] == legacy
+    assert read_metadata(tiny_config.runtime.output_dir)["initialization"] == legacy
     final = validate_checkpoint(tiny_config.runtime.output_dir / "final", tiny_config, cache)
     assert final["initialization"] == legacy
 
@@ -352,6 +353,6 @@ def test_packed_local_launch(cache: TokenCache, tiny_config: Config, tmp_path: P
     report = launch(cfg)
     assert report["preflight"]["world_size"] == 4
     assert report["preflight"]["physical_world_size"] == 1
-    assert len(list(cfg.runtime.output_dir.glob("rank-*.json"))) == 1
+    assert len(read_events(cfg.runtime.output_dir, "worker")) == 1
     manifest = json.loads((cfg.runtime.output_dir / "final/manifest.json").read_text())
     assert {entry["file"] for entry in manifest["files"]} == {"packed.pt"}

@@ -1,4 +1,3 @@
-import json
 from typing import Literal
 
 import pytest
@@ -11,6 +10,7 @@ from decentralized_llm.data.cache import TokenCache
 from decentralized_llm.execution.native import TrainingExecution
 from decentralized_llm.runtime import NonfiniteUpdateError, clip_grad_norm_
 from decentralized_llm.training import loop
+from decentralized_llm.training.logs import read_failures, read_metadata, read_training_metrics
 
 
 @pytest.mark.parametrize("maximum", [None, 1.0])
@@ -84,7 +84,7 @@ def test_rejected_training_update_preserves_progress_and_records_failure(
     assert isinstance(optimizer.previous_update, torch.Tensor)
     assert torch.count_nonzero(optimizer.previous_update) == 0
     output = tiny_config.runtime.output_dir
-    failure = json.loads((output / "failure-rank-00000.json").read_text())
+    failure = read_failures(output)[0]
     assert "nonfinite" in failure["traceback"]
     if bad_value == "generic":
         assert "kind" not in failure
@@ -92,8 +92,8 @@ def test_rejected_training_update_preserves_progress_and_records_failure(
         assert failure["kind"] == "nonfinite_update" and failure["rank"] == 0
         assert failure["progress"] == {"cursor": 0, "step": 0, "completed_epochs": 0}
     assert not (output / "result.json").exists()
-    assert not (output / "metrics-rank-00000.jsonl").exists()
-    assert (output / "run.json").exists() and (output / "config.yaml").exists()
+    assert not read_training_metrics(output)
+    assert read_metadata(output) and (output / "config.yaml").exists()
 
 
 def test_fused_inspection_distinguishes_nonfinite_from_counter_mismatch() -> None:

@@ -18,11 +18,12 @@ import numpy as np
 import torch
 from loguru import logger
 
-from decentralized_llm.config import Config, initialize_local_defaults, load_config
+from decentralized_llm.config import Config, initialize_local_defaults
 from decentralized_llm.data.cache import TokenCache, training_boundaries
 from decentralized_llm.launch.preflight import validate
 from decentralized_llm.launch.slurm import SubmissionRejected
 from decentralized_llm.runtime import atomic_json, dependency_digest, source_digest
+from decentralized_llm.training.logs import read_config, read_failures, read_metadata, read_result
 from decentralized_llm.tuning import local_gpus
 from decentralized_llm.tuning.batching import (
     check_walltime,
@@ -79,8 +80,8 @@ def save_state(directory: Path, state: Record) -> None:
 def check_run(trial: Record, attempt: Record) -> Config:
     """Authenticate the run independently of whether it reached full validation."""
     output = Path(attempt["directory"]) / "run"
-    run = json.loads((output / "run.json").read_text())
-    actual = load_config(output / "config.yaml")
+    run = read_metadata(output)
+    actual = read_config(output)
     intended = Config.model_validate(trial["config"])
     if numeric_recipe(actual) != numeric_recipe(intended) or actual.runtime.seed != trial["seed"]:
         raise ValueError("result configuration does not match the trial")
@@ -95,7 +96,7 @@ def check_run(trial: Record, attempt: Record) -> Config:
 
 def check_result(trial: Record, attempt: Record) -> Record:
     output = Path(attempt["directory"]) / "run"
-    result = json.loads((output / "result.json").read_text())
+    result = read_result(output)
     intended = check_run(trial, attempt)
     if result["cursor"] != training_boundaries(intended, intended.model.parameter_count)[-1]:
         raise ValueError("result did not complete its training budget")
@@ -110,17 +111,14 @@ def check_divergence(trial: Record, attempt: Record) -> Record | None:
     output = Path(attempt["directory"]) / "run"
     intended = Config.model_validate(trial["config"])
     records = []
-    for rank in range(intended.physical_world_size):
-        path = output / f"failure-rank-{rank:05d}.json"
-        try:
-            record = json.loads(path.read_text())
-        except FileNotFoundError:
-            continue
-        if not isinstance(record, dict):
-            raise ValueError("invalid worker failure record")
+    for record in read_failures(output):
         if record.get("kind") != "nonfinite_update":
             continue
-        if type(record.get("rank")) is not int or record["rank"] != rank:
+        rank = record.get("rank")
+        if type(rank) is not int or not 0 <= rank < intended.physical_world_size:
+            raise ValueError("nonfinite worker rank mismatch")
+        path = Path(record["file"])
+        if path.name != "events.jsonl" and path.name != f"failure-rank-{rank:05d}.json":
             raise ValueError("nonfinite worker rank mismatch")
         if not all(isinstance(record.get(key), str) and record[key] for key in ("message", "traceback")):
             raise ValueError("nonfinite worker diagnostics are missing")
@@ -132,7 +130,7 @@ def check_divergence(trial: Record, attempt: Record) -> Record | None:
         total = training_boundaries(intended, intended.model.parameter_count)[-1]
         if progress["cursor"] > total or progress["completed_epochs"] > intended.training.epoch_count:
             raise ValueError("nonfinite worker progress exceeds training budget")
-        records.append({"file": str(path), **record})
+        records.append(record)
     if not records:
         return None
     check_run(trial, attempt)
@@ -301,6 +299,16 @@ def reconcile_step(trial: Record, attempt: Record, allocation: Record, grace: fl
         fail_trial(trial, attempt, f"allocation ended in {allocation['scheduler_state']}: {reason}")
 
 
+def new_display_id(identity: str, trials: Record) -> str:
+    """Assign an immutable short alias without changing scientific identities."""
+    occupied = {trial.get("display_id", trial["id"]) for trial in trials.values()}
+    for length in range(12, len(identity) + 1, 4):
+        alias = identity[:length]
+        if alias not in occupied:
+            return alias
+    raise ValueError("trial identity already has a display alias")
+
+
 def add_phase(state: Record, spec: TuningSpec, base: Config) -> Record:
     index = len(state["phases"])
     parents = None
@@ -338,9 +346,11 @@ def add_phase(state: Record, spec: TuningSpec, base: Config) -> Record:
                 continue
             config = copy.deepcopy(candidate["config"])
             config["runtime"]["seed"] = seed
+            display_id = new_display_id(key, state["trials"])
             state["trials"][key] = {
                 "id": key,
-                "directory": str(Path("trials") / name / key),
+                "display_id": display_id,
+                "directory": str(Path("trials") / name / display_id),
                 "candidate_id": candidate["id"],
                 "seed": seed,
                 "config": config,
@@ -375,7 +385,7 @@ def materialize_phase(directory: Path, state: Record, phase: Record) -> None:
                 trial["directory"] = str(Path("trials") / phase["name"] / key)
             root = trial_directory(directory, trial).resolve()
             root.mkdir(parents=True, exist_ok=True)
-            link = view / key
+            link = view / trial.get("display_id", key)
             if link == root:
                 continue
             if link.is_symlink():
@@ -505,7 +515,8 @@ def submit_allocation(directory: Path, state: Record, allocation: Record, backen
     prepared = [prepare_attempt(directory, state, trial) for trial in trials]
     configs, attempts = [item[0] for item in prepared], [item[1] for item in prepared]
     for trial, attempt in zip(trials, attempts, strict=True):
-        root = Path(allocation["directory"]) / "steps" / f"{trial['id']}-attempt-{attempt['number']:03d}"
+        label = trial.get("display_id", trial["id"])
+        root = Path(allocation["directory"]) / "steps" / f"{label}-attempt-{attempt['number']:03d}"
         attempt.update(
             allocation_id=allocation["id"],
             trial_id=trial["id"],

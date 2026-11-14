@@ -1,7 +1,6 @@
 """Hybrid optimizer contracts, independent reference updates, and training integration."""
 
 import copy
-import json
 from pathlib import Path
 from typing import Any, Literal, cast
 from unittest.mock import patch
@@ -24,6 +23,7 @@ from decentralized_llm.models.llama import Block, Llama, token_losses
 from decentralized_llm.models.packed import PackedLlama
 from decentralized_llm.runtime import clip_grad_norm_
 from decentralized_llm.training.checkpoints import recipe_identity, validate_checkpoint
+from decentralized_llm.training.logs import read_training_metrics
 from decentralized_llm.training.loop import train
 from decentralized_llm.tuning.spec import Phase, expand, numeric_recipe
 
@@ -311,9 +311,7 @@ def test_training_resume_and_metrics(
     filename = "packed.pt" if backend == "packed" else "rank-00000.pt"
     train(cfg)
     expected = torch.load(cfg.runtime.output_dir / "final" / filename, weights_only=False)
-    metrics = [
-        json.loads(line) for line in (cfg.runtime.output_dir / "metrics-rank-00000.jsonl").read_text().splitlines()
-    ]
+    metrics = read_training_metrics(cfg.runtime.output_dir)
     for row in metrics:
         assert row["lr"] == row["adamw_lr"]
         assert row["muon_lr"] == pytest.approx(2 * row["adamw_lr"])
