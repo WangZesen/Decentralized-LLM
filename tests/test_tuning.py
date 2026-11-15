@@ -41,7 +41,7 @@ from decentralized_llm.tuning.spec import (
 @pytest.fixture
 def tuning_file(tiny_config: Config, tmp_path: Path) -> Path:
     save_config(tiny_config, tmp_path / "base.yaml")
-    raw = yaml.safe_load(Path("configs/tunings/tuning-example.yaml").read_text())
+    raw = yaml.safe_load(Path("configs/tunings/archive/tuning-example.yaml").read_text())
     raw["base"] = {"configs": ["base.yaml"]}
     raw["controller"].update(poll_seconds=0.001, result_grace_seconds=0)
     path = tmp_path / "tuning.yaml"

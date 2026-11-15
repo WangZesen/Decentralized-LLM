@@ -26,7 +26,9 @@ def main() -> None:
     for name in ("run", "resume", "extend", "status", "report"):
         action = actions.add_parser(name)
         if name == "run":
-            action.add_argument("--output", dest="directory", type=Path, required=True)
+            action.add_argument(
+                "--output", dest="directory", type=Path, help="study directory (default: runs/r-tuning/<spec-stem>)"
+            )
         else:
             action.add_argument("directory", type=Path)
         if name in ("run", "extend"):
@@ -123,6 +125,8 @@ def main() -> None:
     if args.command == "tune":
         from decentralized_llm.tuning.controller import execute
 
+        if args.tune_action == "run" and args.directory is None:
+            args.directory = Path("runs/r-tuning") / args.spec.stem
         result = execute(
             args.tune_action,
             args.directory,

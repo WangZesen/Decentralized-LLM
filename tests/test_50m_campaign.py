@@ -11,7 +11,7 @@ from decentralized_llm.tuning.estimate import estimate
 from decentralized_llm.tuning.spec import Record, TuningSpec, expand, read_spec
 from scripts import tune_50m
 
-SPECS = sorted(Path("configs/tunings").glob("50m-*-1024c-64bs-20tpp.yaml"))
+SPECS = sorted(Path("configs/tunings/archive").glob("50m-*-1024c-64bs-20tpp.yaml"))
 
 
 @pytest.mark.parametrize("path", SPECS, ids=lambda path: path.stem)
@@ -66,7 +66,7 @@ def completed_state(candidate: Record, spec: TuningSpec, base: Config, loss: flo
 
 @pytest.fixture
 def core() -> Record:
-    spec, base = read_spec(Path("configs/tunings/50m-sync-1w-1024c-64bs-20tpp.yaml"))
+    spec, base = read_spec(Path("configs/tunings/archive/50m-sync-1w-1024c-64bs-20tpp.yaml"))
     first = expand(base, spec.phases[0])
     second = expand(base, spec.phases[1], first[:1])
     return completed_state(second[0], spec, base, 3.5)

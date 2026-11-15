@@ -55,7 +55,7 @@ def publish(base: dict, seed: int, loss: float, root: Path) -> dict:
 
 @pytest.fixture
 def history(tmp_path: Path) -> dict:
-    spec, base = read_spec(Path("configs/tunings/50m-sync-1w-1024c-64bs-20tpp.yaml"))
+    spec, base = read_spec(Path("configs/tunings/archive/50m-sync-1w-1024c-64bs-20tpp.yaml"))
     base.optimizer.lr = 2**-8
     base.optimizer.beta1 = 0.974003746425297
     base.optimizer.beta2 = 0.996799302289812
@@ -276,7 +276,7 @@ def test_report_excludes_imported_jobs_and_counts_boundary_retries_once(
     assert row["status"] == "complete" and (directory / "final-winner.yaml").exists()
 
 
-@pytest.mark.parametrize("path", sorted(Path("configs/tunings").glob("50m-*-1024c-64bs-20tpp.yaml")))
+@pytest.mark.parametrize("path", sorted(Path("configs/tunings/archive").glob("50m-*-1024c-64bs-20tpp.yaml")))
 def test_saved_recipes_pass_extension_validation(path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     spec, base = read_spec(path)
     directory = tmp_path / path.stem

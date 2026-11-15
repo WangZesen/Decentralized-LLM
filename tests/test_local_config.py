@@ -189,11 +189,11 @@ def test_cli_and_tuning_use_local_backend_without_overlay(
         "setups/local-decentralized.yaml",
         "setups/slurm-ddp.yaml",
         "setups/slurm-decentralized.yaml",
-        "tunings/tuning-example.yaml",
-        "tunings/20m-sync-512c-32bs-20tpp.yaml",
-        "tunings/20m-sync-512c-64bs-20tpp.yaml",
-        "tunings/20m-awc-8w-ring-512c-64bs-20tpp.yaml",
-        "tunings/20m-awc-ef-8w-ring-512c-64bs-20tpp.yaml",
+        "tunings/archive/tuning-example.yaml",
+        "tunings/archive/20m-sync-512c-32bs-20tpp.yaml",
+        "tunings/archive/20m-sync-512c-64bs-20tpp.yaml",
+        "tunings/archive/20m-awc-8w-ring-512c-64bs-20tpp.yaml",
+        "tunings/archive/20m-awc-ef-8w-ring-512c-64bs-20tpp.yaml",
     ],
 )
 def test_shared_recipes_use_local_backend_without_site_dependencies(

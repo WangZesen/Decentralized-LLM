@@ -548,9 +548,85 @@ It does not submit a job during a dry run. Submission artifacts are retained in 
 
 ## Phased hyperparameter tuning
 
-### Current compact data-reuse study
+### Current 20M tuning round
 
-The 16 `configs/tunings/*-local-warmup3.yaml` specifications cover sync → cmp →
+The `configs/tunings/*-warmup4.yaml` specifications provide seven method/worker
+combinations at each of three total token budgets: 20, 40, and 60 TPP. They compare
+synchronous AdamW with one worker and packed decentralized AWC with eight or four
+workers on complete, exponential, and ring topologies. Each trial uses one physical
+GH200, global batch size 128, context length 512, gradient clipping 1.0, and
+evaluation batch size 256. All variants include 4 TPP of warmup. The 20- and
+40-TPP variants differ only in total token budget; the 60-TPP variants narrow the
+search using both completed rounds.
+
+At 20 and 40 TPP, the LR/weight-decay screen uses LR `2^-8` through `2^-5` and weight decay
+`0.0125`, `0.025`, `0.05`, and `0.1`. It retains the reference study's beta grid,
+three survivors for beta refinement, six survivors for confirmation, and seeds
+42–44. Each study needs 97 executions before retries, grouped into 49 Slurm
+allocations with up to two sequential trials per allocation, assuming finite
+results. The seven studies at either total budget need 679 executions and
+343 allocations.
+
+The seven 60-TPP studies start from the corresponding 40-TPP winners and use
+reduced LR, weight-decay, and beta grids. Together they need 269 executions and
+139 Slurm allocations before retries, retaining three pairs for beta refinement
+and six candidates for confirmation on seeds 42–44.
+
+See [the configuration index](configs/tunings/README.md) for all 21 files and
+a dry-run command. `tune run` defaults to `runs/r-tuning/<spec-stem>` when
+`--output` is omitted. All earlier tuning specifications, including examples and
+platform presets, are now in `configs/tunings/archive/`; their relative base paths
+are adjusted while numerical recipes and grids are unchanged. Frozen campaign
+artifacts and original reports remain in their existing run directories.
+
+### Winner stability slices
+
+`scripts/tune_stability.py` evaluates one hyperparameter at a time through each
+completed `runs/r-tuning` winner. Learning rate, weight decay, beta1, and beta2
+use their original grids, with the other parameters fixed at the confirmed
+winner and every point evaluated on seeds 42–44. The shared center is executed
+only once per seed. Historical results are authenticated and reused; a point
+with only seed 42 adds seeds 43 and 44.
+
+```bash
+.venv-x86_64/bin/python scripts/tune_stability.py prepare --dry-run
+.venv-x86_64/bin/python scripts/tune_stability.py prepare
+.venv-x86_64/bin/python scripts/tune_stability.py run --dry-run
+.venv-x86_64/bin/python scripts/tune_stability.py run
+.venv-x86_64/bin/python scripts/tune_stability.py status
+.venv-x86_64/bin/python scripts/tune_stability.py report
+```
+
+The default campaign directory is
+`runs/r-stability/20m-512c-128bs-20tpp-warmup4-20261114`; `--root` selects another
+destination. Preparation freezes the campaign code and records source evidence.
+Execution uses the original frozen training environment, and repeating `run`
+resumes existing controller states. Original tuning studies remain unchanged.
+Use `--source-root` to select a directory containing only the intended studies
+(symlinks to completed studies are supported). When tuning used reduced ranges,
+`prepare --grid-spec PATH` takes all four search grids from a reference tuning
+specification while retaining each selected study's winner, training budget,
+provenance, and reusable results. The reference is hashed in the campaign
+manifest; its grids must contain every winner coordinate. For the 60-TPP
+analysis, use the frozen 40-TPP specification to restore the original LR,
+weight-decay, beta1, and beta2 grids. This varies one parameter at a time;
+40-TPP losses are never reused as 60-TPP results.
+
+The seven completed 20-TPP studies require 315 distinct configuration/seed
+results: 131 reused and 184 new runs, grouped into 95 Slurm allocations before
+retries. Each trial uses one physical GH200.
+
+The campaign's `analysis/` directory contains per-seed CSV/JSON data, plots,
+and a report of full-validation loss, sample standard deviations, and paired
+differences from each original winner. Four- and eight-worker comparisons share
+the synchronous reference and follow sync → cmp → exp → ring. The original
+winner remains the reference even when a slice finds a better point. These
+results describe sensitivity on the sampled grid using the tuning seeds;
+boundary values do not establish stability outside that grid.
+
+### Previous compact data-reuse study
+
+The 16 `configs/tunings/archive/*-local-warmup3.yaml` specifications cover sync → cmp →
 exp → ring at 40 TPP/reuse 2 with repeat order, and at 60 TPP with fresh data,
 reshuffled reuse 3, and repeated-order reuse 3. Each study screens nine nearby
 LR/weight-decay combinations and three additional beta combinations, then adds
@@ -561,11 +637,6 @@ winners, not exhaustive optima.
 
 The completed campaign is
 `runs/p-tuning/20m-512c-128bs-40repeat-60tpp-local-tuning-warmup3-20261107`.
-See [the configuration index](configs/tunings/README.md) for active specifications.
-Earlier study configurations are tracked in `configs/tunings/archive/`; their
-relative base paths are adjusted, while numerical recipes and grids are unchanged.
-Established examples and platform presets retain their paths. Frozen campaign
-artifacts and original reports remain in their existing run directories.
 
 ### Joint LR/decay and beta tuning: 20M, batch 64
 
@@ -863,7 +934,7 @@ scientific reports. See the campaign README for references and interpretation.
 
 ### Bounded 50M campaign
 
-The eight `configs/tunings/50m-*-1024c-64bs-20tpp.yaml` specifications compare
+The eight `configs/tunings/archive/50m-*-1024c-64bs-20tpp.yaml` specifications compare
 synchronous training and eight-worker AWC on ring, exponential, and complete graphs,
 each with feedback gamma 0 or 1. All use packed execution on one physical GH200,
 context 1024, 65,536 global batch tokens, and 20 TPP (970,129,408 rounded training
@@ -886,7 +957,7 @@ run the eight studies concurrently.
 
 ```bash
 python scripts/tune_50m.py run \
-  --spec configs/tunings/50m-awc-8w-ring-1024c-64bs-20tpp.yaml \
+  --spec configs/tunings/archive/50m-awc-8w-ring-1024c-64bs-20tpp.yaml \
   --output runs/p-tuning/50m-campaign/50m-awc-8w-ring-1024c-64bs-20tpp
 python scripts/tune_50m.py report --root runs/p-tuning/50m-campaign --watch
 ```
@@ -1012,20 +1083,24 @@ an enduring shell such as tmux, or in your own CPU allocation. SLURM uses the sa
 lowercase `account` environment variable as ordinary submissions; it stays out of
 configuration, receipts, and reports.
 
-Start with [`configs/tunings/tuning-example.yaml`](configs/tunings/tuning-example.yaml), updating the
+Start with [`configs/tunings/archive/tuning-example.yaml`](configs/tunings/archive/tuning-example.yaml), updating the
 referenced training configuration and SLURM partition for your environment:
 
 ```bash
-uv run decentralized-llm tune run --spec configs/tunings/tuning-example.yaml \
-  --output runs/tuning/example --dry-run
-uv run decentralized-llm tune run --spec configs/tunings/tuning-example.yaml \
-  --output runs/tuning/example
-uv run decentralized-llm tune status runs/tuning/example
-uv run decentralized-llm tune resume runs/tuning/example
-uv run decentralized-llm tune extend runs/tuning/example --spec configs/tunings/tuning-example.yaml --dry-run
-uv run decentralized-llm tune extend runs/tuning/example --spec configs/tunings/tuning-example.yaml
-uv run decentralized-llm tune report runs/tuning/example
+uv run decentralized-llm tune run --spec configs/tunings/archive/tuning-example.yaml \
+  --output runs/r-tuning/example --dry-run
+uv run decentralized-llm tune run --spec configs/tunings/archive/tuning-example.yaml \
+  --output runs/r-tuning/example
+uv run decentralized-llm tune status runs/r-tuning/example
+uv run decentralized-llm tune resume runs/r-tuning/example
+uv run decentralized-llm tune extend runs/r-tuning/example --spec configs/tunings/archive/tuning-example.yaml --dry-run
+uv run decentralized-llm tune extend runs/r-tuning/example --spec configs/tunings/archive/tuning-example.yaml
+uv run decentralized-llm tune report runs/r-tuning/example
 ```
+
+For `tune run`, `--output` is optional and defaults to
+`runs/r-tuning/<spec-stem>`, relative to the working directory. Use an explicit
+`--output` for a custom location or another study using the same specification.
 
 The tuning specification has a `base.configs` list and optional dotted `base.overrides`
 mapping. Both `tune run` and `tune extend` also accept repeatable `--config/-c FILE`
@@ -1047,12 +1122,12 @@ Reuse a spec for a different model, hardware setup, batch, and context:
 
 ```bash
 uv run decentralized-llm tune run \
-  --spec configs/tunings/20m-sync-512c-64bs-20tpp.yaml \
+  --spec configs/tunings/archive/20m-sync-512c-64bs-20tpp.yaml \
   -c configs/models/90m.yaml \
   -c configs/setups/a100-8gpu.yaml \
   -c configs/training-512c-32bs-20tpp.yaml \
   --set model.context_length=1024 \
-  --output runs/tuning/90m-a100-8gpu --dry-run
+  --output runs/r-tuning/90m-a100-8gpu --dry-run
 ```
 
 Each command configures one study; use separate output directories for different
@@ -1211,12 +1286,12 @@ or unrelated training jobs; the controller does not detect external GPU usage. F
 example, while another run uses physical GPU 0, start a sweep with
 `CUDA_VISIBLE_DEVICES=1` and omit `local_gpus` (or set it to `[0]`).
 
-The bounded [local packed example](configs/tunings/local-packed-example.yaml) runs
+The bounded [local packed example](configs/tunings/archive/local-packed-example.yaml) runs
 three learning-rate candidates using the small C4 cache prepared above:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 uv run decentralized-llm tune run \
-  --spec configs/tunings/local-packed-example.yaml --output runs/tuning/local-packed --dry-run
+  --spec configs/tunings/archive/local-packed-example.yaml --output runs/r-tuning/local-packed --dry-run
 # Remove --dry-run to start the sweep on the selected GPUs.
 ```
 
