@@ -214,7 +214,9 @@ def selected_norm(branch, residual, weight, eps=1e-5, *, rows=4, a100=False):
     # schedules for other shapes and for GH200 (docs/a100-performance.md).
     if a100 and width == 640 and tokens == 32768:
         return pipeline_norm(branch, residual, weight, eps, policy=(4, 1024, 4, 1, True, ""))
-    if width == 512:
+    # The 10M GH200 screen favored this reduction at 4/8 packed workers;
+    # wider row tiles and pipeline variants did not consistently improve it.
+    if width in (192, 512):
         return residual_norm(branch, residual, weight, eps, rows=rows)
     if (width == 320 and tokens < 8192) or (width == 640 and tokens < 4096):
         return residual_norm(branch, residual, weight, eps, rows=rows)

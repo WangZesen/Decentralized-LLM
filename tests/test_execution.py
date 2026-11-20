@@ -41,6 +41,21 @@ def test_forced_backend_rejects_cpu(tiny_config: Config) -> None:
         resolve_execution(tiny_config, torch.device("cpu"))
 
 
+def test_10m_gh200_policy_requires_explicit_supported_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = Config(model=ModelConfig(**PRESETS["10m"]))
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
+    device = torch.device("cuda", 0)
+    # Kernel support does not manufacture evidence for automatic backend selection.
+    assert resolve_execution(config, device)["backend"] == "native"
+    config.runtime.execution_backend = "gh200"
+    policy = resolve_execution(config, device)
+    assert policy["backend"] == "gh200" and policy["compile"] and policy["fused_rope"]
+    config.model.ffn_width = 512
+    with pytest.raises(ValueError, match="GH200 execution requires"):
+        resolve_execution(config, device)
+
+
 @pytest.mark.parametrize("preset", PRESETS)
 def test_fused_rope_default_follows_supported_execution(preset: str, monkeypatch: pytest.MonkeyPatch) -> None:
     config = Config(model=ModelConfig(**PRESETS[preset]))
@@ -49,7 +64,7 @@ def test_fused_rope_default_follows_supported_execution(preset: str, monkeypatch
     monkeypatch.setattr(torch.cuda, "get_device_name", lambda _: "NVIDIA GH200 120GB")
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (9, 0))
     device = torch.device("cuda", 0)
-    supported = preset in ("20m", "90m")
+    supported = preset in ("10m", "20m", "90m")
     assert resolve_execution(config, device)["fused_rope"] is supported
     config.runtime.fused_rope = False
     assert resolve_execution(config, device)["fused_rope"] is False
@@ -60,7 +75,7 @@ def test_fused_rope_default_follows_supported_execution(preset: str, monkeypatch
         with pytest.raises(ValueError, match="fused_rope requires projection_fusion"):
             resolve_execution(config, device)
     else:
-        with pytest.raises(ValueError, match="fused_rope requires the GH200 or A100 20M/90M path"):
+        with pytest.raises(ValueError, match="fused_rope requires the GH200"):
             resolve_execution(config, device)
     config.runtime.fused_rope = "auto"
     config.runtime.projection_fusion = False
@@ -260,9 +275,10 @@ def test_compile_cache_shared_across_trials(
 
 @pytest.mark.cuda
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("preset", ["10m", "20m"])
 @pytest.mark.parametrize("fusion,rope", [(False, False), (True, False), (True, True)])
-def test_gh200_kernel_gradients_and_mask(fusion: bool, rope: bool) -> None:
-    cfg = Config().model
+def test_gh200_kernel_gradients_and_mask(preset: str, fusion: bool, rope: bool) -> None:
+    cfg = ModelConfig(**PRESETS[preset])
     cfg.layers, cfg.context_length, cfg.vocab_size = 2, 32, 128
     native = Llama(cfg).cuda()
     fast = copy.deepcopy(native)
@@ -292,6 +308,10 @@ def test_a100_fused_policy_is_explicit(preset: str, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _: (8, 0))
     assert resolve_execution(config, device)["backend"] == "native"
     config.runtime.execution_backend = "a100"
+    if preset == "10m":
+        with pytest.raises(ValueError, match="A100 execution requires"):
+            resolve_execution(config, device)
+        return
     policy = resolve_execution(config, device)
     assert policy["backend"] == "a100" and policy["compile"] and policy["projection_fusion"]
     assert policy["fused_rope"] is (preset in ("20m", "90m"))

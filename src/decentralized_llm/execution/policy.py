@@ -18,12 +18,20 @@ from decentralized_llm.execution.qualification import (
 
 def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
     runtime = config.runtime
+    model_preset = next(
+        (
+            name
+            for name, preset in PRESETS.items()
+            if all(getattr(config.model, key) == value for key, value in preset.items())
+        ),
+        None,
+    )
     fused_inputs = (
         device.type == "cuda"
         and runtime.amp
         and not runtime.deterministic
         and runtime.attention_backend == "sdpa"
-        and any(all(getattr(config.model, k) == v for k, v in preset.items()) for preset in PRESETS.values())
+        and model_preset is not None
     )
     supported = (
         fused_inputs
@@ -32,13 +40,11 @@ def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
     )
     # Explicit, bounded Ada experiment using the portable A100 kernel path.
     # Automatic selection still requires the existing hardware-specific evidence.
-    ada_20m = (
-        fused_inputs
-        and torch.cuda.get_device_capability(device) == (8, 9)
-        and all(getattr(config.model, key) == value for key, value in PRESETS["20m"].items())
-    )
+    ada_20m = fused_inputs and torch.cuda.get_device_capability(device) == (8, 9) and model_preset == "20m"
     a100_supported = (
         fused_inputs
+        # Support for the 10M shape is limited to GH200.
+        and model_preset != "10m"
         and torch.cuda.get_device_capability(device) == (8, 0)
         and "A100" in torch.cuda.get_device_name(device)
     ) or ada_20m
@@ -87,9 +93,9 @@ def resolve_execution(config: Config, device: torch.device) -> dict[str, Any]:
         fused_backend = False
     fused_rope = runtime.fused_rope
     if fused_rope == "auto":
-        fused_rope = fused_backend and config.model.heads in (5, 10) and runtime.projection_fusion
-    if fused_rope and (not fused_backend or config.model.heads not in (5, 10)):
-        raise ValueError("fused_rope requires the GH200 or A100 20M/90M path")
+        fused_rope = fused_backend and config.model.heads in (3, 5, 10) and runtime.projection_fusion
+    if fused_rope and (not fused_backend or config.model.heads not in (3, 5, 10)):
+        raise ValueError("fused_rope requires the GH200 10M/20M/90M or A100 20M/90M path")
     if fused_rope and not runtime.projection_fusion:
         raise ValueError("fused_rope requires projection_fusion")
     if fused_backend and runtime.compile_scope == "blocks":

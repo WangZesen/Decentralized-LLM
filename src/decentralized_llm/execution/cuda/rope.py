@@ -175,8 +175,8 @@ def packed_rope(packed, cos, sin, heads, *, copy_value=False):
         raise RuntimeError("packed RoPE requires Triton")
     if packed.dtype != torch.bfloat16 or not packed.is_cuda or not packed.is_contiguous():
         raise ValueError("packed RoPE requires contiguous CUDA BF16 QKV")
-    if packed.ndim != 3 or packed.numel() == 0 or heads not in (5, 10) or packed.shape[-1] != 3 * heads * 64:
-        raise ValueError("packed RoPE requires 5/10 heads of dimension 64")
+    if packed.ndim != 3 or packed.numel() == 0 or heads not in (3, 5, 10) or packed.shape[-1] != 3 * heads * 64:
+        raise ValueError("packed RoPE requires 3/5/10 heads of dimension 64")
     if any(
         t.device != packed.device or not t.is_contiguous() or t.dtype != torch.float32 or t.shape != cos.shape
         for t in (cos, sin)

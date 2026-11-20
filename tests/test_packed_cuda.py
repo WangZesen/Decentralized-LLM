@@ -8,7 +8,7 @@ import torch
 
 from decentralized_llm.algorithms.packed_adamw import PackedAdamW
 from decentralized_llm.backends.factory import runtime_for
-from decentralized_llm.config import Config
+from decentralized_llm.config import PRESETS, Config
 from decentralized_llm.data.sampling import BatchSpec
 from decentralized_llm.execution.native import TrainingExecution
 from decentralized_llm.models.initialization import initialize_model
@@ -141,12 +141,13 @@ def test_captured_update_parity(
     assert int(optimizer.completed) == 4
 
 
-@pytest.mark.parametrize("hardware", ["gh200", "a100"])
-def test_fused_packed_forward(tiny_config: Config, hardware: str) -> None:
+@pytest.mark.parametrize("preset,hardware", [("10m", "gh200"), ("20m", "gh200"), ("20m", "a100")])
+def test_fused_packed_forward(tiny_config: Config, preset: str, hardware: str) -> None:
     from decentralized_llm.execution.native import LossModule
 
     raw = tiny_config.model_dump(mode="json")
-    raw["model"].update(width=320, heads=5, ffn_width=896, layers=1, context_length=16, vocab_size=128)
+    raw["model"].update(**PRESETS[preset], context_length=16, vocab_size=128)
+    raw["model"]["layers"] = 1
     raw["training"].update(batch_tokens=64, num_accumulation=1)
     raw["runtime"].update(amp=True, device="cuda", deterministic=False)
     cfg = Config.model_validate(raw)
@@ -167,12 +168,12 @@ def test_fused_packed_forward(tiny_config: Config, hardware: str) -> None:
     assert float((a - b).norm() / b.norm()) < 0.05
 
 
-def test_production_compiled_packed_update(tiny_config: Config) -> None:
+@pytest.mark.parametrize("preset", ["10m", "20m"])
+def test_production_compiled_packed_update(tiny_config: Config, preset: str) -> None:
     """Exercise policy selection, Inductor, fused layers, and full-update replay together."""
     import numpy as np
 
     from decentralized_llm.backends.factory import create_backend
-    from decentralized_llm.config import PRESETS
 
     name = torch.cuda.get_device_name()
     hardware = (
@@ -184,8 +185,10 @@ def test_production_compiled_packed_update(tiny_config: Config) -> None:
     )
     if hardware is None:
         pytest.skip("production fused policy requires GH200, A100, or experimental Ada 20M")
+    if preset == "10m" and hardware != "gh200":
+        pytest.skip("10M fused execution requires GH200")
     raw = tiny_config.model_dump(mode="json")
-    raw["model"].update(**PRESETS["20m"], context_length=16, vocab_size=128)
+    raw["model"].update(**PRESETS[preset], context_length=16, vocab_size=128)
     raw["runtime"].update(
         training_backend="packed",
         device="cuda",

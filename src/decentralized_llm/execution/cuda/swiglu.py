@@ -76,8 +76,8 @@ class _PairedSwiGLU(torch.autograd.Function):
 def paired_swiglu(packed, *, policy=(1024, 0, 1)):
     if not packed.is_cuda or packed.dtype != torch.bfloat16 or not packed.is_contiguous():
         raise ValueError("paired SwiGLU requires contiguous CUDA BF16")
-    if packed.ndim < 2 or packed.numel() == 0 or packed.shape[-1] not in (1792, 2816, 3584, 5120, 6912):
-        raise ValueError("paired SwiGLU requires packed FFN width 896/1408/1792/2560/3456")
+    if packed.ndim < 2 or packed.numel() == 0 or packed.shape[-1] not in (1088, 1792, 2816, 3584, 5120, 6912):
+        raise ValueError("paired SwiGLU requires packed FFN width 544/896/1408/1792/2560/3456")
     block, groups, stages = policy
     if block not in (256, 512, 1024, 2048, 4096) or groups not in (0, 264, 528, 1056) or stages not in (1, 2, 3):
         raise ValueError("unsupported paired SwiGLU memory policy")

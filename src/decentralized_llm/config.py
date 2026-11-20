@@ -51,6 +51,7 @@ class ModelConfig(StrictModel):
 
 
 PRESETS = {
+    "10m": dict(layers=8, width=192, heads=3, ffn_width=544),
     "20m": dict(layers=8, width=320, heads=5, ffn_width=896),
     "50m": dict(layers=10, width=512, heads=8, ffn_width=1408),
     "90m": dict(layers=14, width=640, heads=10, ffn_width=1792),

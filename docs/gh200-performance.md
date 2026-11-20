@@ -12,6 +12,91 @@ improved in several measured workloads, but the experiments do not establish num
 equivalence, universal speedups, or full-training convergence. The selected presets
 explicitly enable GH200 execution; automatic numerical qualification remains separate.
 
+## 10M support and short benchmarks (2026-11-15)
+
+The 10M preset has eight layers, width 192, three 64-dimensional attention heads,
+FFN width 544, and 9,833,664 parameters at vocabulary size 32,000. GH200 execution
+supports its fused residual/RMSNorm, paired SwiGLU, and packed-QKV RoPE kernels,
+including compiled packed training with full-update CUDA graph replay. The four-
+and eight-worker exponential-topology tuning specifications explicitly select
+`runtime.execution_backend: gh200`. A100 support for this shape is not enabled;
+`execution_backend: auto` still requires matching qualification evidence.
+
+Measurements used one GH200 on node `n547`, Slurm allocation `5316901`, 16 allocated
+CPU cores and eight PyTorch threads. The workload matches the tuning specifications:
+packed AWC, exponential topology, context 512, global batch 65,536 tokens, BF16,
+and resident C4 inputs. Each fresh process performed 12 warmup updates and three
+timing windows of at least two seconds, using six-update chunks that cover complete
+topology cycles. Compilation and resident preloading were excluded from timing.
+Timing holds the base AdamW settings fixed (LR 0.001, betas 0.9/0.95, weight decay
+0.1); it does not run the search grid. All ten measurements passed the benchmark's
+validity checks.
+
+| Logical workers | Native eager (M tokens/s) | Native compiled (M tokens/s) | Fused GH200 (M tokens/s) | Gain over native compiled |
+|---|---:|---:|---:|---:|
+| 4 | 0.881 | 2.217 | 2.764 | 24.7% |
+| 8 | 0.826 | 1.913 | 2.603 | 36.1% |
+
+Native compiled and GH200 each have two fresh-process measurements per worker
+count, with opposite execution orders; the table reports the median of the two
+process medians. Native eager has one control process per worker count. These are
+short measurements on one GPU, not a multi-node communication or convergence study.
+The GH200 comparison includes projection fusion, fused losses and optimizer, and
+full-update graph replay; the speedup is for the complete execution backend.
+
+A separate forward/backward normalization screen compared four- and eight-row
+reductions and two pipelined schedules at the actual per-worker token counts.
+The four-row reduction took 0.1084 ms at four workers and 0.1098 ms at eight workers.
+It was fastest at four workers and within 0.2% of the fastest eight-worker candidate,
+so the 10M dispatch retains this reduction. Candidate gradients agreed within
+`1.6e-7` relative L2 error in that screen.
+
+Numerical verification includes 21 passing CUDA tests for kernel forward/backward
+behavior, masked losses, packed worker strides, compiled updates, graph capture,
+and checkpoint resume. Another 362 relevant non-CUDA tests passed. A 20-update
+single-worker real-C4 probe passed the existing first-five-update state gates and
+final-validation gate, with a validation-loss difference of +0.00136.
+
+The packed trajectory checks use an actual first-phase search candidate: LR
+`2^-7`, beta1 0.9, beta2 0.996712898272925, weight decay 0.1, and the complete 20-TPP
+schedule with 4-TPP warmup. State gates cover the first five updates; finiteness and
+step counters are checked throughout, and both averaged models are evaluated with
+native eager arithmetic after 100 updates. These 100 updates remain inside the
+600-update warmup, so they do not establish post-warmup convergence equivalence.
+
+An initial four-worker screen using 32 validation blocks missed the strict
+validation gate: the fused-minus-native loss difference was -0.02717 against an
+absolute limit of 0.02. The corresponding eight-worker screen passed at +0.00277.
+A fresh four-worker run using the configured 1,024 validation blocks passed at
+-0.00328; the eight-worker run passed at -0.00738. This changes both the process
+run and validation sample; it does not
+establish that sample size alone explains the earlier failure. Turning projection
+fusion off failed at +0.02452, while turning fused RoPE off passed at +0.01560.
+These short controls do not justify disabling either fusion in the tuning configs.
+
+A separate four-worker no-warmup stress test at LR 0.001 and beta2 0.95 failed
+the later state gates against both eager and compiled native references. Resetting
+the candidate to identical reference model and optimizer state before each update
+passed all five individual-update gates (maximum gradient error 2.61%). This is
+consistent with accumulated trajectory sensitivity, but is not a proof of long-run
+equivalence. All failed probes and their exact script revisions are retained.
+Automatic qualification has not been enabled, and gate thresholds were not relaxed.
+
+The raw reports, resolved configurations, benchmark and numerical-probe scripts,
+logs, and source snapshot are retained under `runs/10m-gh200-20261115/`.
+`benchmark-summary.json` records aggregation and links each individual report.
+Inside a one-GH200 allocation, reproduce a case from its saved configuration with
+a fresh output directory, preserving the original reports:
+
+```bash
+.venv-aarch64/bin/python -m decentralized_llm worker --action benchmark-training \
+  -c runs/10m-gh200-20261115/4w-gh200-r1/config.yaml \
+  --set runtime.output_dir=runs/10m-gh200-recheck/4w-gh200-r1
+```
+
+The original runner, `run_benchmarks.sh`, records the complete execution order.
+It used the existing ARM environment after `scripts/toolchain.sh` activation.
+
 ## Selected recipe and implementation
 
 For ordinary training and tuning, set `runtime.execution_backend: gh200` in the ignored
@@ -36,7 +121,7 @@ The port combines Q/K/V and gate/up projections during execution while retaining
 independent canonical parameters. It adds fused residual/RMSNorm, paired SwiGLU, and
 masked per-token cross entropy that avoids an FP32 vocabulary-sized copy. Parameter
 names, tied embeddings, optimizer groups, and checkpoint tensor layouts are preserved.
-Fused RoPE now defaults to `auto`, enabling it on the GH200 20M/90M paths when
+Fused RoPE now defaults to `auto`, enabling it on the GH200 10M/20M/90M paths when
 projection fusion is enabled. Other models and native execution use ordinary RoPE.
 Set `runtime.fused_rope=false` for an explicit opt-out; explicit `true` still requires
 a supported GH200 path and projection fusion.

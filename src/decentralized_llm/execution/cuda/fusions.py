@@ -212,10 +212,10 @@ def _validate_inputs(branch, residual, weight, rows):
     if (
         branch.ndim < 2
         or branch.numel() == 0
-        or branch.shape[-1] not in (320, 512, 640, 960, 1280)
+        or branch.shape[-1] not in (192, 320, 512, 640, 960, 1280)
         or not branch.is_contiguous()
     ):
-        raise ValueError("GH200 fusion requires contiguous inputs of width 320/512/640/960/1280")
+        raise ValueError("GH200 fusion requires contiguous inputs of width 192/320/512/640/960/1280")
     expected = (branch.shape[-1],) if weight.ndim == 1 else (branch.shape[0], branch.shape[-1])
     if tuple(weight.shape) != expected or weight.dtype != torch.float32:
         raise ValueError("RMSNorm weight must be FP32 with the input width")

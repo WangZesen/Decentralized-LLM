@@ -60,7 +60,10 @@ Configuration starts with built-in defaults, then local execution defaults, then
 configuration files from left to right; dotted `--set key=value` overrides apply last.
 Values use YAML syntax. Unknown fields and nonfinite numbers are rejected.
 Changing `lr_schedule.name` or `launcher.kind` clears the previous variant's fields.
-Five dimension presets are in `configs/models/{20m,50m,90m,250m,500m}.yaml`.
+Six model dimension configurations are in `configs/models/{10m,20m,50m,90m,250m,500m}.yaml`.
+The 10M configuration has 9,833,664 parameters with the default 32,000-token vocabulary
+and supports native and fused GH200 execution. A100 support remains limited to the
+five larger presets.
 
 | Directory | Contents |
 | --- | --- |
@@ -392,7 +395,8 @@ threads inherit its GPU-local CPU mask. Install `numactl` on every GPU node.
 This is CPU placement, not an explicit NUMA memory policy.
 
 `runtime.fused_rope` defaults to `auto`, enabling the fused RoPE kernel for GH200
-20M/90M execution with projection fusion. Other execution paths use ordinary RoPE.
+10M/20M/90M execution with projection fusion (20M/90M on A100).
+Other execution paths use ordinary RoPE.
 Set `--set runtime.fused_rope=false` to disable it for comparisons. Explicit `true`
 still requires a supported GH200 model and projection fusion.
 

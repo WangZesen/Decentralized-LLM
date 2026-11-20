@@ -34,7 +34,7 @@ def test_config_layers(tmp_path: Path) -> None:
 
 
 def test_presets_and_parameter_count() -> None:
-    assert set(PRESETS) == {"20m", "50m", "90m", "250m", "500m"}
+    assert set(PRESETS) == {"10m", "20m", "50m", "90m", "250m", "500m"}
     for values in PRESETS.values():
         cfg = ModelConfig(**values)
         with torch.device("meta"):
