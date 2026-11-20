@@ -15,7 +15,7 @@ from contextlib import closing, nullcontext
 from fractions import Fraction
 from itertools import islice
 from pathlib import Path
-from typing import BinaryIO, Protocol
+from typing import Any, BinaryIO, Protocol
 
 import numpy as np
 from loguru import logger
@@ -32,6 +32,28 @@ def fingerprint(value: object) -> str:
 def file_digest(path: Path) -> str:
     with path.open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def tokenizer_fingerprint(tokenizer: Any) -> str:
+    """The version-1 identity shared by preparation and offline evaluation."""
+    return fingerprint(
+        {"vocab": tokenizer.get_vocab(), "eos": tokenizer.eos_token_id, "backend": tokenizer.backend_tokenizer.to_str()}
+    )
+
+
+def local_tokenizer(source: str, revision: str = "main") -> tuple[Any, str] | None:
+    path = Path(source)
+    if not path.is_dir():
+        if path.is_absolute() or source.startswith(".") or revision.startswith("sha256:"):
+            raise FileNotFoundError(f"local tokenizer directory not found: {source}")
+        return None
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(path, use_fast=True, local_files_only=True)
+    resolved = "sha256:" + tokenizer_fingerprint(tokenizer)
+    if revision not in ("main", resolved):
+        raise ValueError(f"local tokenizer revision mismatch: expected {revision}, found {resolved}")
+    return tokenizer, resolved
 
 
 class TokenWriter:
@@ -179,9 +201,12 @@ def prepare(config: Config) -> CacheManifest:
     required_blocks = (required + length - 1) // length
     train_limit = required_blocks * length + 1
     destination = cfg.cache_dir
+    local = local_tokenizer(cfg.tokenizer, cfg.tokenizer_revision)
     if destination.exists():
         cache = TokenCache(destination)
         cache.validate_config(config)
+        if local is not None and local[1] != cache.manifest["tokenizer_revision"]:
+            raise ValueError("local tokenizer changed; prepare a new cache at a new path")
         if cache.blocks("train", length) < required_blocks:
             raise ValueError("existing cache is too small; prepare a larger cache at a new path")
         if cfg.prepare_validation_tokens is None and not cache.manifest["validation_complete"]:
@@ -203,22 +228,29 @@ def prepare(config: Config) -> CacheManifest:
             shutil.rmtree(temporary)
         temporary.mkdir()
         api = HfApi()
-        dataset_sha = api.dataset_info(cfg.dataset, revision=cfg.revision).sha
-        tokenizer_sha = api.model_info(cfg.tokenizer, revision=cfg.tokenizer_revision).sha
-        if dataset_sha is None or tokenizer_sha is None:
-            raise ValueError("could not resolve dataset/tokenizer commit SHA")
-        tokenizer = AutoTokenizer.from_pretrained(cfg.tokenizer, revision=tokenizer_sha, use_fast=True)
+        inventory: dict[str, Any] | None = None
+        if cfg.source_dir is not None:
+            from decentralized_llm.data.c4_source import read_inventory
+
+            inventory = read_inventory(cfg.source_dir, cfg.dataset, cfg.revision)
+            dataset_sha = inventory["revision"]
+            paths = [entry["path"] for entry in inventory["files"]]
+        else:
+            dataset_sha = api.dataset_info(cfg.dataset, revision=cfg.revision).sha
+            if dataset_sha is None:
+                raise ValueError("could not resolve dataset commit SHA")
+            paths = sorted(api.list_repo_files(cfg.dataset, repo_type="dataset", revision=dataset_sha))
+        if local is None:
+            tokenizer_sha = api.model_info(cfg.tokenizer, revision=cfg.tokenizer_revision).sha
+            if tokenizer_sha is None:
+                raise ValueError("could not resolve tokenizer commit SHA")
+            tokenizer = AutoTokenizer.from_pretrained(cfg.tokenizer, revision=tokenizer_sha, use_fast=True)
+        else:
+            tokenizer, tokenizer_sha = local
         if len(tokenizer) != config.model.vocab_size or tokenizer.eos_token_id is None:
             raise ValueError("model vocabulary must match the tokenizer, which must define EOS")
         tokenizer.save_pretrained(temporary / "tokenizer")
-        tokenizer_hash = fingerprint(
-            {
-                "vocab": tokenizer.get_vocab(),
-                "eos": tokenizer.eos_token_id,
-                "backend": tokenizer.backend_tokenizer.to_str(),
-            }
-        )
-        paths = sorted(api.list_repo_files(cfg.dataset, repo_type="dataset", revision=dataset_sha))
+        tokenizer_hash = tokenizer_fingerprint(tokenizer)
         manifest: CacheContent = {
             "version": 1,
             "dataset": cfg.dataset,
@@ -238,6 +270,8 @@ def prepare(config: Config) -> CacheManifest:
             "validation_complete": cfg.prepare_validation_tokens is None,
             "splits": {},
         }
+        if cfg.shuffle_max_input_shards is not None:
+            manifest["preprocessing"]["shuffle_max_input_shards"] = cfg.shuffle_max_input_shards
         pool_context = (
             ProcessPoolExecutor(
                 max_workers=cfg.prepare_workers,
@@ -256,10 +290,23 @@ def prepare(config: Config) -> CacheManifest:
                 selected = [p for p in paths if p.startswith(f"en/c4-{split}.") and p.endswith(".json.gz")]
                 if not selected:
                     raise ValueError(f"no English C4 {split} shards at {dataset_sha}")
-                urls = [f"hf://datasets/{cfg.dataset}@{dataset_sha}/{p}" for p in selected]
-                stream = load_dataset("json", data_files={split: urls}, split=split, streaming=True)
+                if cfg.source_dir is not None:
+                    from decentralized_llm.data.c4_source import local_stream
+
+                    assert inventory is not None
+                    stream = local_stream(cfg.source_dir, split, inventory)
+                else:
+                    urls = [f"hf://datasets/{cfg.dataset}@{dataset_sha}/{p}" for p in selected]
+                    stream = load_dataset("json", data_files={split: urls}, split=split, streaming=True)
                 if split == "train":
-                    stream = stream.shuffle(seed=cfg.shuffle_seed, buffer_size=cfg.shuffle_buffer)
+                    if cfg.shuffle_max_input_shards is None:
+                        stream = stream.shuffle(seed=cfg.shuffle_seed, buffer_size=cfg.shuffle_buffer)
+                    else:
+                        stream = stream.shuffle(
+                            seed=cfg.shuffle_seed,
+                            buffer_size=cfg.shuffle_buffer,
+                            max_buffer_input_shards=cfg.shuffle_max_input_shards,
+                        )
                 writer = TokenWriter(temporary, split, cfg.shard_tokens)
                 start, last_log = time.monotonic(), 0.0
                 with (
@@ -336,6 +383,12 @@ class TokenCache:
             raise ValueError("cache/model vocabulary mismatch")
         for key, value in (("dataset", data.dataset), ("tokenizer", data.tokenizer)):
             if manifest[key] != value:
+                if (
+                    key == "tokenizer"
+                    and manifest["tokenizer_revision"].startswith("sha256:")
+                    and Path(manifest[key]).resolve() == Path(value).resolve()
+                ):
+                    continue
                 raise ValueError(f"cache {key} mismatch")
         for expected, key in (
             (data.revision, "dataset_revision"),
@@ -346,6 +399,7 @@ class TokenCache:
         if (
             manifest["preprocessing"]["shuffle_seed"] != data.shuffle_seed
             or manifest["preprocessing"]["shuffle_buffer"] != data.shuffle_buffer
+            or manifest["preprocessing"].get("shuffle_max_input_shards") != data.shuffle_max_input_shards
         ):
             raise ValueError("cache preprocessing mismatch")
 

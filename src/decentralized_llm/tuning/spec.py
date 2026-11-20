@@ -291,6 +291,10 @@ def numeric_recipe(config: Config) -> Record:
     raw["runtime"].pop("output_dir")
     raw["runtime"].pop("seed")
     raw["data"].pop("cache_dir")
+    # Source staging is transport only; unset options retain historical identities.
+    raw["data"].pop("source_dir")
+    if config.data.shuffle_max_input_shards is None:
+        raw["data"].pop("shuffle_max_input_shards")
     return raw
 
 

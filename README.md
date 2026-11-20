@@ -68,6 +68,7 @@ five larger presets.
 | Directory | Contents |
 | --- | --- |
 | `configs/models/` | Model dimensions |
+| `configs/tokenizers/` | Pinned vocabulary, tokenizer, and token-cache overlays |
 | `configs/setups/` | Local/SLURM launchers, GPU allocations, hardware execution presets, CPU benchmark |
 | `configs/tunings/` | Phased tuning specifications |
 | `configs/` | Shared base, training defaults, WSD, smoke, and example configs |
@@ -156,6 +157,92 @@ By default preparation includes a full validation split and enough training toke
 the configured global budget. A smaller already-prepared training cache may be reused
 for multiple passes. `prepare_train_tokens` and `prepare_validation_tokens` provide
 bounded smoke fixtures; truncated validation is marked in all evaluation results.
+
+### Training English C4 BPE tokenizers
+
+`scripts/train_c4_tokenizers.py` trains independent byte-level BPE vocabularies of
+**8,192** and **32,768** total tokens from the same approximately 1 GB of raw English
+C4 training text. The total includes `<unk>`, `<s>`, `</s>`, and `<pad>` at IDs 0–3.
+It preserves Unicode and whitespace, inserts no automatic BOS/EOS, and exports
+Hugging Face fast tokenizers. Preparation appends EOS once per document as usual.
+
+The workflow pins C4 to revision `1588ec454efa1a09f29cd18ddd04fe05fc8653a2`, samples
+whole training documents until reaching 1,000,000,000 UTF-8 text bytes, and retains
+document-preserving JSONL. Both vocabularies use seed 42, a 100,000-document shuffle
+buffer, and `shuffle_max_input_shards: 1`. The last setting limits how many source
+shards feed the buffer simultaneously and is recorded in cache identity. Existing
+configurations retain the dataset library's default behavior.
+
+Use the architecture-specific environment described above. The first command only
+downloads and verifies compressed source shards and can run on the login node:
+
+```bash
+python -m scripts.train_c4_tokenizers stage --train-shards 128
+python -m scripts.train_c4_tokenizers submit --skip-stage
+```
+
+Submission reserves one GPU on the `gpu` partition using the lowercase `account`
+environment variable. It explicitly requests 72 CPUs and 100 GiB of RAM for up to
+24 hours. The batch job hides CUDA and runs the CPU test suite, corpus extraction,
+BPE training, compatibility smoke runs, and cache preparation on the compute node.
+Worker/thread limits respect the actual allocation and affinity. Without `--skip-stage`,
+the job downloads source shards itself and needs outbound network access. By default,
+text-processing CLI stages require a Slurm allocation. When sustained local processing
+is permitted, explicitly opt in with a CPU limit:
+
+```bash
+CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  python -m scripts.train_c4_tokenizers run --skip-stage --local-cpus 12
+```
+
+This restricts process affinity to twelve available CPUs, including spawned workers,
+and caps tokenizer threads and preparation workers accordingly.
+
+The default root is `data/c4-bpe`; use `--root PATH` consistently to change it.
+It contains `source/` (checksummed compressed shards), `corpus/text.jsonl`,
+`tokenizer-{8192,32768}/` and `cache-{8192,32768}/`. Generated, revision-pinned
+overlays live in the repository's `configs/tokenizers/c4-bpe-{8192,32768}.yaml` and use paths
+relative to the repository root. Each full cache has **10,336,272,385** training tokens and
+the entire validation split. Tokenizer training never uses validation text.
+The caches occupy roughly 42 GB together plus validation; retained source shards
+require additional space. The complete source inventory preserves the global shard
+permutation even when only a prefix of that order has been downloaded.
+
+Layer the generated overlay after the model and training recipe:
+
+```bash
+python -m decentralized_llm validate -c configs/base.yaml -c configs/models/20m.yaml \
+  -c configs/tokenizers/c4-bpe-8192.yaml
+python -m decentralized_llm train -c configs/base.yaml -c configs/models/20m.yaml \
+  -c configs/tokenizers/c4-bpe-8192.yaml --set runtime.output_dir=runs/20m-bpe8192
+```
+
+Use the `32768` overlay for the larger vocabulary. Vocabulary changes affect the
+parameter count and therefore tokens-per-parameter budgets. Checkpoints and token
+caches cannot be interchanged between tokenizers. Quality evaluation uses the saved
+training configuration and the tokenizer inside its cache; prepare a separate
+benchmark suite for each tokenizer.
+
+Local tokenizer directories are accepted through `data.tokenizer`. During preparation,
+`data.tokenizer_revision: main` resolves to `sha256:<tokenizer fingerprint>`; generated
+overlays pin that value explicitly. Changed local tokenizers are rejected on cache
+reuse. The optional `data.source_dir` points to a pinned inventory and staged C4
+files, enabling offline preparation without Hub metadata requests. Existing caches
+and their saved tokenizers suffice for offline training and evaluation.
+
+Completed stages are checksum-verified and reused; incomplete stages restart privately.
+Individual compute stages are `sample`, `train`, and `prepare`; `--vocab-size 8192`
+or `32768` selects a tokenizer for the latter two. Success writes `result.json`
+containing corpus/tokenizer/cache identities and smoke results. Slurm and CPU-test
+logs remain alongside it. Smoke scores verify compatibility, not model quality.
+
+Once the full caches have been verified, downloaded shards in `source/en/` and
+download metadata in `source/.cache/` can be removed. Retain `source/source.json`,
+the raw training corpus, tokenizer artifacts, cache manifests, and verification
+summaries for provenance. Smoke checkpoints, smoke caches, launch scripts, and logs
+can be archived under `runs/`. Completed training and evaluation use the token caches
+and require no staged source shards. Run `stage` again before rebuilding caches or
+rerunning the workflow's smoke checks after cleanup.
 
 ## Training across GPU platforms
 

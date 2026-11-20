@@ -7,7 +7,7 @@ import torch
 from torch.nn import functional as F
 
 from decentralized_llm.config import Config
-from decentralized_llm.data.cache import TokenCache, fingerprint
+from decentralized_llm.data.cache import TokenCache, tokenizer_fingerprint
 from decentralized_llm.execution.precision import precision_context
 from decentralized_llm.models.llama import Llama
 from decentralized_llm.models.packed import PackedLlama
@@ -20,13 +20,7 @@ def load_tokenizer(cache: TokenCache):
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(cache.directory / "tokenizer", local_files_only=True, use_fast=True)
-    identity = fingerprint(
-        {
-            "vocab": tokenizer.get_vocab(),
-            "eos": tokenizer.eos_token_id,
-            "backend": tokenizer.backend_tokenizer.to_str(),
-        }
-    )
+    identity = tokenizer_fingerprint(tokenizer)
     if identity != cache.manifest["tokenizer_fingerprint"]:
         raise ValueError("saved tokenizer fingerprint mismatch")
     if len(tokenizer) != cache.manifest["vocab_size"] or tokenizer.eos_token_id != cache.manifest["eos_token_id"]:

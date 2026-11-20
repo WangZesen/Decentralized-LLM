@@ -1,0 +1,11 @@
+model:
+  vocab_size: 8192
+data:
+  dataset: allenai/c4
+  revision: 1588ec454efa1a09f29cd18ddd04fe05fc8653a2
+  tokenizer: data/c4-bpe/tokenizer-8192
+  tokenizer_revision: sha256:94c85736a0d7c9a0731e2c1e1110887ce9b3b2f061d1e84433744c6008215410
+  cache_dir: data/c4-bpe/cache-8192
+  shuffle_seed: 42
+  shuffle_buffer: 100000
+  shuffle_max_input_shards: 1
