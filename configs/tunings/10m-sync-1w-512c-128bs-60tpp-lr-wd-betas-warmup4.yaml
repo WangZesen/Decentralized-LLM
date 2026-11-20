@@ -1,0 +1,88 @@
+# Fresh AdamW sweep: 4 TPP warmup inside a 60 TPP total budget.
+# 10M, context 512, global batch 128, gradient clipping 1.0, no error feedback.
+# Search reference: 10m-sync-1w-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml
+# Preserve the original 20/40-TPP search grids, screening betas, and confirmation seeds.
+# 97 executions before retries: 16 LR/decay + 69 new betas + 12 confirmation.
+# 49 allocations per study with up to two sequential trials per allocation.
+base:
+  configs:
+    - ../base.yaml
+    - ../models/10m.yaml
+    - ../setups/slurm-ddp.yaml
+    - ../setups/1gpu.yaml
+  overrides:
+    model.context_length: 512
+    training.batch_tokens: 65536
+    training.tokens_per_parameters: 60.0
+    training.num_accumulation: 1
+    training.data_reuse_factor: 1
+    training.checkpoint_policy: none
+    optimizer.name: adamw
+    optimizer.grad_clip: 1.0
+    lr_schedule.name: cosine
+    lr_schedule.warmup_tokens_per_parameters: 4.0
+    lr_schedule.min_lr_ratio: 0.0
+    distributed.mode: ddp
+    distributed.scheme: awc
+    distributed.topology: complete
+    distributed.error_feedback_gamma: 0.0
+    runtime.training_backend: distributed
+    runtime.execution_backend: gh200
+    runtime.compile: auto
+    runtime.cpu_affinity: none
+    runtime.fused_optimizer: true
+    runtime.amp: true
+    evaluation.subset_blocks: 1024
+    evaluation.batch_size: 256
+    evaluation.seed: 12345
+    launcher.partition: gpu
+    launcher.gpu_type: nvidia_gh200_120gb
+    launcher.time: '00:30:00'
+
+seed_start: 42
+screening_seeds: 1
+phases:
+  - name: learning-rate-and-decay
+    initial_values:
+      optimizer.beta1: 0.9
+      optimizer.beta2: 0.996712898272925
+    search:
+      # Prior LR grid with 2^(-9) removed.
+      optimizer.lr:
+        scale: power
+        base: 2
+        exponent_min: -8
+        exponent_max: -5
+        points: 4
+      optimizer.weight_decay:
+        scale: log
+        min: 0.0125
+        max: 0.1
+        points: 4
+    top_k: 3
+  - name: betas
+    search:
+      # Preserve the four-point beta1 grid.
+      optimizer.beta1:
+        scale: power
+        base: 0.9
+        exponent_scale: log
+        exponent_min: 0.125
+        exponent_max: 1
+        points: 4
+      # Exponents: 1/2048, 1/512, 1/128, 1/32, 1/8, 1/2.
+      optimizer.beta2:
+        scale: power
+        base: 0.9
+        exponent_scale: log
+        exponent_min: 0.00048828125
+        exponent_max: 0.5
+        points: 6
+    top_k: 6
+confirmation:
+  seeds: 3
+controller:
+  max_jobs: 25
+  jobs_per_allocation: 2
+  max_retries: 2
+  poll_seconds: 30

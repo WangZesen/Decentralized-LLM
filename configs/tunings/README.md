@@ -1,29 +1,66 @@
 # Tuning specifications
 
-The current specifications tune 20M AdamW with global batch size 128 (65,536
+The 27 specifications for 20M tune AdamW with global batch size 128 (65,536
 tokens), context length 512, gradient clipping 1.0, and evaluation batch size 256.
-Each of the seven method/worker combinations has 20-, 40-, and 60-TPP total-budget
-variants, all including 4 TPP of warmup. The 20- and 40-TPP variants differ only
-in total token budget; the 60-TPP variants narrow the search using both completed
-rounds. All studies use cosine decay, fresh data (reuse factor 1), no error
-feedback, and no checkpoints.
+Each of the nine scheme/topology/worker combinations has 20-, 40-, and 60-TPP
+variants, all including 4 TPP of warmup. Sync and AWC use broad searches at 20/40
+TPP and reduced grids at 60 TPP based on both completed rounds. ATC on complete
+topology uses the original broad ranges at all three budgets, matching the 10M
+ATC settings with only the model configuration changed. All studies use cosine
+decay, fresh data (reuse factor 1), no error feedback, and no checkpoints.
 
-| Method | Logical workers | 20 TPP | 40 TPP | 60 TPP |
-|---|---:|---|---|---|
-| sync | 1 | [Broad search](20m-sync-1w-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-sync-1w-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-sync-1w-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
-| cmp | 4 | [Broad search](20m-awc-4w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-4w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-4w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
-| cmp | 8 | [Broad search](20m-awc-8w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-8w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-8w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
-| exp | 4 | [Broad search](20m-awc-4w-exp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-4w-exp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-4w-exp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
-| exp | 8 | [Broad search](20m-awc-8w-exp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-8w-exp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-8w-exp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
-| ring | 4 | [Broad search](20m-awc-4w-ring-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-4w-ring-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-4w-ring-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
-| ring | 8 | [Broad search](20m-awc-8w-ring-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-8w-ring-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-8w-ring-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| Method | Scheme | Logical workers | 20 TPP | 40 TPP | 60 TPP |
+|---|---|---:|---|---|---|
+| sync | — | 1 | [Broad search](20m-sync-1w-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-sync-1w-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-sync-1w-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| cmp | AWC | 4 | [Broad search](20m-awc-4w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-4w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-4w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| cmp | AWC | 8 | [Broad search](20m-awc-8w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-8w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-8w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| cmp | ATC | 4 | [Broad search](20m-atc-4w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-atc-4w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-atc-4w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| cmp | ATC | 8 | [Broad search](20m-atc-8w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-atc-8w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-atc-8w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| exp | AWC | 4 | [Broad search](20m-awc-4w-exp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-4w-exp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-4w-exp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| exp | AWC | 8 | [Broad search](20m-awc-8w-exp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-8w-exp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-8w-exp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| ring | AWC | 4 | [Broad search](20m-awc-4w-ring-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-4w-ring-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-4w-ring-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| ring | AWC | 8 | [Broad search](20m-awc-8w-ring-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](20m-awc-8w-ring-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Refinement](20m-awc-8w-ring-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
 
-Each trial uses one physical GH200. Decentralized AWC packs its four or eight
+Each trial uses one physical GH200. Decentralized AWC and ATC pack four or eight
 logical workers onto that GPU; synchronous training uses one distributed worker.
 
-## Broad searches at 20 and 40 TPP
+## 10M searches
 
-These searches follow the archived
+The [10M model](../models/10m.yaml) uses eight layers, width 192, three attention
+heads, and FFN width 544: 9,833,664 parameters with the default vocabulary.
+Its 27 specifications cover sync, AWC on complete/exponential/ring topologies,
+and ATC on the complete topology, with 4 or 8 logical decentralized workers.
+All three 10M budgets use the original broad 20/40-TPP LR/decay and beta grids,
+screening betas, seeds, and allocation settings. Within each scheme/topology/worker
+combination, the specifications differ only in total token budget; warmup remains
+4 TPP. Each ATC configuration differs from its AWC counterpart only in
+`distributed.scheme: atc`.
+
+| Method | Scheme | Logical workers | 20 TPP | 40 TPP | 60 TPP |
+|---|---|---:|---|---|---|
+| sync | — | 1 | [Broad search](10m-sync-1w-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-sync-1w-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-sync-1w-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| cmp | AWC | 4 | [Broad search](10m-awc-4w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-4w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-4w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| cmp | AWC | 8 | [Broad search](10m-awc-8w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-8w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-8w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| cmp | ATC | 4 | [Broad search](10m-atc-4w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-atc-4w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-atc-4w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| cmp | ATC | 8 | [Broad search](10m-atc-8w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-atc-8w-cmp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-atc-8w-cmp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| exp | AWC | 4 | [Broad search](10m-awc-4w-exp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-4w-exp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-4w-exp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| exp | AWC | 8 | [Broad search](10m-awc-8w-exp-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-8w-exp-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-8w-exp-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| ring | AWC | 4 | [Broad search](10m-awc-4w-ring-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-4w-ring-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-4w-ring-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+| ring | AWC | 8 | [Broad search](10m-awc-8w-ring-512c-128bs-20tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-8w-ring-512c-128bs-40tpp-lr-wd-betas-warmup4.yaml) | [Broad search](10m-awc-8w-ring-512c-128bs-60tpp-lr-wd-betas-warmup4.yaml) |
+
+Every 10M study uses the full broad search described below: 97 executions and
+49 Slurm allocations before retries. The nine studies at each budget need
+873 executions and 441 allocations. Each study trains the 10M model from scratch.
+
+Each trial uses one physical GH200 with fused execution. Decentralized AWC and ATC pack
+four or eight logical workers onto that GPU; sync uses one distributed worker.
+The retained `runtime.compile: auto` enables compilation, and automatic fused RoPE
+supports its three attention heads. A100 execution is not enabled for this model.
+
+## Broad search ranges
+
+The broad searches cover all 20/40-TPP studies, all 10M 60-TPP studies, and the
+20M ATC 60-TPP studies. They follow the archived
 [20M complete-topology specification](archive/20m-awc-8w-cmp-512c-128bs-20tpp-lr-wd-betas-warmup3.yaml),
 with LR `2^-9` and weight decay `0.2` removed:
 
@@ -38,10 +75,12 @@ with LR `2^-9` and weight decay `0.2` removed:
 3. Confirm the best six candidates on seeds 42–44, adding 12 executions.
 
 Assuming finite results and no retries, each study needs 97 executions and
-49 Slurm allocations. The seven studies at either total budget need 679 executions
-and 343 allocations.
+49 Slurm allocations. At 20 or 40 TPP, the nine studies for each model size need
+873 executions and 441 allocations. At 60 TPP, the nine 10M studies have the same
+counts; the two 20M ATC studies add 194 executions and 98 allocations to the
+seven 20M refinements described below.
 
-## Refinement at 60 TPP
+## 20M refinement at 60 TPP
 
 All 14 source studies completed their 97 executions without retries. The starting
 recipe is each method's 40-TPP winner selected by mean validation loss on seeds
